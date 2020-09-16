@@ -1,11 +1,15 @@
 from collections import OrderedDict
 
 import astropy.units as u
+import matplotlib.dates
 
-from astropy.table import Table
+from astropy.table import Table, QTable
 from astropy.io import fits
 from astropy.time.core import Time, TimeDelta
+from astropy.visualization import quantity_support
+from matplotlib import pyplot as plt
 
+from sunpy.visualization import peek_show
 from sunpy.timeseries.timeseriesbase import GenericTimeSeries
 
 
@@ -13,8 +17,42 @@ class QLLightCurve(GenericTimeSeries):
     """
     Quicklook X-ray time series.
 
-    Nominally in 5 energy bands from
+    Nominally in 5 energy bands from 4 - 150 kev
     """
+    @peek_show
+    def peek(self, **kwargs):
+        self._validate_data_for_plotting()
+        quantity_support()
+        figure = plt.figure()
+        axes = plt.gca()
+
+        dates = matplotlib.dates.date2num(self.to_dataframe().index)
+
+        labels = ['4 - 10 keV', '10 - 25 keV', '25 - 50 keV', '50 - 84 keV', '84 - 150 keV']
+
+        [axes.plot_date(dates, self.to_dataframe()[f'cts{i}'], '-', label=labels[i], **kwargs)
+         for i in range(5)]
+
+        axes.legend()
+
+        axes.set_yscale("log")
+
+        axes.set_title('STIX Quick Look ')
+        axes.set_ylabel('count s$^{-1}$ keV$^{-1}$')
+
+        axes.yaxis.grid(True, 'major')
+        axes.xaxis.grid(False, 'major')
+        axes.legend()
+
+        # TODO: display better tick labels for date range (e.g. 06/01 - 06/05)
+        formatter = matplotlib.dates.DateFormatter('%d %H:%M')
+        axes.xaxis.set_major_formatter(formatter)
+
+        axes.fmt_xdata = matplotlib.dates.DateFormatter('%d %H:%M')
+        figure.autofmt_xdate()
+
+        return figure
+
 
     @classmethod
     def _parse_file(cls, filepath):
@@ -40,25 +78,29 @@ class QLLightCurve(GenericTimeSeries):
             The path to the file you want to parse.
         """
         header = hdulist[0].header
-        control = Table(hdulist[1].data)
-        data = Table(hdulist[2].data)
-        energies = Table(hdulist[3].data)
+        control = QTable(hdulist[1].data)
+        data = QTable(hdulist[2].data)
+        energies = QTable(hdulist[3].data)
+        energy_delta = energies['e_high'] - energies['e_low'] << u.keV
+        data['counts'] = data['counts'] *  u.ct
+        data['timdel'] = data['timdel'] * u.s
+        data['counts'] = data['counts'] / (data['timdel'].reshape(-1, 1) * energy_delta)
 
-        [data.add_column(data['counts'].data[:, i] * u.count, name=f'cts{i}') for i in range(5)]
+        [data.add_column(data['counts'][:, i], name=f'cts{i}') for i in range(5)]
         data.remove_column('counts')
         data['time'] = Time(header['date_obs']) + TimeDelta(data['time'] * u.s)
 
         # [f'{energies[i]["e_low"]} - {energies[i]["e_high"]} keV' for i in range(5)]
 
         units = OrderedDict([('control_index', None),
-                             ('timdel', u.s),
+                             ('timedel', u.s),
                              ('triggers', None),
                              ('rcr', None),
-                             ('cts0', u.count),
-                             ('cts1', u.count),
-                             ('cts2', u.count),
-                             ('cts3', u.count),
-                             ('cts4', u.count)])
+                             ('cts0', u.ct/(u.keV * u.s)),
+                             ('cts1', u.ct/(u.keV * u.s)),
+                             ('cts2', u.ct/(u.keV * u.s)),
+                             ('cts3', u.ct/(u.keV * u.s)),
+                             ('cts4', u.ct/(u.keV * u.s))])
 
         data_df = data.to_pandas()
         data_df.index = data_df['time']

@@ -6,6 +6,11 @@
 # full list see the documentation:
 # http://www.sphinx-doc.org/en/master/config
 
+import os
+import sys
+
+sys.path.append(os.path.abspath('../'))
+
 
 # -- Project information -----------------------------------------------------
 
@@ -14,9 +19,10 @@ copyright = '2020, STIX Team'
 author = 'STIX Team'
 
 # The full version, including alpha/beta/rc tags
+import stixpy
 from stixpy import __version__
 release = __version__
-is_development = '.dev' in __version__
+is_development = '.dev' in release
 
 # -- General configuration ---------------------------------------------------
 

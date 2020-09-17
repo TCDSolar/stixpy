@@ -1,5 +1,6 @@
+====================
 STIXpy Documentation
---------------------
+====================
 
 This is the documentation for STIXpy.
 
@@ -7,9 +8,6 @@ This is the documentation for STIXpy.
    :maxdepth: 2
 
    whatsnew/index
-
-
-Reference/API
-=============
-
-.. automodapi:: STIXpy
+   quickstart
+   stix
+   ref

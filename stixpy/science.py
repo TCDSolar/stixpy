@@ -6,6 +6,8 @@ from astropy.table.table import QTable
 from astropy.time import Time, TimeDelta
 from sunpy.time.timerange import TimeRange
 
+__all__ = ['ScienceData', 'XrayLeveL0', 'XrayLeveL1', 'XrayLeveL2', 'XrayVisibity',
+           'XraySpectrogram']
 
 class ScienceData:
     """
@@ -95,17 +97,22 @@ class XrayLeveL1(ScienceData):
     """
     pass
 
+
 class XrayLeveL2(ScienceData):
     """
     Summed, compressed count data form selected pixels, detectors and energies.
     """
     pass
 
+
 class XrayVisibity(ScienceData):
     """
-    Compreesed visibities selected pixels, detectors and energies.
+    Compressed visibilities selected pixels, detectors and energies.
     """
-    pass
+    @property
+    def pixels(self):
+        return np.vstack([self.data[f'pixel_mask{i}'][0] for i in range(1,6)])
+
 
 class XraySpectrogram(ScienceData):
     """

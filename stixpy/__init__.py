@@ -4,5 +4,3 @@ try:
     from .version import __version__
 except ImportError:
     __version__ = "unknown"
-from .example_mod import do_primes
-

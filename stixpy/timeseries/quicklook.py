@@ -12,7 +12,8 @@ from matplotlib import pyplot as plt
 from sunpy.visualization import peek_show
 from sunpy.timeseries.timeseriesbase import GenericTimeSeries
 
-__all__ = ['QLLightCurve', 'QLBackground', 'QLVariance', ]
+__all__ = ['QLLightCurve', 'QLBackground', 'QLVariance']
+
 
 class QLLightCurve(GenericTimeSeries):
     """
@@ -20,6 +21,8 @@ class QLLightCurve(GenericTimeSeries):
 
     Nominally in 5 energy bands from 4 - 150 kev
     """
+    _source = 'stix'
+
     @peek_show
     def peek(self, **kwargs):
         self._validate_data_for_plotting()
@@ -29,9 +32,9 @@ class QLLightCurve(GenericTimeSeries):
 
         dates = matplotlib.dates.date2num(self.to_dataframe().index)
 
-        labels = ['4 - 10 keV', '10 - 25 keV', '25 - 50 keV', '50 - 84 keV', '84 - 150 keV']
+        labels = [f'{col} keV' for col in self.columns[4:]]
 
-        [axes.plot_date(dates, self.to_dataframe()[f'cts{i}'], '-', label=labels[i], **kwargs)
+        [axes.plot_date(dates, self.to_dataframe().iloc[:, 4+i], '-', label=labels[i], **kwargs)
          for i in range(5)]
 
         axes.legend()
@@ -54,7 +57,6 @@ class QLLightCurve(GenericTimeSeries):
 
         return figure
 
-
     @classmethod
     def _parse_file(cls, filepath):
         """
@@ -68,26 +70,26 @@ class QLLightCurve(GenericTimeSeries):
         hdus = fits.open(filepath)
         return cls._parse_hdus(hdus)
 
-
     @classmethod
     def _parse_hdus(cls, hdulist):
         """
         Parses STIX FITS data files to create TimeSeries.
         Parameters
         ----------
-        filepath : `str` or `pathlib.Path`
-            The path to the file you want to parse.
+        hdulist :
         """
         header = hdulist[0].header
         control = QTable(hdulist[1].data)
         data = QTable(hdulist[2].data)
         energies = QTable(hdulist[3].data)
         energy_delta = energies['e_high'] - energies['e_low'] << u.keV
-        data['counts'] = data['counts'] *  u.ct
+        data['counts'] = data['counts'] * u.ct
         data['timdel'] = data['timdel'] * u.s
         data['counts'] = data['counts'] / (data['timdel'].reshape(-1, 1) * energy_delta)
 
-        [data.add_column(data['counts'][:, i], name=f'cts{i}') for i in range(5)]
+        names = [f'{energies["e_low"][i]}-{energies["e_high"][i]}' for i in range(5)]
+
+        [data.add_column(data['counts'][:, i], name=names[i]) for i in range(5)]
         data.remove_column('counts')
         data['time'] = Time(header['date_obs']) + TimeDelta(data['time'] * u.s)
 
@@ -97,11 +99,11 @@ class QLLightCurve(GenericTimeSeries):
                              ('timedel', u.s),
                              ('triggers', None),
                              ('rcr', None),
-                             ('cts0', u.ct/(u.keV * u.s)),
-                             ('cts1', u.ct/(u.keV * u.s)),
-                             ('cts2', u.ct/(u.keV * u.s)),
-                             ('cts3', u.ct/(u.keV * u.s)),
-                             ('cts4', u.ct/(u.keV * u.s))])
+                             (names[0], u.ct/(u.keV * u.s)),
+                             (names[1], u.ct/(u.keV * u.s)),
+                             (names[2], u.ct/(u.keV * u.s)),
+                             (names[3], u.ct/(u.keV * u.s)),
+                             (names[4], u.ct/(u.keV * u.s))])
 
         data_df = data.to_pandas()
         data_df.index = data_df['time']
@@ -142,7 +144,6 @@ class QLBackground(GenericTimeSeries):
         """
         hdus = fits.open(filepath)
         return cls._parse_hdus(hdus)
-
 
     @classmethod
     def _parse_hdus(cls, hdulist):
@@ -213,7 +214,6 @@ class QLVariance(GenericTimeSeries):
         """
         hdus = fits.open(filepath)
         return cls._parse_hdus(hdus)
-
 
     @classmethod
     def _parse_hdus(cls, hdulist):

@@ -23,7 +23,7 @@ repos:
     rev: 3.7.9
     hooks:
       - id: flake8
-        args: ['--count', '--select', 'E101,W191,W291,W292,W293,W391,E111,E112,E113,E303,E304,E306,E502,E722,E901,E902,F822,F823']
+        args: ['--count', '--select', 'E101,W191,W291,W292,W293,E111,E112,E113,E303,E304,E306,E502,E722,E901,E902,F822,F823']
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v2.4.0

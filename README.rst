@@ -1,9 +1,18 @@
-Analysis software for Solar Orbiter Spectromter Telescope for Imaging X-rays
-----------------------------------------------------------------------------
+Analysis software for Solar Orbiter Spectrometer Telescope for Imaging X-rays
+-----------------------------------------------------------------------------
 
 .. image:: http://img.shields.io/badge/powered%20by-SunPy-orange.svg?style=flat
     :target: http://www.sunpy.org
     :alt: Powered by SunPy Badge
+
+Installation
+------------
+
+It is strongly advised that you use and isolated environment through python's venv, virturalenv, anaconda or similar.
+
+.. code-block::
+    pip install git+https://github.com/samaloney/stixpy
+
 
 License
 -------

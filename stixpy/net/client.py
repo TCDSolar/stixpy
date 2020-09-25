@@ -2,18 +2,21 @@ import astropy.units as u
 
 from astropy.time.core import TimeDelta
 from sunpy.net.dataretriever import GenericClient
-from sunpy.time import TimeRange
+from sunpy.time import TimeRange, parse_time
 from sunpy.util.scraper import Scraper
 
 __all__ = ["STIXClient"]
 
 BASE_PATTERN = r'http://pub023.cs.technik.fhnw.ch/data/new/' \
-               r'{level}/%Y/%m/%d/{type}/solo_{level}_stix-{product}_%Y%m%d_V01\.fits'
+               r'{level}/%Y/%m/%d/{type}/'
+
+QL_PATTERN = BASE_PATTERN + 'solo_{level}_stix-{product}_%Y%m%d_V01\\.fits'
+SCI_PATTERN = BASE_PATTERN + 'solo_{level}_stix-{product}_%Y%m%dT%H%M%S_V01\\.fits'
 
 
 class STIXClient(GenericClient):
     """
-    Provides access to SolarOrbite STIX data
+    Provides access to Solar Orbiter STIX data
 
     Searches data hosted by the `FHNW <http://http://pub023.cs.technik.fhnw.ch/data/>`__.
 
@@ -41,12 +44,18 @@ class STIXClient(GenericClient):
         if level != 1:
             raise NotImplementedError(f'Currently only level 1 supported not {level}')
 
-        datatypes = kwargs.get('datatype', ['sci', 'ql'])
-        dataproduct = kwargs.get('dataproduct', '.*').replace('_', '-')
+        datatypes = kwargs.get('datatype', ['QL', 'SCI'])
+        datatypes = [datatypes] if isinstance(datatypes, str) else datatypes
+        dataproduct = (kwargs.get('dataproduct', '') + '.*').replace('_', '-')
 
         files = []
         for dt in datatypes:
-            scraper = Scraper(BASE_PATTERN, level=f'L{level}',
+            if dt == 'QL':
+                pattern = QL_PATTERN
+            elif dt == 'SCI':
+                pattern = SCI_PATTERN
+
+            scraper = Scraper(pattern, level=f'L{level}',
                               type=f'{dt.upper()}', product=dataproduct)
             cur_files = scraper.filelist(timerange)
             files.extend(cur_files)
@@ -65,12 +74,17 @@ class STIXClient(GenericClient):
         -------
 
         """
-        crawler = Scraper(BASE_PATTERN, level='L1', type='QL', product='ql-lightcurve')
         times = list()
         for url in urls:
-            t0 = crawler._extractDateURL(url)
-            # hard coded full day as that's the normal.
-            times.append(TimeRange(t0, t0 + TimeDelta(1*u.day)))
+            *_, name = url.split('/')
+            *_, date, ver = name.split('_')
+            if len(date) == 8:
+                t0 = parse_time(date)
+                times.append(TimeRange(t0, t0 + TimeDelta(1 * u.day)))
+            elif len(date) == 15:
+                t0 = parse_time(date)
+                times.append(TimeRange(t0, t0))
+
         return times
 
     def _makeimap(self):
@@ -104,7 +118,6 @@ class STIXClient(GenericClient):
         else:
             return True
 
-
     @classmethod
     def _attrs_module(cls):
         return 'stix', 'stixpy.net.attrs'
@@ -117,7 +130,6 @@ class STIXClient(GenericClient):
     #         ("SUVI", "The Geostationary Operational Environmental Satellite Program.")],
     #         attrs.goes.SatelliteNumber: [(str(x), f"GOES Satellite Number {x}") for x in goes_number]}
     #     return adict
-
 
     @classmethod
     def register_values(cls):
@@ -136,10 +148,10 @@ class STIXClient(GenericClient):
                                           ('ql_calibration_spectrum', 'Quick look energy '
                                                                       'calibration spectrum'),
                                           ('ql_flareflag', 'Quick look energy calibration spectrum'),
-                                          ('xray_l0', 'Uncompressed pixel counts (12)'),
-                                          ('xray_l1', 'Compressed pixel counts (12)'),
-                                          ('xray_l2', 'Compressed summed pixel counts (4)'),
-                                          ('xray_l3', 'Compressed visibilities'),
-                                          ('spectrogram', 'spectrogram')]
+                                          ('sci_xray_l0', 'Uncompressed pixel counts (12)'),
+                                          ('sci_xray_l1', 'Compressed pixel counts (12)'),
+                                          ('sci_xray_l2', 'Compressed summed pixel counts (4)'),
+                                          ('sci_xray_l3', 'Compressed visibilities'),
+                                          ('sci_spectrogram', 'spectrogram')]
                  }
         return adict

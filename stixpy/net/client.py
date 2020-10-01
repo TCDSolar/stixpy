@@ -7,11 +7,12 @@ from sunpy.util.scraper import Scraper
 
 __all__ = ["STIXClient"]
 
-BASE_PATTERN = r'http://pub023.cs.technik.fhnw.ch/data/new/' \
-               r'{level}/%Y/%m/%d/{type}/'
+BASE_PATTERN = 'http://pub023.cs.technik.fhnw.ch/data/new/{level}/%Y/%m/%d/{type}/'
 
 QL_PATTERN = BASE_PATTERN + 'solo_{level}_stix-{product}_%Y%m%d_V01\\.fits'
-SCI_PATTERN = BASE_PATTERN + 'solo_{level}_stix-{product}_%Y%m%dT%H%M%S_V01\\.fits'
+SCI_PATTERN = r'http://pub023.cs.technik.fhnw.ch/data/new/' \
+              r'L{level}/%Y/%m/%d/{type}/' \
+              r'solo_L{level}_stix-{product}-\d*_%Y%m%dT%H%M%S_(V\d{{2}}).fits'
 
 
 class STIXClient(GenericClient):
@@ -46,17 +47,18 @@ class STIXClient(GenericClient):
 
         datatypes = kwargs.get('datatype', ['QL', 'SCI'])
         datatypes = [datatypes] if isinstance(datatypes, str) else datatypes
-        dataproduct = (kwargs.get('dataproduct', '') + '.*').replace('_', '-')
+        dataproduct = (kwargs.get('dataproduct', '') + '\S*').replace('_', '-')
 
         files = []
         for dt in datatypes:
             if dt == 'QL':
                 pattern = QL_PATTERN
+                scraper = Scraper(pattern, level=f'L{level}',
+                                  type=f'{dt.upper()}', product=dataproduct)
             elif dt == 'SCI':
-                pattern = SCI_PATTERN
+                pattern = SCI_PATTERN.format(level=level, type=dt, product=dataproduct)
+                scraper = Scraper(pattern, regex=True)
 
-            scraper = Scraper(pattern, level=f'L{level}',
-                              type=f'{dt.upper()}', product=dataproduct)
             cur_files = scraper.filelist(timerange)
             files.extend(cur_files)
         return files

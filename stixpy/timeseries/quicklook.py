@@ -25,6 +25,49 @@ class QLLightCurve(GenericTimeSeries):
 
     @peek_show
     def peek(self, **kwargs):
+        """
+        Displays a graphical overview of the data in this object for user evaluation.
+        For the creation of plots, users should instead use the
+        `.plot` method and Matplotlib's pyplot framework.
+
+        Parameters
+        ----------
+        **kwargs : `dict`
+            Any additional plot arguments that should be used when plotting.
+        """
+        import matplotlib.pyplot as plt
+        # Check we have a timeseries valid for plotting
+        self._validate_data_for_plotting()
+
+        # Now make the plot
+        figure = plt.figure()
+        self.plot(**kwargs)
+
+        return figure
+
+    def plot(self, axes=None, **plot_args):
+        """
+        Show a plot of the data.
+
+        Parameters
+        ----------
+        axes : `~matplotlib.axes.Axes`, optional
+            If provided the image will be plotted on the given axes.
+            Defaults to `None`, so the current axes will be used.
+        **plot_args : `dict`, optional
+            Additional plot keyword arguments that are handed to
+            :meth:`pandas.DataFrame.plot`.
+
+        Returns
+        -------
+        axes : `~matplotlib.axes.Axes`
+            The plot axes.
+        """
+        import matplotlib.pyplot as plt
+        # Get current axes
+        if axes is None:
+            axes = plt.gca()
+
         self._validate_data_for_plotting()
         quantity_support()
         figure = plt.figure()
@@ -37,11 +80,11 @@ class QLLightCurve(GenericTimeSeries):
         [axes.plot_date(dates, self.to_dataframe().iloc[:, 4+i], '-', label=labels[i], **kwargs)
          for i in range(5)]
 
-        axes.legend()
+        axes.legend(loc='upper right')
 
         axes.set_yscale("log")
 
-        axes.set_title('STIX Quick Look ')
+        axes.set_title('STIX Quick Look')
         axes.set_ylabel('count s$^{-1}$ keV$^{-1}$')
 
         axes.yaxis.grid(True, 'major')
@@ -84,8 +127,11 @@ class QLLightCurve(GenericTimeSeries):
         energies = QTable(hdulist[3].data)
         energy_delta = energies['e_high'] - energies['e_low'] << u.keV
         data['counts'] = data['counts'] * u.ct
-        data['timdel'] = data['timdel'] * u.s
-        data['counts'] = data['counts'] / (data['timdel'].reshape(-1, 1) * energy_delta)
+        if 'timdel' in data.colnames:
+            data['timedel'] = data['timdel'] * u.s
+        else:
+            data['timedel'] = data['timedel'] * u.s
+        data['counts'] = data['counts'] / (data['timedel'].reshape(-1, 1) * energy_delta)
 
         names = [f'{energies["e_low"][i]}-{energies["e_high"][i]}' for i in range(5)]
 
@@ -125,6 +171,10 @@ class QLLightCurve(GenericTimeSeries):
         if 'meta' in kwargs.keys():
             return (kwargs['meta'].get('telescop', '') == 'SOLO/STIX'
                     and 'ql-lightcurve' in kwargs['meta']['filename'])
+
+    def __repr__(self):
+        return f'{self.__class__.__name__}\n' \
+               f'    {self.time_range}'
 
 
 class QLBackground(GenericTimeSeries):

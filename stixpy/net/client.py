@@ -1,3 +1,5 @@
+from datetime import datetime
+
 import astropy.units as u
 
 from astropy.time.core import TimeDelta
@@ -81,7 +83,7 @@ class STIXClient(GenericClient):
             *_, name = url.split('/')
             *_, date, ver = name.split('_')
             if len(date) == 8:
-                t0 = parse_time(date)
+                t0 = parse_time(datetime.strptime(date, '%Y%m%d'))
                 times.append(TimeRange(t0, t0 + TimeDelta(1 * u.day)))
             elif len(date) == 15:
                 t0 = parse_time(date)

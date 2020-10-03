@@ -10,7 +10,7 @@ resources:
   repositories:
   - repository: OpenAstronomy
     type: github
-    endpoint: ?????
+    endpoint: samaloney
     name: OpenAstronomy/azure-pipelines-templates
     ref: master
 
@@ -59,8 +59,8 @@ jobs:
       test_command: 'pytest -p no:warnings --doctest-rst -m "not figure" --pyargs stixpy'
       submodules: false
       targets:
-        - wheels_linux
-        - wheels_macos
+#        - wheels_linux
+#        - wheels_macos
         - sdist
       dependsOn:
         - py36_test

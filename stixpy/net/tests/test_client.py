@@ -1,12 +1,16 @@
-
+import pytest
 from sunpy.net import Fido, attrs as a
 from sunpy.time import TimeRange
 
 from stixpy.net.client import STIXClient
 
+@pytest.fixture
+def client():
+    return STIXClient()
 
-def test_search_date():
-    res = Fido.search(a.Time('2020-05-01T00:00', '2020-05-02T00:00'), a.Instrument.stix)
+
+def test_search_date(client):
+    res = client.search(a.Time('2020-05-01T00:00', '2020-05-02T00:00'), a.Instrument.stix)
     assert len(res) == 1
     stix_res = res.get_response(0)
     assert len(stix_res) == 12

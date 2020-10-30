@@ -7,7 +7,6 @@ from astropy.table import Table, QTable
 from astropy.io import fits
 from astropy.time.core import Time, TimeDelta
 from astropy.visualization import quantity_support
-from matplotlib import pyplot as plt
 
 from sunpy.visualization import peek_show
 from sunpy.timeseries.timeseriesbase import GenericTimeSeries
@@ -40,10 +39,10 @@ class QLLightCurve(GenericTimeSeries):
         self._validate_data_for_plotting()
 
         # Now make the plot
-        figure = plt.figure()
+        fig = plt.figure()
         self.plot(**kwargs)
 
-        return figure
+        return fig
 
     def plot(self, axes=None, **plot_args):
         """
@@ -66,7 +65,7 @@ class QLLightCurve(GenericTimeSeries):
         import matplotlib.pyplot as plt
         # Get current axes
         if axes is None:
-            axes = plt.gca()
+            fix, ax = plt.subplots()
 
         self._validate_data_for_plotting()
         quantity_support()
@@ -77,7 +76,7 @@ class QLLightCurve(GenericTimeSeries):
 
         labels = [f'{col} keV' for col in self.columns[4:]]
 
-        [axes.plot_date(dates, self.to_dataframe().iloc[:, 4+i], '-', label=labels[i], **kwargs)
+        [axes.plot_date(dates, self.to_dataframe().iloc[:, 4+i], '-', label=labels[i], **plot_args)
          for i in range(5)]
 
         axes.legend(loc='upper right')
@@ -201,7 +200,7 @@ class QLBackground(GenericTimeSeries):
         Parses STIX FITS data files to create TimeSeries.
         Parameters
         ----------
-        filepath : `str` or `pathlib.Path`
+        hdulist :
             The path to the file you want to parse.
         """
         header = hdulist[0].header
@@ -271,7 +270,7 @@ class QLVariance(GenericTimeSeries):
         Parses STIX FITS data files to create TimeSeries.
         Parameters
         ----------
-        filepath : `str` or `pathlib.Path`
+        hdulist :
             The path to the file you want to parse.
         """
         header = hdulist[0].header
@@ -305,64 +304,3 @@ class QLVariance(GenericTimeSeries):
         if 'meta' in kwargs.keys():
             return (kwargs['meta'].get('telescop', '') == 'SOLO/STIX'
                     and 'ql-variance' in kwargs['meta']['filename'])
-
-
-# class QLVariance(GenericTimeSeries):
-#     """
-#     Quicklook X-ray background detector time series.
-#     """
-#
-#     @classmethod
-#     def _parse_file(cls, filepath):
-#         """
-#         Parses a GOES/XRS FITS file.
-#
-#         Parameters
-#         ----------
-#         filepath : `str`
-#             The path to the file you want to parse.
-#         """
-#         hdus = fits.open(filepath)
-#         return cls._parse_hdus(hdus)
-#
-#
-#     @classmethod
-#     def _parse_hdus(cls, hdulist):
-#         """
-#         Parses STIX FITS data files to create TimeSeries.
-#         Parameters
-#         ----------
-#         filepath : `str` or `pathlib.Path`
-#             The path to the file you want to parse.
-#         """
-#         header = hdulist[0].header
-#         control = Table(hdulist[1].data)
-#         data = Table(hdulist[2].data)
-#         energies = Table(hdulist[3].data)
-#
-#         # [f'{energies[i]["e_low"]} - {energies[i]["e_high"]} keV' for i in range(5)]
-#         data['time'] = Time(header['date_obs']) + TimeDelta(data['time'] * u.s)
-#         units = OrderedDict([('control_index', None),
-#                              ('timdel', u.s),
-#                              ('variance', u.count**2)])
-#
-#         data_df = data.to_pandas()
-#         data_df.index = data_df['time']
-#         data_df.drop(columns='time', inplace=True)
-#
-#         return data_df, header, units
-#
-#     @classmethod
-#     def is_datasource_for(cls, **kwargs):
-#         """
-#         Determines if the file corresponds to a STIX QL LightCurve
-#         `~sunpy.timeseries.TimeSeries`.
-#         """
-#         # Check if source is explicitly assigned
-#         if 'source' in kwargs.keys():
-#             if kwargs.get('source', ''):
-#                 return kwargs.get('source', '').lower().startswith(cls._source)
-#         # Check if HDU defines the source instrument
-#         if 'meta' in kwargs.keys():
-#             return (kwargs['meta'].get('telescop', '') == 'SOLO/STIX'
-#                     and 'ql-variance' in kwargs['meta']['filename'])

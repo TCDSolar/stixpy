@@ -77,8 +77,9 @@ class ScienceData:
         self.energies_ = energies
         self.detector_masks = DetectorMasks(self.data['detector_masks'])
         self.pixel_masks = PixelMasks(self.data['pixel_masks'])
-        self.energy_masks = EnergyMasks(self.control['energy_bin_edge_mask'])
-        self.dE = np.hstack([[1], np.diff(energies['e_low'][1:]).value, [1]]) * u.keV
+        self.energy_masks = EnergyMasks(self.control['energy_bin_mask'])
+        self.dE = (energies['e_high'] - energies['e_low'])
+        self.dE[[0, -1]] = 1 * u.keV
 
     @property
     def time_range(self):
@@ -118,7 +119,8 @@ class ScienceData:
         elif self.count_type == 'rate':
             return self.counts / (self.data['timedel'].reshape(-1, 1) * self.dE)
 
-    def get_data(self, time_indices=None, energy_indices=None):
+    def get_data(self, time_indices=None, energy_indices=None,
+                 detector_indices=None, pixel_indices=None, sum_all_times=False, ):
         """
         Return the counts, times and energies for selected data optionally summing in time and or
         energy.
@@ -144,7 +146,7 @@ class ScienceData:
             Energies
 
         """
-        counts = self.data['counts']/self.dE
+        counts = np.sum(self.data['counts'], axis=(1, 2))
         energies = self.energies_
         times = self.times
 
@@ -153,15 +155,19 @@ class ScienceData:
             if energy_indices.ndim == 1:
                 energy_mask = np.full(32, False)
                 energy_mask[energy_indices] = True
-                counts = counts[..., energy_mask]
+                counts = counts[..., energy_mask]/self.dE[energy_mask]
                 energies = self.energies_[energy_mask]
             elif energy_indices.ndim == 2:
                 counts = np.hstack([np.sum(counts[..., el:eh], axis=-1).reshape(-1, 1)
+                                    / (energies['e_high'][eh] - energies['e_low'][el])
                                     for el, eh in energy_indices])
                 energies = np.atleast_2d(
                     [(self.energies_['e_low'][el].value, self.energies_['e_high'][eh].value)
                      for el, eh in energy_indices])
                 energies = QTable(energies*u.keV, names=['e_low', 'e_high'])
+        else:
+
+            counts = counts/self.dE
 
         if time_indices is not None:
             time_indices = np.asarray(time_indices)
@@ -181,17 +187,22 @@ class ScienceData:
                     tc = ts + (td) * 0.5
                     dT.append(td.to('s'))
                     new_times.append(tc)
-                dT = np.hstack(dT)
+                dT = np.hstack(dT).value << u.s
                 times = Time(new_times)
-                counts = np.vstack([np.sum(counts[tl:th, ...], axis=0) for tl, th in time_indices])
-                counts = counts/dT.reshape(-1, 1)
+                counts = np.vstack([np.sum(counts[tl:th, ...], axis=0) for i, (tl, th)
+                                    in enumerate(time_indices)]).reshape(len(new_times), -1)
+                if sum_all_times and len(new_times) > 1:
+                    counts = (np.sum(counts, axis=0, keepdims=True)/dT.sum())
+                else:
+                    counts = (counts/dT.reshape(-1, 1))
+                #counts = counts/dT.reshape(-1, 1)
         else:
             counts = counts/self.data['timedel'].reshape(-1, 1)
             dT = self.data['timedel']
-
+        counts = counts.value << (u.ct / (u.keV * u.s))
         return counts, times, energies, dT
 
-    def get_variance(self, time_indices=None, energy_indices=None):
+    def get_variance(self, time_indices=None, energy_indices=None, sum_all_times=False):
         """
         Return the counts, times and energies for selected data optionally summing in time and or
         energy.
@@ -217,7 +228,7 @@ class ScienceData:
             Energies
 
         """
-        variance = self.data['counts']/(self.dE * self.data['timedel'].reshape(-1, 1) * self.dE)
+        variance = np.sum(self.data['counts'], axis=(1, 2))
         energies = self.energies_
         times = self.times
 
@@ -229,19 +240,22 @@ class ScienceData:
                 variance = variance[..., energy_mask]
                 energies = energies[energy_mask]
             elif energy_indices.ndim == 2:
-                variance = np.hstack([np.sum(variance[..., el:eh], axis=-1).reshape(-1, 1) #/ (energies['e_high'][eh] - energies['e_low'][el])
+                variance = np.hstack([np.sum(variance[..., el:eh], axis=-1).reshape(-1, 1)
+                                      / (energies['e_high'][eh] - energies['e_low'][el])**2
                                       for el, eh in energy_indices])
                 energies = np.atleast_2d(
                     [(self.energies_['e_low'][el].value, self.energies_['e_high'][eh].value)
                                           for el, eh in energy_indices])
                 energies = QTable(energies, names=['e_low', 'e_high'])
+        else:
+            variance = variance/self.dE**2
 
         if time_indices is not None:
             time_indices = np.asarray(time_indices)
             if time_indices.ndim == 1:
                 time_mask = np.full(times.shape, False)
                 time_mask[time_indices] = True
-                variance = variance[time_mask, ...]/self.data['timedel'][time_mask]
+                variance = variance[time_mask, ...] / self.data['timedel'][time_mask]**2
                 times = times[time_mask]
                 dT = self.data['timedel'][time_mask]
             elif time_indices.ndim == 2:
@@ -255,19 +269,23 @@ class ScienceData:
                     dT.append(td.to('s'))
                     new_times.append(tc)
 
-                dT = np.hstack(dT)
+                dT = np.hstack(dT).value << u.s
                 times = Time(new_times)
-                variance = np.vstack([np.sum((variance[tl:th]), axis=0) for tl, th in time_indices])
-                variance = variance / dT.reshape(-1, 1)
+                variance = np.vstack([np.sum((variance[tl:th]), axis=0) for i, (tl, th)
+                                      in enumerate(time_indices)]).reshape(len(new_times), -1)
+                if sum_all_times and len(new_times) > 1:
+                    variance = (np.sum(variance, axis=0, keepdims=True)/dT.sum()**2)
+                else:
+                    variance = (variance / dT.reshape(-1, 1)**2)
         else:
             dT = self.data['timedel']
             variance = variance / dT.reshape(-1, 1)
-
+        variance = variance.value << (u.ct / (u.keV * u.s))**2
         return variance, times, energies, dT
 
     def concatenate(self, others):
         """
-        Concattenate two
+        Concatenate two science products
 
         Parameters
         ----------
@@ -359,7 +377,7 @@ class XrayLeveL2(ScienceData):
 
 class XrayVisibility(ScienceData):
     """
-    Compressed visibilities selected pixels, detectors and energies.
+    Compressed visibilities from selected pixels, detectors and energies.
     """
     @property
     def pixels(self):
@@ -385,11 +403,10 @@ class XraySpectrogram(ScienceData):
         self.header = header
         self.control = control
         self.data = data
-        self.data['counts'].unit = u.ct
         self.energies_ = energies
         self.detector_masks = DetectorMasks(self.control['detector_mask'])
         self.pixel_masks = PixelMasks(self.control['pixel_mask'])
-        self.energy_masks = EnergyMasks(self.control['energy_bin_edge_mask'])
+        self.energy_masks = EnergyMasks(self.control['energy_bin_mask'])
         self.dE = np.hstack([[1], np.diff(energies['e_low'][1:]).value, [1]]) * u.keV
 
     @peek_show

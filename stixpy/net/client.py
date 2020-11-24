@@ -8,7 +8,7 @@ __all__ = ["STIXClient"]
 
 
 class STIXClient(GenericClient):
-    baseurl = (r'http://pub023.cs.technik.fhnw.ch/data/new/'
+    baseurl = (r'https://homepages.dias.ie/smaloney/stix-data/'
                r'{level}/{year:4d}/{month:02d}/{day:02d}/{datatype}/')
     ql_filename = r'solo_{level}_stix-{product}_\d{{8}}_V\d{{2}}.fits'
     sci_filename = (r'solo_{level}_stix-{product}-\d{{8}}_'
@@ -46,10 +46,10 @@ class STIXClient(GenericClient):
             for datatype in matchdict['DataType']:
                 products = [p for p in matchdict['DataProduct'] if p.startswith(datatype.lower())]
                 for product in products:
-                    if datatype == 'QL' and product.startswith('ql'):
+                    if datatype.lower() == 'ql' and product.startswith('ql'):
                         url = self.baseurl + self.ql_filename
                         pattern = self.base_pattern + self.ql_pattern
-                    elif datatype == 'SCI' and product.startswith('sci'):
+                    elif datatype.lower() == 'sci' and product.startswith('sci'):
                         url = self.baseurl + self.sci_filename
                         pattern = self.base_pattern + self.sci_pattern
 

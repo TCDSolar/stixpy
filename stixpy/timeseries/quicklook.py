@@ -39,8 +39,7 @@ class QLLightCurve(GenericTimeSeries):
         self._validate_data_for_plotting()
 
         # Now make the plot
-        fig = plt.figure()
-        self.plot(**kwargs)
+        fig = self.plot(**kwargs)
 
         return fig
 
@@ -65,18 +64,16 @@ class QLLightCurve(GenericTimeSeries):
         import matplotlib.pyplot as plt
         # Get current axes
         if axes is None:
-            fix, ax = plt.subplots()
+            fig, axes = plt.subplots()
 
         self._validate_data_for_plotting()
         quantity_support()
-        figure = plt.figure()
-        axes = plt.gca()
 
         dates = matplotlib.dates.date2num(self.to_dataframe().index)
 
-        labels = [f'{col} keV' for col in self.columns[4:]]
+        labels = [f'{col} keV' for col in self.columns[5:]]
 
-        [axes.plot_date(dates, self.to_dataframe().iloc[:, 4+i], '-', label=labels[i], **plot_args)
+        [axes.plot_date(dates, self.to_dataframe().iloc[:, 5+i], '-', label=labels[i], **plot_args)
          for i in range(5)]
 
         axes.legend(loc='upper right')
@@ -95,9 +92,9 @@ class QLLightCurve(GenericTimeSeries):
         axes.xaxis.set_major_formatter(formatter)
 
         axes.fmt_xdata = matplotlib.dates.DateFormatter('%d %H:%M')
-        figure.autofmt_xdate()
+        fig.autofmt_xdate()
 
-        return figure
+        return fig
 
     @classmethod
     def _parse_file(cls, filepath):
@@ -125,30 +122,26 @@ class QLLightCurve(GenericTimeSeries):
         data = QTable(hdulist[2].data)
         energies = QTable(hdulist[3].data)
         energy_delta = energies['e_high'] - energies['e_low'] << u.keV
-        data['counts'] = data['counts'] * u.ct
-        if 'timdel' in data.colnames:
-            data['timedel'] = data['timdel'] * u.s
-        else:
-            data['timedel'] = data['timedel'] * u.s
-        data['counts'] = data['counts'] / (data['timedel'].reshape(-1, 1) * energy_delta)
+
+        live_time = data['timedel']*u.s - data['triggers']/16.0 * 12.5*u.us
+
+        data['counts'] = data['counts'] / (live_time.reshape(-1, 1) * energy_delta)
 
         names = [f'{energies["e_low"][i]}-{energies["e_high"][i]}' for i in range(5)]
 
         [data.add_column(data['counts'][:, i], name=names[i]) for i in range(5)]
         data.remove_column('counts')
+        [data.add_column(data['counts_err'][:, i], name=f'{names[i]}_err') for i in range(5)]
+        data.remove_column('counts_err')
         data['time'] = Time(header['date_obs']) + TimeDelta(data['time'] * u.s)
-
-        # [f'{energies[i]["e_low"]} - {energies[i]["e_high"]} keV' for i in range(5)]
 
         units = OrderedDict([('control_index', None),
                              ('timedel', u.s),
                              ('triggers', None),
-                             ('rcr', None),
-                             (names[0], u.ct/(u.keV * u.s)),
-                             (names[1], u.ct/(u.keV * u.s)),
-                             (names[2], u.ct/(u.keV * u.s)),
-                             (names[3], u.ct/(u.keV * u.s)),
-                             (names[4], u.ct/(u.keV * u.s))])
+                             ('triggers_err', None),
+                             ('rcr', None)])
+        units.update([(name, u.ct) for name in names])
+        units.update([(f'{name}_err', u.ct) for name in names])
 
         data_df = data.to_pandas()
         data_df.index = data_df['time']
@@ -208,21 +201,29 @@ class QLBackground(GenericTimeSeries):
         data = Table(hdulist[2].data)
         energies = Table(hdulist[3].data)
 
-        [data.add_column(data['background'].data[:, i] * u.count, name=f'cts{i}') for i in range(5)]
+        energy_delta = energies['e_high'] - energies['e_low'] << u.keV
+
+        data['background'] = data['background'] / (data['timedel'].reshape(-1, 1) * energy_delta)
+
+        names = [f'{energies["e_low"][i]}-{energies["e_high"][i]}' for i in range(5)]
+
+        [data.add_column(data['background'][:, i], name=names[i]) for i in range(5)]
         data.remove_column('background')
+
+        [data.add_column(data['background_err'][:, i], name=f'{names[i]}_err') for i in range(5)]
+        data.remove_column('background_err')
+
         data['time'] = Time(header['date_obs']) + TimeDelta(data['time'] * u.s)
 
         # [f'{energies[i]["e_low"]} - {energies[i]["e_high"]} keV' for i in range(5)]
 
         units = OrderedDict([('control_index', None),
-                             ('timdel', u.s),
+                             ('timedel', u.s),
                              ('triggers', None),
-                             ('rcr', None),
-                             ('cts0', u.count),
-                             ('cts1', u.count),
-                             ('cts2', u.count),
-                             ('cts3', u.count),
-                             ('cts4', u.count)])
+                             ('triggers_err', None),
+                             ('rcr', None)])
+        units.update([(name, u.ct) for name in names])
+        units.update([(f'{name}_err', u.ct) for name in names])
 
         data_df = data.to_pandas()
         data_df.index = data_df['time']
@@ -281,8 +282,9 @@ class QLVariance(GenericTimeSeries):
         # [f'{energies[i]["e_low"]} - {energies[i]["e_high"]} keV' for i in range(5)]
         data['time'] = Time(header['date_obs']) + TimeDelta(data['time'] * u.s)
         units = OrderedDict([('control_index', None),
-                             ('timdel', u.s),
-                             ('variance', u.count**2)])
+                             ('timedel', u.s),
+                             ('variance', u.count**2),
+                             ('variance_err', u.count**2)])
 
         data_df = data.to_pandas()
         data_df.index = data_df['time']

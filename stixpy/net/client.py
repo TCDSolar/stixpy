@@ -1,12 +1,7 @@
-from datetime import datetime
-
-import astropy.units as u
-
-from astropy.time.core import TimeDelta
-from sunpy.net.dataretriever import GenericClient
 from sunpy.net import attrs as a
+from sunpy.net.dataretriever import GenericClient
 from sunpy.net.dataretriever.client import QueryResponse
-from sunpy.time import TimeRange, parse_time
+from sunpy.time import TimeRange
 from sunpy.util.scraper import Scraper
 
 __all__ = ["STIXClient"]

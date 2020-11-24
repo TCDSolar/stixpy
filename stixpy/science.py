@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import astropy.units as u
 import numpy as np
 
@@ -16,8 +18,20 @@ __all__ = ['ScienceData', 'XrayLeveL0', 'XrayLeveL1', 'XrayLeveL2', 'XrayVisibil
 
 quantity_support()
 
+class PPrintMixin:
+    @staticmethod
+    def _pprint_indices(indices):
+        groups = np.split(np.r_[:len(indices)], np.where(np.diff(indices) != 1)[0] + 1)
+        out = ''
+        for group in groups:
+            if group.size < 3:
+                out += f'{indices[group]}'
+            else:
+                out += f'[{indices[group[0]]}...{indices[group[-1]]}]'
 
-class IndexMasks:
+        return out
+
+class IndexMasks(PPrintMixin):
     def __init__(self, detector_masks):
         masks = np.unique(detector_masks, axis=0)
         indices = [np.argwhere(np.all(detector_masks == mask, axis=1)).reshape(-1)
@@ -31,25 +45,28 @@ class IndexMasks:
             text += f'    {self._pprint_indices(i)}: [{",".join(np.where(m, np.arange(m.size), np.full(m.size, "_")))}]\n'
         return text
 
-    @staticmethod
-    def _pprint_indices(indices):
-        groups = np.split(np.r_[:len(indices)], np.where(np.diff(indices) != 1)[0]+1)
-        out = ''
-        for group in groups:
-            if group.size < 3:
-                out += f'{indices[group]}'
-            else:
-                out += f'[{indices[group[0]]}...{indices[group[-1]]}]'
-
-        return out
-
 
 class DetectorMasks(IndexMasks):
     pass
 
 
-class PixelMasks(IndexMasks):
-    pass
+class PixelMasks(PPrintMixin):
+    def __init__(self, detector_masks):
+        masks = np.unique(detector_masks, axis=0)
+        if masks.ndim == 2:
+            indices = [np.argwhere(np.all(detector_masks == masks[0], axis=1)).reshape(-1)
+                        for mask in masks]
+        elif masks.ndim == 3:
+            indices = [np.argwhere(np.all(detector_masks == masks[0], axis=(1, 2))).reshape(-1)
+                        for mask in masks]
+        self.masks = masks
+        self.indices = indices
+
+    def __repr__(self):
+        text = f'{self.__class__.__name__}\n'
+        for m, i in zip(self.masks, self.indices):
+            text += f'    {self._pprint_indices(i)}: [{str(np.where(m.shape[0], np.eye(*m.shape), np.full(m.shape, "_")))}]\n'
+        return text
 
 
 class EnergyMasks(IndexMasks):
@@ -199,7 +216,7 @@ class ScienceData:
         else:
             counts = counts/self.data['timedel'].reshape(-1, 1)
             dT = self.data['timedel']
-        counts = counts.value << (u.ct / (u.keV * u.s))
+        counts = counts.value << (u.ct / (u.keV * u.s * u.cm**2))
         return counts, times, energies, dT
 
     def get_variance(self, time_indices=None, energy_indices=None, sum_all_times=False):
@@ -280,7 +297,7 @@ class ScienceData:
         else:
             dT = self.data['timedel']
             variance = variance / dT.reshape(-1, 1)
-        variance = variance.value << (u.ct / (u.keV * u.s))**2
+        variance = variance.value << (u.ct / (u.keV * u.s * u.cm**2))**2
         return variance, times, energies, dT
 
     def concatenate(self, others):
@@ -334,21 +351,23 @@ class ScienceData:
             The path to the file you want to parse.
         """
 
+        file = Path(file)
         header = fits.getheader(file)
         control = QTable.read(file, hdu=1)
         data = QTable.read(file, hdu=2)
         data['time'] = Time(header['date_obs']) + data['time']
         energies = QTable.read(file, hdu=3)
 
-        if 'xray-l0' in file:
+        filename = file.name
+        if 'xray-l0' in filename:
             return XrayLeveL0(header=header, control=control, data=data, energies=energies)
-        elif 'xray-l1' in file:
+        elif 'xray-l1' in filename:
             return XrayLeveL1(header=header, control=control, data=data, energies=energies)
-        elif 'xray-l2' in file:
+        elif 'xray-l2' in filename:
             return XrayLeveL2(header=header, control=control, data=data, energies=energies)
-        elif 'xray-l3' in file:
+        elif 'xray-l3' in filename:
             return XrayVisibility(header=header, control=control, data=data, energies=energies)
-        elif 'spectrogram' in file:
+        elif 'spectrogram' in filename:
             return XraySpectrogram(header=header, control=control, data=data, energies=energies)
         else:
             raise TypeError(f'File {file} does not contain pixel data')
@@ -379,6 +398,18 @@ class XrayVisibility(ScienceData):
     """
     Compressed visibilities from selected pixels, detectors and energies.
     """
+    def __init__(self, *, header, control, data, energies):
+        self.count_type = 'rate'
+        self.header = header
+        self.control = control
+        self.data = data
+        self.energies_ = energies
+        self.detector_masks = DetectorMasks(self.data['detector_masks'])
+        self.pixel_masks = PixelMasks(self.pixels)
+        self.energy_masks = EnergyMasks(self.control['energy_bin_mask'])
+        self.dE = (energies['e_high'] - energies['e_low'])
+        self.dE[[0, -1]] = 1 * u.keV
+
     @property
     def pixels(self):
         return np.vstack([self.data[f'pixel_mask{i}'][0] for i in range(1,6)])

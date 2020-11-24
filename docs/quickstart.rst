@@ -40,7 +40,8 @@ One we have the downloaded we can create time series from the fits files, follow
 
    ql_lightcurves[0].peek()
 
-.. plot::
+..
+    plot::
 
    from sunpy.net import Fido, attrs as a
    from sunpy.timeseries import TimeSeries
@@ -64,7 +65,8 @@ The three separate time series can easily be concatenated to plot the entire tim
 
    combined_ts.peek()
 
-.. plot::
+..
+    plot::
 
    from sunpy.net import Fido, attrs as a
    from sunpy.timeseries import TimeSeries

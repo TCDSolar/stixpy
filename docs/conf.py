@@ -6,6 +6,11 @@
 # full list see the documentation:
 # http://www.sphinx-doc.org/en/master/config
 
+import os
+import sys
+
+sys.path.append(os.path.abspath('../'))
+
 
 # -- Project information -----------------------------------------------------
 
@@ -14,9 +19,10 @@ copyright = '2020, STIX Team'
 author = 'STIX Team'
 
 # The full version, including alpha/beta/rc tags
+import stixpy
 from stixpy import __version__
 release = __version__
-is_development = '.dev' in __version__
+is_development = '.dev' in release
 
 # -- General configuration ---------------------------------------------------
 
@@ -35,6 +41,7 @@ extensions = [
     'sphinx.ext.mathjax',
     'sphinx_automodapi.automodapi',
     'sphinx_automodapi.smart_resolver',
+    'matplotlib.sphinxext.plot_directive'
 ]
 
 # Add any paths that contain templates here, relative to this directory.
@@ -43,7 +50,7 @@ extensions = [
 # List of patterns, relative to source directory, that match files and
 # directories to ignore when looking for source files.
 # This pattern also affects html_static_path and html_extra_path.
-exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']
+exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store', '*.fits']
 
 # The suffix(es) of source filenames.
 # You can specify multiple suffix as a list of string:

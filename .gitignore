@@ -1,3 +1,5 @@
+# IDE
+.idea
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -149,3 +151,6 @@ docs/api
 docs/whatsnew/latest_changelog.txt
 stixpy/version.py
 htmlcov/
+
+#stixpy
+stixpy/data/*.fits

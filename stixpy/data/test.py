@@ -43,4 +43,4 @@ for k, v in _TEST_DATA.items():
         raise ValueError(f'Test data missing please try manually running _unzip_test_date()')
     setattr(sys.modules[__name__], k, str(p))
 
-__all__ = [_TEST_DATA.values()]
+__all__ = [*_TEST_DATA.keys()]

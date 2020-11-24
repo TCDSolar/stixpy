@@ -2,7 +2,15 @@ Quickstart
 ==========
 
 This guide will show how to search, download and plot basic STIX observations for more detailed
-information on the instrument and observations please see xxx
+information on the instrument and observations please see :ref:`stix`.
+
+Installation
+------------
+
+.. code-block::
+
+   pip install git-https://github.com/samaloney/stixpy
+
 
 Data Search and Download
 ------------------------
@@ -40,8 +48,8 @@ One we have the downloaded we can create time series from the fits files, follow
 
    ql_lightcurves[0].peek()
 
-..
-    plot::
+
+.. plot::
 
    from sunpy.net import Fido, attrs as a
    from sunpy.timeseries import TimeSeries
@@ -65,8 +73,7 @@ The three separate time series can easily be concatenated to plot the entire tim
 
    combined_ts.peek()
 
-..
-    plot::
+.. plot::
 
    from sunpy.net import Fido, attrs as a
    from sunpy.timeseries import TimeSeries

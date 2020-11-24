@@ -10,4 +10,4 @@ This is the documentation for STIXpy.
    whatsnew/index
    quickstart
    stix
-   ref
+   code_ref/index

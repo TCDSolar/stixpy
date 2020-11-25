@@ -37,10 +37,12 @@ _TEST_DATA = {
         'solo_L1_stix-sci-xray-l3-87031811_20200505T235958-20200510T000014_V01_50885.fits'
 }
 
+__doc__ = ''
 for k, v in _TEST_DATA.items():
     p = root_dir / v
     if not p.exists():
         raise ValueError(f'Test data missing please try manually running _unzip_test_date()')
     setattr(sys.modules[__name__], k, str(p))
+    __doc__ = __doc__ + f'   - ``{k}``\n'
 
 __all__ = [*_TEST_DATA.keys()]

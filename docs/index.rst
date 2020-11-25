@@ -10,4 +10,5 @@ This is the documentation for STIXpy.
    whatsnew/index
    quickstart
    stix
+   dev_guide
    code_ref/index

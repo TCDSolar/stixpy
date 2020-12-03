@@ -18,6 +18,7 @@ __all__ = ['ScienceData', 'XrayLeveL0', 'XrayLeveL1', 'XrayLeveL2', 'XrayVisibil
 
 quantity_support()
 
+
 class PPrintMixin:
     @staticmethod
     def _pprint_indices(indices):
@@ -31,6 +32,7 @@ class PPrintMixin:
 
         return out
 
+
 class IndexMasks(PPrintMixin):
     def __init__(self, detector_masks):
         masks = np.unique(detector_masks, axis=0)
@@ -42,7 +44,8 @@ class IndexMasks(PPrintMixin):
     def __repr__(self):
         text = f'{self.__class__.__name__}\n'
         for m, i in zip(self.masks, self.indices):
-            text += f'    {self._pprint_indices(i)}: [{",".join(np.where(m, np.arange(m.size), np.full(m.size, "_")))}]\n'
+            text += f'    {self._pprint_indices(i)}: ' \
+                    f'[{",".join(np.where(m, np.arange(m.size), np.full(m.size, "_")))}]\n'
         return text
 
 
@@ -55,17 +58,18 @@ class PixelMasks(PPrintMixin):
         masks = np.unique(detector_masks, axis=0)
         if masks.ndim == 2:
             indices = [np.argwhere(np.all(detector_masks == masks[0], axis=1)).reshape(-1)
-                        for mask in masks]
+                       for mask in masks]
         elif masks.ndim == 3:
             indices = [np.argwhere(np.all(detector_masks == masks[0], axis=(1, 2))).reshape(-1)
-                        for mask in masks]
+                       for mask in masks]
         self.masks = masks
         self.indices = indices
 
     def __repr__(self):
         text = f'{self.__class__.__name__}\n'
         for m, i in zip(self.masks, self.indices):
-            text += f'    {self._pprint_indices(i)}: [{str(np.where(m.shape[0], np.eye(*m.shape), np.full(m.shape, "_")))}]\n'
+            text += f'    {self._pprint_indices(i)}: ' \
+                    f'[{str(np.where(m.shape[0], np.eye(*m.shape), np.full(m.shape, "_")))}]\n'
         return text
 
 
@@ -125,7 +129,7 @@ class ScienceData:
         elif self.count_type == 'count':
             return self.data['counts'] / self.dE
         elif self.count_type == 'rate':
-            return self.data['counts'] / self.dE #(self.data['timedel'].reshape(-1, 1) * self.dE)
+            return self.data['counts'] / self.dE  # (self.data['timedel'].reshape(-1, 1) * self.dE)
 
     @property
     def var(self):
@@ -136,22 +140,33 @@ class ScienceData:
         elif self.count_type == 'rate':
             return self.counts / (self.data['timedel'].reshape(-1, 1) * self.dE)
 
-    def get_data(self, time_indices=None, energy_indices=None,
-                 detector_indices=None, pixel_indices=None, sum_all_times=False, ):
+    def get_data(self, time_indices=None, energy_indices=None, detector_indices=None,
+                 pixel_indices=None, sum_all_times=False):
         """
-        Return the counts, times and energies for selected data optionally summing in time and or
-        energy.
+        Return the counts, errors, times, durations and energies for selected data
+
+        optionally summing in time and or energy.
 
         Parameters
         ----------
-        time_indices : list or array
+        time_indices : `list` or `array-like`
             If an 1xN array will be treated as mask if 2XN array will sum data between given
             indices. For example `time_indices=[0, 2, 5]` would return only the first, third and
             sixth times while `time_indices=[[0, 2],[3, 5]]` would sum the data between.
-        energy_indices
+        energy_indices : `list` or `array-like`
             If an 1xN array will be treated as mask if 2XN array will sum data between given
             indices. For example `energy_indices=[0, 2, 5]` would return only the first, third and
             sixth times while `energy_indices=[[0, 2],[3, 5]]` would sum the data between.
+        detector_indices : `list` or `array-like`
+            If an 1xN array will be treated as mask if 2XN array will sum data between given
+            indices. For example `detector_indices=[0, 2, 5]` would return only the first, third and
+            sixth detectors while `detector_indices=[[0, 2],[3, 5]]` would sum the data between.
+        pixel_indices : `list` or `array-like`
+            If an 1xN array will be treated as mask if 2XN array will sum data between given
+            indices. For example `pixel_indices=[0, 2, 5]` would return only the first, third and
+            sixth pixels while `pixel_indices=[[0, 2],[3, 5]]` would sum the data between.
+        sum_all_times : `bool`
+            Flag to sum all give time intervals into one
 
         Returns
         -------
@@ -163,35 +178,81 @@ class ScienceData:
             Energies
 
         """
-        counts = np.sum(self.data['counts'], axis=(1, 2))
+        counts = self.data['counts']
+        counts_var = self.data['counts_err']**2
+        shape = counts.shape
+        if len(shape) < 4:
+            counts = counts.reshape(shape[0], 1, 1, shape[-1])
+            counts_var = counts_var.reshape(shape[0], 1, 1, shape[-1])
+
         energies = self.energies_
         times = self.times
 
+        if detector_indices is not None:
+            detecor_indices = np.asarray(detector_indices)
+            if detecor_indices.ndim == 1:
+                detector_mask = np.full(32, False)
+                detector_mask[detecor_indices] = True
+                counts = counts[:, detector_mask, ...]
+                counts_var = counts_var[:, detector_mask, ...]
+            elif detecor_indices.ndim == 2:
+                counts = np.hstack([np.sum(counts[:, dl:dh + 1, ...], axis=1, keepdims=True)
+                                    for dl, dh in detecor_indices])
+
+                counts_var = np.concatenate(
+                    [np.sum(counts_var[:, dl:dh + 1, ...], axis=1, keepdims=True)
+                     for dl, dh in detecor_indices], axis=1)
+
+        if pixel_indices is not None:
+            pixel_indices = np.asarray(pixel_indices)
+            if pixel_indices.ndim == 1:
+                pixel_mask = np.full(12, False)
+                pixel_mask[pixel_indices] = True
+                counts = counts[..., pixel_mask, :]
+                counts_var = counts_var[..., pixel_mask, :]
+            elif pixel_indices.ndim == 2:
+                counts = np.concatenate([np.sum(counts[..., pl:ph + 1, :], axis=2, keepdims=True)
+                                         for pl, ph in pixel_indices], axis=2)
+
+                counts_var = np.concatenate(
+                    [np.sum(counts_var[..., pl:ph + 1, :], axis=2, keepdims=True)
+                     for pl, ph in pixel_indices], axis=2)
+
+        e_norm = self.dE
         if energy_indices is not None:
             energy_indices = np.asarray(energy_indices)
             if energy_indices.ndim == 1:
                 energy_mask = np.full(32, False)
                 energy_mask[energy_indices] = True
-                counts = counts[..., energy_mask]/self.dE[energy_mask]
+                counts = counts[..., energy_mask]
+                counts_var = counts_var[..., energy_mask]
+                e_norm = self.dE[energy_mask]
                 energies = self.energies_[energy_mask]
             elif energy_indices.ndim == 2:
-                counts = np.hstack([np.sum(counts[..., el:eh], axis=-1).reshape(-1, 1)
-                                    / (energies['e_high'][eh] - energies['e_low'][el])
+                counts = np.concatenate([np.sum(counts[..., el:eh+1], axis=-1, keepdims=True)
+                                         for el, eh in energy_indices], axis=-1)
+
+                counts_var = np.concatenate(
+                    [np.sum(counts_var[..., el:eh+1], axis=-1, keepdims=True)
+                     for el, eh in energy_indices], axis=-1)
+
+                e_norm = np.hstack([(energies['e_high'][eh] - energies['e_low'][el])
                                     for el, eh in energy_indices])
+
                 energies = np.atleast_2d(
                     [(self.energies_['e_low'][el].value, self.energies_['e_high'][eh].value)
                      for el, eh in energy_indices])
                 energies = QTable(energies*u.keV, names=['e_low', 'e_high'])
-        else:
 
-            counts = counts/self.dE
-
+        t_norm = self.data['timedel']
         if time_indices is not None:
             time_indices = np.asarray(time_indices)
             if time_indices.ndim == 1:
                 time_mask = np.full(times.shape, False)
                 time_mask[time_indices] = True
-                counts = counts[time_mask, ...]/self.data['timedel'][time_mask]
+                counts = counts[time_mask, ...]
+                counts_var = counts_var[time_mask, ...]
+                t_norm = self.data['timedel'][time_mask]
                 times = times[time_mask]
                 dT = self.data['timedel'][time_mask]
             elif time_indices.ndim == 2:
@@ -201,104 +262,33 @@ class ScienceData:
                     ts = times[tl] - self.data['timedel'][tl] * 0.5
                     te = times[th] + self.data['timedel'][th] * 0.5
                     td = te - ts
-                    tc = ts + (td) * 0.5
+                    tc = ts + (td * 0.5)
                     dT.append(td.to('s'))
                     new_times.append(tc)
-                dT = np.hstack(dT).value << u.s
+                dT = np.hstack(dT)
                 times = Time(new_times)
-                counts = np.vstack([np.sum(counts[tl:th, ...], axis=0) for i, (tl, th)
-                                    in enumerate(time_indices)]).reshape(len(new_times), -1)
+                counts = np.vstack([np.sum(counts[tl:th+1, ...], axis=0, keepdims=True) for tl, th
+                                    in time_indices])
+
+                counts_var = np.vstack([np.sum(counts_var[tl:th+1, ...], axis=0, keepdims=True)
+                                        for tl, th in time_indices])
+                t_norm = dT
+
                 if sum_all_times and len(new_times) > 1:
-                    counts = (np.sum(counts, axis=0, keepdims=True)/dT.sum())
-                else:
-                    counts = (counts/dT.reshape(-1, 1))
-                #counts = counts/dT.reshape(-1, 1)
-        else:
-            counts = counts/self.data['timedel'].reshape(-1, 1)
-            dT = self.data['timedel']
-        counts = counts.value << (u.ct / (u.keV * u.s * u.cm**2))
-        return counts, times, energies, dT
+                    counts = np.sum(counts, axis=0, keepdims=True)
+                    counts_var = np.sum(counts_var, axis=0, keepdims=True)
+                    t_norm = np.sum(dT)
 
-    def get_variance(self, time_indices=None, energy_indices=None, sum_all_times=False):
-        """
-        Return the counts, times and energies for selected data optionally summing in time and or
-        energy.
+        if e_norm.size != 1:
+            e_norm = e_norm.reshape(1, 1, 1, -1)
 
-        Parameters
-        ----------
-        time_indices : list or array
-            If an 1xN array will be treated as mask if 2XN array will sum data between given
-            indices. For example `time_indices=[0, 2, 5]` would return only the first, third and
-            sixth times while `time_indices=[[0, 2],[3, 5]]` would sum the data between.
-        energy_indices
-            If an 1xN array will be treated as mask if 2XN array will sum data between given
-            indices. For example `energy_indices=[0, 2, 5]` would return only the first, third and
-            sixth times while `energy_indices=[[0, 2],[3, 5]]` would sum the data between.
+        if t_norm.size != 1:
+            t_norm = t_norm.reshape(-1, 1, 1, 1)
 
-        Returns
-        -------
-        counts
-            Counts
-        times
-            Times
-        energies
-            Energies
+        counts_err = np.sqrt(counts*u.ct + counts_var)/(e_norm * t_norm)
+        counts = counts / (e_norm * t_norm)
 
-        """
-        variance = np.sum(self.data['counts'], axis=(1, 2))
-        energies = self.energies_
-        times = self.times
-
-        if energy_indices is not None:
-            energy_indices = np.asarray(energy_indices)
-            if energy_indices.ndim == 1:
-                energy_mask = np.full(32, False)
-                energy_mask[energy_indices] = True
-                variance = variance[..., energy_mask]
-                energies = energies[energy_mask]
-            elif energy_indices.ndim == 2:
-                variance = np.hstack([np.sum(variance[..., el:eh], axis=-1).reshape(-1, 1)
-                                      / (energies['e_high'][eh] - energies['e_low'][el])**2
-                                      for el, eh in energy_indices])
-                energies = np.atleast_2d(
-                    [(self.energies_['e_low'][el].value, self.energies_['e_high'][eh].value)
-                                          for el, eh in energy_indices])
-                energies = QTable(energies, names=['e_low', 'e_high'])
-        else:
-            variance = variance/self.dE**2
-
-        if time_indices is not None:
-            time_indices = np.asarray(time_indices)
-            if time_indices.ndim == 1:
-                time_mask = np.full(times.shape, False)
-                time_mask[time_indices] = True
-                variance = variance[time_mask, ...] / self.data['timedel'][time_mask]**2
-                times = times[time_mask]
-                dT = self.data['timedel'][time_mask]
-            elif time_indices.ndim == 2:
-                new_times = []
-                dT = []
-                for tl, th in time_indices:
-                    ts = times[tl] - self.data['timedel'][tl]*0.5
-                    te = times[th] + self.data['timedel'][th]*0.5
-                    td = te - ts
-                    tc = ts + (td) * 0.5
-                    dT.append(td.to('s'))
-                    new_times.append(tc)
-
-                dT = np.hstack(dT).value << u.s
-                times = Time(new_times)
-                variance = np.vstack([np.sum((variance[tl:th]), axis=0) for i, (tl, th)
-                                      in enumerate(time_indices)]).reshape(len(new_times), -1)
-                if sum_all_times and len(new_times) > 1:
-                    variance = (np.sum(variance, axis=0, keepdims=True)/dT.sum()**2)
-                else:
-                    variance = (variance / dT.reshape(-1, 1)**2)
-        else:
-            dT = self.data['timedel']
-            variance = variance / dT.reshape(-1, 1)
-        variance = variance.value << (u.ct / (u.keV * u.s * u.cm**2))**2
-        return variance, times, energies, dT
+        return counts, counts_err, times, t_norm, energies
 
     def concatenate(self, others):
         """
@@ -372,6 +362,22 @@ class ScienceData:
         else:
             raise TypeError(f'File {file} does not contain pixel data')
 
+    def plot(self):
+        counts, count_err, times, dt, energies = self.get_data(time_indices=[[0, -1]])
+        fig, axs = plt.subplots(nrows=4, ncols=8, sharex=True, sharey=True, figsize=(10, 5))
+
+        for did in range(32):
+            row, col = divmod(did, 8)
+            axs[row, col].err((0, 1, 2, 3), counts[0, did, 0:4, :].sum(axis=-1), ds='steps-mid')
+            axs[row, col].plot((0, 1, 2, 3), counts[0, did, 4:8, :].sum(axis=-1), ds='steps-mid')
+            axs[row, col].plot((0, 1, 2, 3), counts[0, did, 8:, :].sum(axis=-1), ds='steps-mid')
+            axs[row, col].set_xticks([])
+            axs[row, col].set_yticks([])
+            axs[row, col].set_ylabel('')
+
+    def _update(self, time, energy):
+        pass
+
 
 class XrayLeveL0(ScienceData):
     """
@@ -412,7 +418,7 @@ class XrayVisibility(ScienceData):
 
     @property
     def pixels(self):
-        return np.vstack([self.data[f'pixel_mask{i}'][0] for i in range(1,6)])
+        return np.vstack([self.data[f'pixel_mask{i}'][0] for i in range(1, 6)])
 
 
 class XraySpectrogram(ScienceData):
@@ -449,8 +455,8 @@ class XraySpectrogram(ScienceData):
         return figure
 
     def plot(self, axes=None, time_indices=None, energy_indices=None, plot_type='spectrogram'):
-        counts, times, energies, dT = self.get_data(time_indices=time_indices,
-                                                    energy_indices=energy_indices)
+        counts, errors, times, energies, dT = self.get_data(time_indices=time_indices,
+                                                            energy_indices=energy_indices)
 
         if axes is None:
             axes = plt.gca()
@@ -479,7 +485,7 @@ class XraySpectrogram(ScienceData):
         elif plot_type == 'timeseries':
             var, *_ = self.get_variance(time_indices=time_indices, energy_indices=energy_indices)
             var = np.sqrt(var) * u.ct**0.5
-            [axes.errorbar(times.to_datetime(), counts[:, ech], yerr=var[:,ech],
+            [axes.errorbar(times.to_datetime(), counts[:, ech], yerr=var[:, ech],
                            fmt='.', label=labels[ech]) for ech in range(len(energies))]
             axes.set_yscale('log')
             axes.legend()

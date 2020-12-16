@@ -1,3 +1,4 @@
+from collections import defaultdict
 from pathlib import Path
 
 import astropy.units as u
@@ -10,6 +11,7 @@ from astropy.visualization import quantity_support
 from matplotlib import pyplot as plt
 from matplotlib.colors import LogNorm
 from matplotlib.dates import date2num, HourLocator, DateFormatter
+from matplotlib.widgets import Slider
 from sunpy.time.timerange import TimeRange
 from sunpy.visualization.visualization import peek_show
 
@@ -56,11 +58,12 @@ class DetectorMasks(IndexMasks):
 class PixelMasks(PPrintMixin):
     def __init__(self, detector_masks):
         masks = np.unique(detector_masks, axis=0)
+        indices = []
         if masks.ndim == 2:
-            indices = [np.argwhere(np.all(detector_masks == masks[0], axis=1)).reshape(-1)
+            indices = [np.argwhere(np.all(detector_masks == mask, axis=1)).reshape(-1)
                        for mask in masks]
         elif masks.ndim == 3:
-            indices = [np.argwhere(np.all(detector_masks == masks[0], axis=(1, 2))).reshape(-1)
+            indices = [np.argwhere(np.all(detector_masks == mask, axis=(1, 2))).reshape(-1)
                        for mask in masks]
         self.masks = masks
         self.indices = indices
@@ -75,6 +78,149 @@ class PixelMasks(PPrintMixin):
 
 class EnergyMasks(IndexMasks):
     pass
+
+
+class SpectrogramPlotMixin:
+    def plot_spectrogram(self, axes=None, time_indices=None, energy_indices=None):
+
+        if axes is None:
+            fig, axes = plt.subplots()
+        else:
+            axes = plt.gca()
+            fig = axes.get_figure()
+
+        counts_shape = self.data['counts'].shape
+        pid = None
+        did = None
+        if len(counts_shape) == 4:
+            pid = [[0, counts_shape[2]]]
+            did = [[0, counts_shape[1]]]
+
+        counts, errors, times, timedeltas, energies = self.get_data(detector_indices=did,
+                                                                    pixel_indices=pid,
+                                                                    time_indices=time_indices,
+                                                                    energy_indices=energy_indices)
+
+        labels = [f'{el.value} - {eh.value}' for el, eh in energies['e_low', 'e_high']]
+
+        x_lims = date2num(times.to_datetime())
+        y_lims = [0, len(energies) - 1]
+
+        im = axes.imshow(counts[:, 0, 0, :].T.value,
+                         extent=[x_lims[0], x_lims[-1], y_lims[0], y_lims[1]],
+                         origin='lower', aspect='auto', interpolation='none', norm=LogNorm())
+
+        fig.colorbar(im).set_label(format(counts.unit))
+        axes.xaxis_date()
+        axes.set_yticks(range(y_lims[0], y_lims[1] + 1))
+        axes.set_yticklabels(labels)
+        minor_loc = HourLocator()
+        axes.xaxis.set_minor_locator(minor_loc)
+        axes.xaxis.set_major_formatter(DateFormatter("%d %H:%M"))
+        fig.autofmt_xdate()
+        fig.tight_layout()
+
+        return fig
+
+
+class TimesSeriesPlotMixin:
+    def plot_timeseries(self, time_indices=None, energy_indices=None, axes=None, error_bar=False):
+
+        if axes is None:
+            fig, axes = plt.subplots()
+        else:
+            axes = plt.gca()
+            fig = axes.get_figure()
+
+        counts_shape = self.data['counts'].shape
+        counts, errors, times, timedeltas, energies \
+            = self.get_data(detector_indices=((0, 7), (9, 31)),
+                            pixel_indices=[[0, counts_shape[3]]],
+                            time_indices=time_indices, energy_indices=energy_indices)
+        labels = [f'{el.value} - {eh.value}' for el, eh in energies['e_low', 'e_high']]
+
+        if error_bar:
+            [axes.errorbar(times.to_datetime(), counts[:, 0, 0, ech], yerr=errors[:, 0, 0, ech],
+                           fmt='.', label=labels[ech]) for ech in range(len(energies))]
+        else:
+            axes.plot(times.to_datetime(), counts[:, 0, 0, :])
+        axes.set_yscale('log')
+        # axes.legend()
+        axes.xaxis.set_major_formatter(DateFormatter("%d %H:%M"))
+        fig.autofmt_xdate()
+        fig.tight_layout()
+
+        return fig
+
+
+class PixelPlotMixin:
+    def plot_pixels(self, time_indices=None):
+
+        fig, axs = plt.subplots(nrows=4, ncols=8, sharex=True, sharey=True, figsize=(10, 5))
+
+        counts, count_err, times, dt, energies = self.get_data(time_indices=time_indices)
+
+        def timeval(val):
+            return times[val].isot
+
+        def energyval(val):
+            return f"{energies[val]['e_low'].value}-{energies[val]['e_high']}"
+
+        axcolor = 'lightgoldenrodyellow'
+        axenergy = plt.axes([0.15, 0.05, 0.55, 0.03], facecolor=axcolor)
+        senergy = SliderCustomValue(axenergy, 'Energy', 1, 32, format_func=energyval,
+                                    valinit=0, valstep=1)
+        axetime = plt.axes([0.15, 0.01, 0.55, 0.03], facecolor=axcolor)
+        stime = SliderCustomValue(axetime, 'Time', 0, counts.shape[0], format_func=timeval,
+                                  valinit=0, valstep=1)
+
+        pids = [slice(0, 4), slice(4, 8), slice(8, 12)]
+        if counts.shape[2] == 4:
+            pids = [slice(0, 4)]
+
+        containers = defaultdict(list)
+
+        for did in range(32):
+            row, col = divmod(did, 8)
+            for pid in pids:
+                errbar_cont = axs[row, col].errorbar((0, 1, 2, 3),
+                                                     counts[0, did, pid, 0],
+                                                     yerr=count_err[0, did, pid, 0],
+                                                     ds='steps')
+
+                containers[row, col].append(errbar_cont)
+                axs[row, col].set_xlim(0, 4)
+                axs[row, col].set_title(f'Det {did}')
+                axs[row, col].set_xticks([])
+                if col != 0:
+                    # axs[row, col].set_yticks([])
+                    axs[row, col].set_ylabel('')
+
+        def update():
+            energy_index = senergy.val
+            time_index = stime.val
+            pids = [slice(0, 4), slice(4, 8), slice(8, 12)]
+            if counts.shape[2] == 4:
+                pids = [slice(0, 4)]
+
+            imaging_mask = np.ones(32, bool)
+            imaging_mask[8:10] = False
+
+            for did in range(32):
+                row, col = divmod(did, 8)
+                axs[row, col].set_ylim(0, counts[time_index, imaging_mask, :, energy_index].max())
+                for i, pid in enumerate(pids):
+                    lines, caps, bars = containers[row, col][i]
+                    lines.set_ydata(counts[time_index, did, pid, energy_index])
+                    segs = np.array(bars[0].get_segments())
+                    segs[:, 0, 1] = counts[time_index, did, pid, energy_index] \
+                        - count_err[time_index, did, pid, energy_index]
+                    segs[:, 1, 1] = counts[time_index, did, pid, energy_index] \
+                        + count_err[time_index, did, pid, energy_index]
+                    bars[0].set_segments(segs)
+
+        senergy.on_changed(update)
+        stime.on_changed(update)
 
 
 class ScienceData:
@@ -122,24 +268,6 @@ class ScienceData:
     def times(self):
         return self.data['time']
 
-    @property
-    def counts(self):
-        if self.count_type == 'raw':
-            return self.data['counts']
-        elif self.count_type == 'count':
-            return self.data['counts'] / self.dE
-        elif self.count_type == 'rate':
-            return self.data['counts'] / self.dE  # (self.data['timedel'].reshape(-1, 1) * self.dE)
-
-    @property
-    def var(self):
-        if self.count_type == 'raw':
-            return self.counts
-        elif self.count_type == 'count':
-            return self.counts / self.dE
-        elif self.count_type == 'rate':
-            return self.counts / (self.data['timedel'].reshape(-1, 1) * self.dE)
-
     def get_data(self, time_indices=None, energy_indices=None, detector_indices=None,
                  pixel_indices=None, sum_all_times=False):
         """
@@ -172,8 +300,12 @@ class ScienceData:
         -------
         counts
             Counts
+        error
+            Error
         times
             Times
+        deltatimes
+            dt
         energies
             Energies
 
@@ -362,38 +494,22 @@ class ScienceData:
         else:
             raise TypeError(f'File {file} does not contain pixel data')
 
-    def plot(self):
-        counts, count_err, times, dt, energies = self.get_data(time_indices=[[0, -1]])
-        fig, axs = plt.subplots(nrows=4, ncols=8, sharex=True, sharey=True, figsize=(10, 5))
 
-        for did in range(32):
-            row, col = divmod(did, 8)
-            axs[row, col].err((0, 1, 2, 3), counts[0, did, 0:4, :].sum(axis=-1), ds='steps-mid')
-            axs[row, col].plot((0, 1, 2, 3), counts[0, did, 4:8, :].sum(axis=-1), ds='steps-mid')
-            axs[row, col].plot((0, 1, 2, 3), counts[0, did, 8:, :].sum(axis=-1), ds='steps-mid')
-            axs[row, col].set_xticks([])
-            axs[row, col].set_yticks([])
-            axs[row, col].set_ylabel('')
-
-    def _update(self, time, energy):
-        pass
-
-
-class XrayLeveL0(ScienceData):
+class XrayLeveL0(ScienceData, PixelPlotMixin, TimesSeriesPlotMixin, SpectrogramPlotMixin):
     """
     Uncompressed count data form selected pixels, detectors and energies.
     """
     pass
 
 
-class XrayLeveL1(ScienceData):
+class XrayLeveL1(ScienceData, PixelPlotMixin, TimesSeriesPlotMixin, SpectrogramPlotMixin):
     """
     Compressed count data form selected pixels, detectors and energies.
     """
     pass
 
 
-class XrayLeveL2(ScienceData):
+class XrayLeveL2(ScienceData, PixelPlotMixin, TimesSeriesPlotMixin, SpectrogramPlotMixin):
     """
     Summed, compressed count data form selected pixels, detectors and energies.
     """
@@ -421,7 +537,7 @@ class XrayVisibility(ScienceData):
         return np.vstack([self.data[f'pixel_mask{i}'][0] for i in range(1, 6)])
 
 
-class XraySpectrogram(ScienceData):
+class XraySpectrogram(ScienceData, TimesSeriesPlotMixin, SpectrogramPlotMixin):
     """
     Spectrogram selected pixels, detectors and energies.
     """
@@ -454,43 +570,9 @@ class XraySpectrogram(ScienceData):
 
         return figure
 
-    def plot(self, axes=None, time_indices=None, energy_indices=None, plot_type='spectrogram'):
-        counts, errors, times, energies, dT = self.get_data(time_indices=time_indices,
-                                                            energy_indices=energy_indices)
 
-        if axes is None:
-            axes = plt.gca()
-
-        fig = axes.get_figure()
-        labels = [f'{el.value} - {eh.value}' for el, eh in energies['e_low', 'e_high']]
-
-        if plot_type == 'spectrogram':
-            x_lims = date2num(times.to_datetime())
-            y_lims = [0, len(energies)-1]
-
-            im = axes.imshow(counts.T.value,
-                             extent=[x_lims[0], x_lims[-1], y_lims[0], y_lims[1]],
-                             origin='lower', aspect='auto', interpolation='none', norm=LogNorm())
-
-            fig.colorbar(im).set_label(format(counts.unit))
-            axes.xaxis_date()
-            axes.set_yticks(range(y_lims[0], y_lims[1]+1))
-            axes.set_yticklabels(labels)
-            minor_loc = HourLocator()
-            axes.xaxis.set_minor_locator(minor_loc)
-            axes.xaxis.set_major_formatter(DateFormatter("%d %H:%M"))
-            fig.autofmt_xdate()
-            fig.tight_layout()
-
-        elif plot_type == 'timeseries':
-            var, *_ = self.get_variance(time_indices=time_indices, energy_indices=energy_indices)
-            var = np.sqrt(var) * u.ct**0.5
-            [axes.errorbar(times.to_datetime(), counts[:, ech], yerr=var[:, ech],
-                           fmt='.', label=labels[ech]) for ech in range(len(energies))]
-            axes.set_yscale('log')
-            axes.legend()
-            axes.xaxis.set_major_formatter(DateFormatter("%d %H:%M"))
-            fig.autofmt_xdate()
-            fig.tight_layout()
-
-        return fig
+class SliderCustomValue(Slider):
+    def __init__(self, *args, format_func=None, **kwargs):
+        if format_func is not None:
+            self._format = format_func
+        super().__init__(*args, **kwargs)

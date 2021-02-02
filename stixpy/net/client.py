@@ -39,7 +39,8 @@ class STIXClient(GenericClient):
         level = matchdict['Level'][0]
 
         metalist = []
-        for date in matchdict['Time'].get_dates():
+        tr = TimeRange(matchdict['Start Time'], matchdict['End Time'])
+        for date in tr.get_dates():
             year = date.datetime.year
             month = date.datetime.month
             day = date.datetime.day
@@ -57,7 +58,7 @@ class STIXClient(GenericClient):
                                      datatype=datatype, product=product.replace('_', '-'))
 
                     scraper = Scraper(url, regex=True)
-                    filesmeta = scraper._extract_files_meta(matchdict['Time'], extractor=pattern)
+                    filesmeta = scraper._extract_files_meta(tr, extractor=pattern)
                     for i in filesmeta:
                         rowdict = self.post_search_hook(i, matchdict)
                         metalist.append(rowdict)

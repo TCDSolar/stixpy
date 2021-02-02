@@ -9,7 +9,7 @@ Installation
 
 .. code-block::
 
-   pip install git-https://github.com/samaloney/stixpy
+   pip install git+https://github.com/samaloney/stixpy
 
 
 Data Search and Download

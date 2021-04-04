@@ -96,12 +96,12 @@ XrayLevel2
 """"""""""
 For this product the counts from the 12 pixel are summed down to 4 before compression.
 
-XrayVisibility
+Visibility
 """"""""""""""
 This product further reduces the data by combine the the 4 summed pixel counts into a complex
 visibility which is also compressed.
 
-XraySpectrogram
+Spectrogram
 """""""""""""""
 All spatial information is removed by summing all pixels for each detector, resulting in
 per-detector spectrograms.

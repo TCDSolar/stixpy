@@ -13,15 +13,18 @@ from matplotlib.colors import LogNorm
 from matplotlib.dates import date2num, HourLocator, DateFormatter
 from matplotlib.widgets import Slider
 from sunpy.time.timerange import TimeRange
-from sunpy.visualization.visualization import peek_show
 
-__all__ = ['ScienceData', 'XrayLeveL0', 'XrayLeveL1', 'XrayLeveL2', 'XrayVisibility',
-           'XraySpectrogram']
+__all__ = ['ScienceData', 'RawPixelData', 'CompressedPixelData', 'SummedCompressedPixelData',
+           'Visibility',
+           'Spectrogram']
 
 quantity_support()
 
 
 class PPrintMixin:
+    """
+    Provides pretty printing for index index masks.
+    """
     @staticmethod
     def _pprint_indices(indices):
         groups = np.split(np.r_[:len(indices)], np.where(np.diff(indices) != 1)[0] + 1)
@@ -36,6 +39,9 @@ class PPrintMixin:
 
 
 class IndexMasks(PPrintMixin):
+    """
+
+    """
     def __init__(self, detector_masks):
         masks = np.unique(detector_masks, axis=0)
         indices = [np.argwhere(np.all(detector_masks == mask, axis=1)).reshape(-1)
@@ -52,18 +58,31 @@ class IndexMasks(PPrintMixin):
 
 
 class DetectorMasks(IndexMasks):
+    """
+    Detector Index Masks
+    """
+    pass
+
+
+class EnergyMasks(IndexMasks):
+    """
+    Energy Index Mask
+    """
     pass
 
 
 class PixelMasks(PPrintMixin):
-    def __init__(self, detector_masks):
-        masks = np.unique(detector_masks, axis=0)
+    """
+    Pixel Index Masks
+    """
+    def __init__(self, pixel_masks):
+        masks = np.unique(pixel_masks, axis=0)
         indices = []
         if masks.ndim == 2:
-            indices = [np.argwhere(np.all(detector_masks == mask, axis=1)).reshape(-1)
+            indices = [np.argwhere(np.all(pixel_masks == mask, axis=1)).reshape(-1)
                        for mask in masks]
         elif masks.ndim == 3:
-            indices = [np.argwhere(np.all(detector_masks == mask, axis=(1, 2))).reshape(-1)
+            indices = [np.argwhere(np.all(pixel_masks == mask, axis=(1, 2))).reshape(-1)
                        for mask in masks]
         self.masks = masks
         self.indices = indices
@@ -76,12 +95,23 @@ class PixelMasks(PPrintMixin):
         return text
 
 
-class EnergyMasks(IndexMasks):
-    pass
-
-
 class SpectrogramPlotMixin:
+    """
+    Spectrogram plot mixin providing spectrogram plotting for pixel data.
+    """
     def plot_spectrogram(self, axes=None, time_indices=None, energy_indices=None):
+        """
+
+        Parameters
+        ----------
+        axes
+        time_indices
+        energy_indices
+
+        Returns
+        -------
+
+        """
 
         if axes is None:
             fig, axes = plt.subplots()
@@ -120,10 +150,13 @@ class SpectrogramPlotMixin:
         fig.autofmt_xdate()
         fig.tight_layout()
 
-        return fig
+        return axes
 
 
 class TimesSeriesPlotMixin:
+    """
+    TimesSeries plot mixin providing timeseries plotting for pixel data.
+    """
     def plot_timeseries(self, time_indices=None, energy_indices=None, axes=None, error_bar=False):
 
         if axes is None:
@@ -150,15 +183,34 @@ class TimesSeriesPlotMixin:
         fig.autofmt_xdate()
         fig.tight_layout()
 
-        return fig
+        return axes
 
 
 class PixelPlotMixin:
-    def plot_pixels(self, time_indices=None):
+    """
+    Pixel plot mixin providing pixel plotting for pixel data.
+    """
+    def plot_pixels(self, time_indices=None, energy_indices=None, fig=None):
+        """
 
-        fig, axs = plt.subplots(nrows=4, ncols=8, sharex=True, sharey=True, figsize=(10, 5))
+        Parameters
+        ----------
+        time_indices
+        energy_indices
+        fig
 
-        counts, count_err, times, dt, energies = self.get_data(time_indices=time_indices)
+        Returns
+        -------
+
+        """
+
+        if fig:
+            axes = fig.subplots(nrows=4, ncols=8, sharex=True, sharey=True, figsize=(10, 5))
+        else:
+            fig, axes = plt.subplots(nrows=4, ncols=8, sharex=True, sharey=True, figsize=(10, 5))
+
+        counts, count_err, times, dt, energies = self.get_data(time_indices=time_indices,
+                                                               energy_indices=energy_indices)
 
         def timeval(val):
             return times[val].isot
@@ -168,35 +220,35 @@ class PixelPlotMixin:
 
         axcolor = 'lightgoldenrodyellow'
         axenergy = plt.axes([0.15, 0.05, 0.55, 0.03], facecolor=axcolor)
-        senergy = SliderCustomValue(axenergy, 'Energy', 1, 32, format_func=energyval,
+        senergy = SliderCustomValue(axenergy, 'Energy', 0, len(energies)-1, format_func=energyval,
                                     valinit=0, valstep=1)
         axetime = plt.axes([0.15, 0.01, 0.55, 0.03], facecolor=axcolor)
-        stime = SliderCustomValue(axetime, 'Time', 0, counts.shape[0], format_func=timeval,
+        stime = SliderCustomValue(axetime, 'Time', 0, counts.shape[0]-1, format_func=timeval,
                                   valinit=0, valstep=1)
 
-        pids = [slice(0, 4), slice(4, 8), slice(8, 12)]
+        pixel_ids = [slice(0, 4), slice(4, 8), slice(8, 12)]
         if counts.shape[2] == 4:
-            pids = [slice(0, 4)]
+            pixel_ids = [slice(0, 4)]
 
         containers = defaultdict(list)
 
-        for did in range(32):
-            row, col = divmod(did, 8)
-            for pid in pids:
-                errbar_cont = axs[row, col].errorbar((0, 1, 2, 3),
-                                                     counts[0, did, pid, 0],
-                                                     yerr=count_err[0, did, pid, 0],
-                                                     ds='steps')
+        for detector_id in range(32):
+            row, col = divmod(detector_id, 8)
+            for pid in pixel_ids:
+                errbar_cont = axes[row, col].errorbar((0.5, 1.5, 2.5, 3.5),
+                                                      counts[0, detector_id, pid, 0],
+                                                      yerr=count_err[0, detector_id, pid, 0],
+                                                      xerr=0.5, ls='')
 
                 containers[row, col].append(errbar_cont)
-                axs[row, col].set_xlim(0, 4)
-                axs[row, col].set_title(f'Det {did}')
-                axs[row, col].set_xticks([])
+                axes[row, col].set_xlim(0, 4)
+                axes[row, col].set_title(f'Det {detector_id}')
+                axes[row, col].set_xticks([])
                 if col != 0:
                     # axs[row, col].set_yticks([])
-                    axs[row, col].set_ylabel('')
+                    axes[row, col].set_ylabel('')
 
-        def update():
+        def update(_):
             energy_index = senergy.val
             time_index = stime.val
             pids = [slice(0, 4), slice(4, 8), slice(8, 12)]
@@ -208,16 +260,29 @@ class PixelPlotMixin:
 
             for did in range(32):
                 row, col = divmod(did, 8)
-                axs[row, col].set_ylim(0, counts[time_index, imaging_mask, :, energy_index].max())
+                axes[row, col].set_ylim(0, counts[time_index, imaging_mask, :,
+                                                  energy_index].max()*1.2)
+
                 for i, pid in enumerate(pids):
                     lines, caps, bars = containers[row, col][i]
                     lines.set_ydata(counts[time_index, did, pid, energy_index])
+
+                    # horizontal bars at value
                     segs = np.array(bars[0].get_segments())
+                    segs[:, 0, 0] = [0., 1., 2., 3.]
+                    segs[:, 1, 0] = [1., 2., 3., 4.]
+                    segs[:, 0, 1] = counts[time_index, did, pid, energy_index]
+                    segs[:, 1, 1] = counts[time_index, did, pid, energy_index]
+                    bars[0].set_segments(segs)
+                    # vertical bars at +/- error
+                    segs = np.array(bars[1].get_segments())
+                    segs[:, 0, 0] = [0.5, 1.5, 2.5, 3.5]
+                    segs[:, 1, 0] = [0.5, 1.5, 2.5, 3.5]
                     segs[:, 0, 1] = counts[time_index, did, pid, energy_index] \
                         - count_err[time_index, did, pid, energy_index]
                     segs[:, 1, 1] = counts[time_index, did, pid, energy_index] \
                         + count_err[time_index, did, pid, energy_index]
-                    bars[0].set_segments(segs)
+                    bars[1].set_segments(segs)
 
         senergy.on_changed(update)
         stime.on_changed(update)
@@ -242,11 +307,14 @@ class ScienceData:
         self.control = control
         self.data = data
         self.energies_ = energies
-        self.detector_masks = DetectorMasks(self.data['detector_masks'])
-        self.pixel_masks = PixelMasks(self.data['pixel_masks'])
-        self.energy_masks = EnergyMasks(self.control['energy_bin_mask'])
-        self.dE = (energies['e_high'] - energies['e_low'])
-        self.dE[[0, -1]] = 1 * u.keV
+        if 'detector_masks' in self.data.colnames:
+            self.detector_masks = DetectorMasks(self.data['detector_masks'])
+        if 'pixel_masks' in self.data.colnames:
+            self.pixel_masks = PixelMasks(self.data['pixel_masks'])
+        if 'energy_bin_mask' in self.control.colnames:
+            self.energy_masks = EnergyMasks(self.control['energy_bin_mask'])
+            self.dE = (energies['e_high'] - energies['e_low'])
+            self.dE[[0, -1]] = 1 * u.keV
 
     @property
     def time_range(self):
@@ -271,9 +339,9 @@ class ScienceData:
     def get_data(self, time_indices=None, energy_indices=None, detector_indices=None,
                  pixel_indices=None, sum_all_times=False):
         """
-        Return the counts, errors, times, durations and energies for selected data
+        Return the counts, errors, times, durations and energies for selected data.
 
-        optionally summing in time and or energy.
+        Optionally summing in time and or energy.
 
         Parameters
         ----------
@@ -386,7 +454,7 @@ class ScienceData:
                 counts_var = counts_var[time_mask, ...]
                 t_norm = self.data['timedel'][time_mask]
                 times = times[time_mask]
-                dT = self.data['timedel'][time_mask]
+                # dT = self.data['timedel'][time_mask]
             elif time_indices.ndim == 2:
                 new_times = []
                 dT = []
@@ -424,15 +492,17 @@ class ScienceData:
 
     def concatenate(self, others):
         """
-        Concatenate two science products
+        Concatenate two or more science products.
 
         Parameters
         ----------
-        others
+        others: `List[stixpy.science.ScienceData]`
+            The other/s science products to concatenate
 
         Returns
         -------
-
+        `stixpy.science.ScienceData`
+            The concatenated science products
         """
         others = others if isinstance(others, list) else [others]
         if all([isinstance(o, type(self)) for o in others]):
@@ -446,7 +516,7 @@ class ScienceData:
                 try:
                     [(table.meta.pop('DATASUM'), table.meta.pop('CHECKSUM'))
                      for table in [control, other.control, data, other.data]]
-                except KeyError as e:
+                except KeyError:
                     pass
 
                 control = vstack([control, other.control])
@@ -465,12 +535,12 @@ class ScienceData:
     @classmethod
     def from_fits(cls, file):
         """
-        Parses STIX FITS data files to create.
+        Parses STIX FITS data files to create science products.
 
         Parameters
         ----------
         file : `str` or `pathlib.Path`
-            The path to the file you want to parse.
+            The path to the file to open read.
         """
 
         file = Path(file)
@@ -482,64 +552,66 @@ class ScienceData:
 
         filename = file.name
         if 'xray-l0' in filename:
-            return XrayLeveL0(header=header, control=control, data=data, energies=energies)
+            return RawPixelData(header=header, control=control, data=data, energies=energies)
         elif 'xray-l1' in filename:
-            return XrayLeveL1(header=header, control=control, data=data, energies=energies)
+            return CompressedPixelData(header=header, control=control,
+                                       data=data, energies=energies)
         elif 'xray-l2' in filename:
-            return XrayLeveL2(header=header, control=control, data=data, energies=energies)
+            return SummedCompressedPixelData(header=header, control=control,
+                                             data=data, energies=energies)
         elif 'xray-l3' in filename:
-            return XrayVisibility(header=header, control=control, data=data, energies=energies)
+            return Visibility(header=header, control=control, data=data, energies=energies)
         elif 'spectrogram' in filename:
-            return XraySpectrogram(header=header, control=control, data=data, energies=energies)
+            return Spectrogram(header=header, control=control, data=data, energies=energies)
         else:
             raise TypeError(f'File {file} does not contain pixel data')
 
 
-class XrayLeveL0(ScienceData, PixelPlotMixin, TimesSeriesPlotMixin, SpectrogramPlotMixin):
+class RawPixelData(ScienceData, PixelPlotMixin, TimesSeriesPlotMixin, SpectrogramPlotMixin):
     """
-    Uncompressed count data form selected pixels, detectors and energies.
-    """
-    pass
-
-
-class XrayLeveL1(ScienceData, PixelPlotMixin, TimesSeriesPlotMixin, SpectrogramPlotMixin):
-    """
-    Compressed count data form selected pixels, detectors and energies.
+    Uncompressed or raw count data from selected pixels, detectors and energies.
     """
     pass
 
 
-class XrayLeveL2(ScienceData, PixelPlotMixin, TimesSeriesPlotMixin, SpectrogramPlotMixin):
+class CompressedPixelData(ScienceData, PixelPlotMixin, TimesSeriesPlotMixin, SpectrogramPlotMixin):
     """
-    Summed, compressed count data form selected pixels, detectors and energies.
+    Compressed count data from selected pixels, detectors and energies.
     """
     pass
 
 
-class XrayVisibility(ScienceData):
+class SummedCompressedPixelData(ScienceData, PixelPlotMixin, TimesSeriesPlotMixin,
+                                SpectrogramPlotMixin):
+    """
+    Compressed and Summed count data from selected pixels, detectors and energies.
+    """
+    pass
+
+
+class Visibility(ScienceData):
     """
     Compressed visibilities from selected pixels, detectors and energies.
     """
     def __init__(self, *, header, control, data, energies):
-        self.count_type = 'rate'
-        self.header = header
-        self.control = control
-        self.data = data
-        self.energies_ = energies
-        self.detector_masks = DetectorMasks(self.data['detector_masks'])
+        super().__init__(header=header, control=control, data=data, energies=energies)
         self.pixel_masks = PixelMasks(self.pixels)
-        self.energy_masks = EnergyMasks(self.control['energy_bin_mask'])
-        self.dE = (energies['e_high'] - energies['e_low'])
-        self.dE[[0, -1]] = 1 * u.keV
 
     @property
     def pixels(self):
         return np.vstack([self.data[f'pixel_mask{i}'][0] for i in range(1, 6)])
 
 
-class XraySpectrogram(ScienceData, TimesSeriesPlotMixin, SpectrogramPlotMixin):
+class Spectrogram(ScienceData, TimesSeriesPlotMixin, SpectrogramPlotMixin):
     """
-    Spectrogram selected pixels, detectors and energies.
+    Spectrogram from selected pixels, detectors and energies.
+
+    Parameters
+    ----------
+    header : `astropy.fits.Header`
+    control : `astropy.table.QTable`
+    data : `astropy.table.QTable`
+    energies : `astropy.table.QTable`
     """
     def __init__(self, *, header, control, data, energies):
         """
@@ -551,7 +623,7 @@ class XraySpectrogram(ScienceData, TimesSeriesPlotMixin, SpectrogramPlotMixin):
         data : astropy.table.QTable
         energies : astropy.table.QTable
         """
-
+        super().__init__(header=header, control=control, data=data, energies=energies)
         self.count_type = 'rate'
         self.header = header
         self.control = control
@@ -562,16 +634,11 @@ class XraySpectrogram(ScienceData, TimesSeriesPlotMixin, SpectrogramPlotMixin):
         self.energy_masks = EnergyMasks(self.control['energy_bin_mask'])
         self.dE = np.hstack([[1], np.diff(energies['e_low'][1:]).value, [1]]) * u.keV
 
-    @peek_show
-    def peek(self, **kwargs):
-        # Now make the plot
-        figure = plt.figure()
-        self.plot(**kwargs)
-
-        return figure
-
 
 class SliderCustomValue(Slider):
+    """
+    A slider with a customisable formatter
+    """
     def __init__(self, *args, format_func=None, **kwargs):
         if format_func is not None:
             self._format = format_func

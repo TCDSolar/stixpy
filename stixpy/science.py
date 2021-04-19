@@ -15,15 +15,15 @@ from matplotlib.widgets import Slider
 from sunpy.time.timerange import TimeRange
 
 __all__ = ['ScienceData', 'RawPixelData', 'CompressedPixelData', 'SummedCompressedPixelData',
-           'Visibility',
-           'Spectrogram']
+           'Visibility', 'Spectrogram', 'PPrintMixin', 'IndexMasks', 'DetectorMasks', 'PixelMasks',
+           'EnergyMasks']
 
 quantity_support()
 
 
 class PPrintMixin:
     """
-    Provides pretty printing for index index masks.
+    Provides pretty printing for index masks.
     """
     @staticmethod
     def _pprint_indices(indices):
@@ -41,10 +41,17 @@ class PPrintMixin:
 class IndexMasks(PPrintMixin):
     """
 
+    Attributes
+    ----------
+    masks : 'numpy.ndarray`
+        The mask arrays
+    indices : `numpy.ndarray'
+        The indices the mask/s applies to
+
     """
-    def __init__(self, detector_masks):
-        masks = np.unique(detector_masks, axis=0)
-        indices = [np.argwhere(np.all(detector_masks == mask, axis=1)).reshape(-1)
+    def __init__(self, mask_array):
+        masks = np.unique(mask_array, axis=0)
+        indices = [np.argwhere(np.all(mask_array == mask, axis=1)).reshape(-1)
                    for mask in masks]
         self.masks = masks
         self.indices = indices
@@ -101,16 +108,24 @@ class SpectrogramPlotMixin:
     """
     def plot_spectrogram(self, axes=None, time_indices=None, energy_indices=None):
         """
+        Plot a spectrogram for the selected time and energies.
 
         Parameters
         ----------
-        axes
-        time_indices
-        energy_indices
+        axes : optional `matplotlib.axes`
+            The axes the plot the spectrogram.
+        time_indices : `list` or `numpy.ndarray`
+            If an 1xN array will be treated as mask if 2XN array will sum data between given
+            indices. For example `time_indices=[0, 2, 5]` would return only the first, third and
+            sixth times while `time_indices=[[0, 2],[3, 5]]` would sum the data between.
+        energy_indices : `list` or `numpy.ndarray`
+            If an 1xN array will be treated as mask if 2XN array will sum data between given
+            indices. For example `energy_indices=[0, 2, 5]` would return only the first, third and
+            sixth times while `energy_indices=[[0, 2],[3, 5]]` would sum the data between.
 
         Returns
         -------
-
+        `matplotlib.axes`
         """
 
         if axes is None:
@@ -158,7 +173,29 @@ class TimesSeriesPlotMixin:
     TimesSeries plot mixin providing timeseries plotting for pixel data.
     """
     def plot_timeseries(self, time_indices=None, energy_indices=None, axes=None, error_bar=False):
+        """
+        Plot a times series of the selected times and energies.
 
+        Parameters
+        ----------
+        axes : optional `matplotlib.axes`
+            The axes the plot the spectrogram.
+        time_indices : `list` or `numpy.ndarray`
+            If an 1xN array will be treated as mask if 2XN array will sum data between given
+            indices. For example `time_indices=[0, 2, 5]` would return only the first, third and
+            sixth times while `time_indices=[[0, 2],[3, 5]]` would sum the data between.
+        energy_indices : `list` or `numpy.ndarray`
+            If an 1xN array will be treated as mask if 2XN array will sum data between given
+            indices. For example `energy_indices=[0, 2, 5]` would return only the first, third and
+            sixth times while `energy_indices=[[0, 2],[3, 5]]` would sum the data between.
+        error_bar : optional `bool`
+            Add error bars to plot.
+
+        Returns
+        -------
+        `matplotlib.axes`
+
+        """
         if axes is None:
             fig, axes = plt.subplots()
         else:
@@ -192,16 +229,25 @@ class PixelPlotMixin:
     """
     def plot_pixels(self, time_indices=None, energy_indices=None, fig=None):
         """
+        Plot individual pixel data for each detector.
 
         Parameters
         ----------
-        time_indices
-        energy_indices
-        fig
+        time_indices : `list` or `numpy.ndarray`
+            If an 1xN array will be treated as mask if 2XN array will sum data between given
+            indices. For example `time_indices=[0, 2, 5]` would return only the first, third and
+            sixth times while `time_indices=[[0, 2],[3, 5]]` would sum the data between.
+        energy_indices : `list` or `numpy.ndarray`
+            If an 1xN array will be treated as mask if 2XN array will sum data between given
+            indices. For example `energy_indices=[0, 2, 5]` would return only the first, third and
+            sixth times while `energy_indices=[[0, 2],[3, 5]]` would sum the data between.
+        fig : optional `matplotlib.figure`
+            The figure where to which the pixel plot will be added.
 
         Returns
         -------
-
+        `matplotlib.figure`
+            The figure
         """
 
         if fig:
@@ -234,10 +280,10 @@ class PixelPlotMixin:
 
         for detector_id in range(32):
             row, col = divmod(detector_id, 8)
-            for pid in pixel_ids:
+            for pixel_id in pixel_ids:
                 errbar_cont = axes[row, col].errorbar((0.5, 1.5, 2.5, 3.5),
-                                                      counts[0, detector_id, pid, 0],
-                                                      yerr=count_err[0, detector_id, pid, 0],
+                                                      counts[0, detector_id, pixel_id, 0],
+                                                      yerr=count_err[0, detector_id, pixel_id, 0],
                                                       xerr=0.5, ls='')
 
                 containers[row, col].append(errbar_cont)
@@ -251,20 +297,20 @@ class PixelPlotMixin:
         def update(_):
             energy_index = senergy.val
             time_index = stime.val
-            pids = [slice(0, 4), slice(4, 8), slice(8, 12)]
+            pids_ = [slice(0, 4), slice(4, 8), slice(8, 12)]
             if counts.shape[2] == 4:
-                pids = [slice(0, 4)]
+                pids_ = [slice(0, 4)]
 
             imaging_mask = np.ones(32, bool)
             imaging_mask[8:10] = False
 
             for did in range(32):
-                row, col = divmod(did, 8)
-                axes[row, col].set_ylim(0, counts[time_index, imaging_mask, :,
-                                                  energy_index].max()*1.2)
+                r, c = divmod(did, 8)
+                axes[r, c].set_ylim(0, counts[time_index, imaging_mask, :,
+                                              energy_index].max()*1.2)
 
-                for i, pid in enumerate(pids):
-                    lines, caps, bars = containers[row, col][i]
+                for i, pid in enumerate(pids_):
+                    lines, caps, bars = containers[r, c][i]
                     lines.set_ydata(counts[time_index, did, pid, energy_index])
 
                     # horizontal bars at value
@@ -297,10 +343,14 @@ class ScienceData:
 
         Parameters
         ----------
-        header : astropy.fits.Header
-        control : astropy.table.QTable
-        data : astropy.table.QTable
-        energies : astropy.table.QTable
+        header : `astropy.fits.Header`
+            Fits header
+        control : `astropy.table.QTable`
+            Fits file control extension
+        data :` astropy.table.QTable`
+            Fits file data extension
+        energies : `astropy.table.QTable`
+            Fits file energy extension
         """
         self.count_type = 'rate'
         self.header = header
@@ -318,22 +368,37 @@ class ScienceData:
 
     @property
     def time_range(self):
+        """
+        A `sunpy.time.TimeRange` for the data.
+        """
         return TimeRange(self.data['time'].min(), self.data['time'].max())
 
     @property
     def pixels(self):
+        """
+        A `stixpy.science.PixelMasks` object representing the pixels contained in the data
+        """
         return self.pixel_masks
 
     @property
     def detectors(self):
+        """
+        A `stixpy.science.DetectorMasks` object representing the detectors contained in the data.
+        """
         return self.detector_masks
 
     @property
     def energies(self):
+        """
+        A `astropy.table.Table` object representing the energies contained in the data.
+        """
         return self.energies_
 
     @property
     def times(self):
+        """
+        An `astropy.time.Time` array representing the center of the observed time bins.
+        """
         return self.data['time']
 
     def get_data(self, time_indices=None, energy_indices=None, detector_indices=None,
@@ -345,19 +410,19 @@ class ScienceData:
 
         Parameters
         ----------
-        time_indices : `list` or `array-like`
+        time_indices : `list` or `numpy.ndarray`
             If an 1xN array will be treated as mask if 2XN array will sum data between given
             indices. For example `time_indices=[0, 2, 5]` would return only the first, third and
             sixth times while `time_indices=[[0, 2],[3, 5]]` would sum the data between.
-        energy_indices : `list` or `array-like`
+        energy_indices : `list` or `numpy.ndarray`
             If an 1xN array will be treated as mask if 2XN array will sum data between given
             indices. For example `energy_indices=[0, 2, 5]` would return only the first, third and
             sixth times while `energy_indices=[[0, 2],[3, 5]]` would sum the data between.
-        detector_indices : `list` or `array-like`
+        detector_indices : `list` or `numpy.ndarray`
             If an 1xN array will be treated as mask if 2XN array will sum data between given
             indices. For example `detector_indices=[0, 2, 5]` would return only the first, third and
             sixth detectors while `detector_indices=[[0, 2],[3, 5]]` would sum the data between.
-        pixel_indices : `list` or `array-like`
+        pixel_indices : `list` or `numpy.ndarray`
             If an 1xN array will be treated as mask if 2XN array will sum data between given
             indices. For example `pixel_indices=[0, 2, 5]` would return only the first, third and
             sixth pixels while `pixel_indices=[[0, 2],[3, 5]]` would sum the data between.
@@ -366,16 +431,8 @@ class ScienceData:
 
         Returns
         -------
-        counts
-            Counts
-        error
-            Error
-        times
-            Times
-        deltatimes
-            dt
-        energies
-            Energies
+        `tuple`
+            Counts, errors, times, deltatimes,  energies
 
         """
         counts = self.data['counts']
@@ -457,27 +514,27 @@ class ScienceData:
                 # dT = self.data['timedel'][time_mask]
             elif time_indices.ndim == 2:
                 new_times = []
-                dT = []
+                dt = []
                 for tl, th in time_indices:
                     ts = times[tl] - self.data['timedel'][tl] * 0.5
                     te = times[th] + self.data['timedel'][th] * 0.5
                     td = te - ts
                     tc = ts + (td * 0.5)
-                    dT.append(td.to('s'))
+                    dt.append(td.to('s'))
                     new_times.append(tc)
-                dT = np.hstack(dT)
+                dt = np.hstack(dt)
                 times = Time(new_times)
                 counts = np.vstack([np.sum(counts[tl:th+1, ...], axis=0, keepdims=True) for tl, th
                                     in time_indices])
 
                 counts_var = np.vstack([np.sum(counts_var[tl:th+1, ...], axis=0, keepdims=True)
                                         for tl, th in time_indices])
-                t_norm = dT
+                t_norm = dt
 
                 if sum_all_times and len(new_times) > 1:
                     counts = np.sum(counts, axis=0, keepdims=True)
                     counts_var = np.sum(counts_var, axis=0, keepdims=True)
-                    t_norm = np.sum(dT)
+                    t_norm = np.sum(dt)
 
         if e_norm.size != 1:
             e_norm = e_norm.reshape(1, 1, 1, -1)
@@ -496,7 +553,7 @@ class ScienceData:
 
         Parameters
         ----------
-        others: `List[stixpy.science.ScienceData]`
+        others: `list` [`stixpy.science.ScienceData`]
             The other/s science products to concatenate
 
         Returns
@@ -570,6 +627,41 @@ class ScienceData:
 class RawPixelData(ScienceData, PixelPlotMixin, TimesSeriesPlotMixin, SpectrogramPlotMixin):
     """
     Uncompressed or raw count data from selected pixels, detectors and energies.
+
+    Examples
+    --------
+    >>> from stixpy.data import test
+    >>> from stixpy.science import ScienceData
+    >>> raw_pd = ScienceData.from_fits(test.STIX_SCI_XRAY_L0)
+    >>> raw_pd
+    RawPixelData   <sunpy.time.timerange.TimeRange object at ...>
+        Start: 2020-05-06 00:00:00
+        End:   2020-05-06 00:00:16
+        Center:2020-05-06 00:00:08
+        Duration:0.0001851851851850661 days or
+               0.0044444444444415865 hours or
+               0.2666666666664952 minutes or
+               15.999999999989711 seconds
+        DetectorMasks
+        [0...4]: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31]
+    <BLANKLINE>
+        PixelMasks
+        [0...4]: [[['1.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0']
+     ['0.0' '1.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0']
+     ['0.0' '0.0' '1.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0']
+     ['0.0' '0.0' '0.0' '1.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0']
+     ['0.0' '0.0' '0.0' '0.0' '1.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0']
+     ['0.0' '0.0' '0.0' '0.0' '0.0' '1.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0']
+     ['0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '1.0' '0.0' '0.0' '0.0' '0.0' '0.0']
+     ['0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '1.0' '0.0' '0.0' '0.0' '0.0']
+     ['0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '1.0' '0.0' '0.0' '0.0']
+     ['0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '1.0' '0.0' '0.0']
+     ['0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '1.0' '0.0']
+     ['0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '1.0']]]
+    <BLANKLINE>
+    EnergyMasks
+    [0]: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31]
+    <BLANKLINE>
     """
     pass
 
@@ -577,6 +669,40 @@ class RawPixelData(ScienceData, PixelPlotMixin, TimesSeriesPlotMixin, Spectrogra
 class CompressedPixelData(ScienceData, PixelPlotMixin, TimesSeriesPlotMixin, SpectrogramPlotMixin):
     """
     Compressed count data from selected pixels, detectors and energies.
+
+    Examples
+    --------
+    >>> from stixpy.data import test
+    >>> from stixpy.science import ScienceData
+    >>> compressed_pd = ScienceData.from_fits(test.STIX_SCI_XRAY_L1)
+    >>> compressed_pd
+    CompressedPixelData   <sunpy.time.timerange.TimeRange object at ...>
+        Start: 2020-05-06 00:00:00
+        End:   2020-05-06 00:00:16
+        Center:2020-05-06 00:00:08
+        Duration:0.0001851851851850661 days or
+                0.0044444444444415865 hours or
+                0.2666666666664952 minutes or
+                15.999999999989711 seconds
+        DetectorMasks
+        [0...4]: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31]
+    <BLANKLINE>
+    PixelMasks
+        [0...4]: [[['1.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0']
+     ['0.0' '1.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0']
+     ['0.0' '0.0' '1.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0']
+     ['0.0' '0.0' '0.0' '1.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0']
+     ['0.0' '0.0' '0.0' '0.0' '1.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0']
+     ['0.0' '0.0' '0.0' '0.0' '0.0' '1.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0']
+     ['0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '1.0' '0.0' '0.0' '0.0' '0.0' '0.0']
+     ['0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '1.0' '0.0' '0.0' '0.0' '0.0']
+     ['0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '1.0' '0.0' '0.0' '0.0']
+     ['0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '1.0' '0.0' '0.0']
+     ['0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '1.0' '0.0']
+     ['0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '1.0']]]
+    <BLANKLINE>
+        EnergyMasks
+    [0]: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31]
     """
     pass
 
@@ -585,6 +711,32 @@ class SummedCompressedPixelData(ScienceData, PixelPlotMixin, TimesSeriesPlotMixi
                                 SpectrogramPlotMixin):
     """
     Compressed and Summed count data from selected pixels, detectors and energies.
+
+    Examples
+    --------
+    >>> from stixpy.data import test
+    >>> from stixpy.science import ScienceData
+    >>> summed_pd = ScienceData.from_fits(test.STIX_SCI_XRAY_L2)
+    >>> summed_pd
+    SummedCompressedPixelData   <sunpy.time.timerange.TimeRange object at ...>
+        Start: 2020-05-06 00:00:00
+        End:   2020-05-06 00:00:16
+        Center:2020-05-06 00:00:08
+        Duration:0.0001851851851850661 days or
+               0.0044444444444415865 hours or
+               0.2666666666664952 minutes or
+               15.999999999989711 seconds
+        DetectorMasks
+        [0...4]: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31]
+    <BLANKLINE>
+        PixelMasks
+        [0...4]: [[['1.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0']
+     ['0.0' '1.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0']
+     ['0.0' '0.0' '1.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0']
+     ['0.0' '0.0' '0.0' '1.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0']]]
+    <BLANKLINE>
+        EnergyMasks
+        [0]: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31]
     """
     pass
 
@@ -592,6 +744,89 @@ class SummedCompressedPixelData(ScienceData, PixelPlotMixin, TimesSeriesPlotMixi
 class Visibility(ScienceData):
     """
     Compressed visibilities from selected pixels, detectors and energies.
+
+    Examples
+    --------
+    >>> from stixpy.data import test
+    >>> from stixpy.science import ScienceData
+    >>> visibility = ScienceData.from_fits(test.STIX_SCI_XRAY_L3)
+    >>> visibility
+    Visibility   <sunpy.time.timerange.TimeRange object at ...>
+        Start: 2020-05-07 23:59:58
+        End:   2020-05-08 00:00:14
+        Center:2020-05-08 00:00:06
+        Duration:0.00018518518518517713 days or
+               0.004444444444444251 hours or
+               0.26666666666665506 minutes or
+               15.999999999999304 seconds
+        DetectorMasks
+        [0...4]: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31]
+    <BLANKLINE>
+        PixelMasks
+        [0]: [[['1.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0']
+     ['0.0' '1.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0']
+     ['0.0' '0.0' '1.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0']
+     ['0.0' '0.0' '0.0' '1.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0']
+     ['0.0' '0.0' '0.0' '0.0' '1.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0']
+     ['0.0' '0.0' '0.0' '0.0' '0.0' '1.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0']
+     ['0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '1.0' '0.0' '0.0' '0.0' '0.0' '0.0']
+     ['0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '1.0' '0.0' '0.0' '0.0' '0.0']
+     ['0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '1.0' '0.0' '0.0' '0.0']
+     ['0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '1.0' '0.0' '0.0']
+     ['0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '1.0' '0.0']
+     ['0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '1.0']]]
+        [1]: [[['1.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0']
+     ['0.0' '1.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0']
+     ['0.0' '0.0' '1.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0']
+     ['0.0' '0.0' '0.0' '1.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0']
+     ['0.0' '0.0' '0.0' '0.0' '1.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0']
+     ['0.0' '0.0' '0.0' '0.0' '0.0' '1.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0']
+     ['0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '1.0' '0.0' '0.0' '0.0' '0.0' '0.0']
+     ['0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '1.0' '0.0' '0.0' '0.0' '0.0']
+     ['0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '1.0' '0.0' '0.0' '0.0']
+     ['0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '1.0' '0.0' '0.0']
+     ['0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '1.0' '0.0']
+     ['0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '1.0']]]
+        [2]: [[['1.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0']
+     ['0.0' '1.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0']
+     ['0.0' '0.0' '1.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0']
+     ['0.0' '0.0' '0.0' '1.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0']
+     ['0.0' '0.0' '0.0' '0.0' '1.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0']
+     ['0.0' '0.0' '0.0' '0.0' '0.0' '1.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0']
+     ['0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '1.0' '0.0' '0.0' '0.0' '0.0' '0.0']
+     ['0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '1.0' '0.0' '0.0' '0.0' '0.0']
+     ['0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '1.0' '0.0' '0.0' '0.0']
+     ['0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '1.0' '0.0' '0.0']
+     ['0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '1.0' '0.0']
+     ['0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '1.0']]]
+        [3]: [[['1.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0']
+     ['0.0' '1.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0']
+     ['0.0' '0.0' '1.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0']
+     ['0.0' '0.0' '0.0' '1.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0']
+     ['0.0' '0.0' '0.0' '0.0' '1.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0']
+     ['0.0' '0.0' '0.0' '0.0' '0.0' '1.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0']
+     ['0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '1.0' '0.0' '0.0' '0.0' '0.0' '0.0']
+     ['0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '1.0' '0.0' '0.0' '0.0' '0.0']
+     ['0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '1.0' '0.0' '0.0' '0.0']
+     ['0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '1.0' '0.0' '0.0']
+     ['0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '1.0' '0.0']
+     ['0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '1.0']]]
+        [4]: [[['1.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0']
+     ['0.0' '1.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0']
+     ['0.0' '0.0' '1.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0']
+     ['0.0' '0.0' '0.0' '1.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0']
+     ['0.0' '0.0' '0.0' '0.0' '1.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0']
+     ['0.0' '0.0' '0.0' '0.0' '0.0' '1.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0']
+     ['0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '1.0' '0.0' '0.0' '0.0' '0.0' '0.0']
+     ['0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '1.0' '0.0' '0.0' '0.0' '0.0']
+     ['0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '1.0' '0.0' '0.0' '0.0']
+     ['0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '1.0' '0.0' '0.0']
+     ['0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '1.0' '0.0']
+     ['0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '1.0']]]
+    <BLANKLINE>
+        EnergyMasks
+        [0]: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31]
+    <BLANKLINE>
     """
     def __init__(self, *, header, control, data, energies):
         super().__init__(header=header, control=control, data=data, energies=energies)
@@ -612,6 +847,33 @@ class Spectrogram(ScienceData, TimesSeriesPlotMixin, SpectrogramPlotMixin):
     control : `astropy.table.QTable`
     data : `astropy.table.QTable`
     energies : `astropy.table.QTable`
+
+    Examples
+    --------
+    >>> from stixpy.data import test
+    >>> from stixpy.science import ScienceData
+    >>> spectogram = ScienceData.from_fits(test.STIX_SCI_XRAY_L2)
+    >>> spectogram
+    SummedCompressedPixelData   <sunpy.time.timerange.TimeRange object at ...>
+        Start: 2020-05-06 00:00:00
+        End:   2020-05-06 00:00:16
+        Center:2020-05-06 00:00:08
+        Duration:0.0001851851851850661 days or
+               0.0044444444444415865 hours or
+               0.2666666666664952 minutes or
+               15.999999999989711 seconds
+        DetectorMasks
+        [0...4]: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31]
+    <BLANKLINE>
+        PixelMasks
+        [0...4]: [[['1.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0']
+     ['0.0' '1.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0']
+     ['0.0' '0.0' '1.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0']
+     ['0.0' '0.0' '0.0' '1.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0']]]
+    <BLANKLINE>
+        EnergyMasks
+        [0]: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31]
+    <BLANKLINE>
     """
     def __init__(self, *, header, control, data, energies):
         """

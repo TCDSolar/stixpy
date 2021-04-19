@@ -8,6 +8,28 @@ __all__ = ["STIXClient"]
 
 
 class STIXClient(GenericClient):
+    """
+    A Fido client to search and download STIX data from the STIX instrument archive
+
+    Examples
+    --------
+    >>> from sunpy.net import Fido, attrs as a
+    >>> from stixpy.net import client
+    >>> query = Fido.search(a.Time('2020-06-05', '2020-06-07'), a.Instrument.stix,
+    ...                     a.stix.DataProduct.ql_lightcurve)  #doctest: +REMOTE_DATA
+    >>> query  #doctest: +REMOTE_DATA
+    <sunpy.net.fido_factory.UnifiedResponse object at ...>
+    Results from 1 Provider:
+    <BLANKLINE>
+    3 Results from the STIXClient:
+           Start Time               End Time        ...  DataProduct  Request ID
+    ----------------------- ----------------------- ... ------------- ----------
+    2020-06-05 00:00:00.000 2020-06-05 23:59:59.999 ... ql-lightcurve          -
+    2020-06-06 00:00:00.000 2020-06-06 23:59:59.999 ... ql-lightcurve          -
+    2020-06-07 00:00:00.000 2020-06-07 23:59:59.999 ... ql-lightcurve          -
+    <BLANKLINE>
+    <BLANKLINE>
+    """
     baseurl = (r'https://homepages.dias.ie/smaloney/stix-data/'
                r'{level}/{year:4d}/{month:02d}/{day:02d}/{datatype}/')
     ql_filename = r'solo_{level}_stix-{product}_\d{{8}}_V\d{{2}}.fits'

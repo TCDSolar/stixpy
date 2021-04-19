@@ -29,6 +29,24 @@ class QLLightCurve(GenericTimeSeries):
     Quicklook X-ray time series.
 
     Nominally in 5 energy bands from 4 - 150 kev
+
+    Examples
+    --------
+    >>> from stixpy.data import test
+    >>> from sunpy.timeseries import TimeSeries
+    >>> from stixpy.timeseries.quicklook import QLLightCurve
+    >>> lc = TimeSeries(test.STIX_QL_LIGHTCURVE_TIMESERIES)
+    >>> lc
+    QLLightCurve
+           <sunpy.time.timerange.TimeRange object at ...>
+        Start: 2020-05-05 00:00:01
+        End:   2020-05-05 23:59:57
+        Center:2020-05-05 11:59:59
+        Duration:0.999952986111111 days or
+               23.998871666666666 hours or
+               1439.9323 minutes or
+               86395.938 seconds
+    <BLANKLINE>
     """
     _source = 'stix'
 
@@ -124,6 +142,7 @@ class QLLightCurve(GenericTimeSeries):
     def _parse_hdus(cls, hdulist):
         """
         Parses STIX FITS data files to create TimeSeries.
+
         Parameters
         ----------
         hdulist :
@@ -184,6 +203,15 @@ class QLLightCurve(GenericTimeSeries):
 class QLBackground(GenericTimeSeries):
     """
     Quicklook X-ray background detector time series.
+
+    Examples
+    --------
+    >>> from stixpy.data import test
+    >>> from sunpy.timeseries import TimeSeries
+    >>> from stixpy.timeseries.quicklook import QLLightCurve
+    >>> bg = TimeSeries(test.STIX_QL_BACKGROUND_TIMESERIES)
+    >>> bg
+    <stixpy.timeseries.quicklook.QLBackground object at ...>
     """
 
     def plot(self, axes=None, **plot_args):
@@ -256,6 +284,7 @@ class QLBackground(GenericTimeSeries):
     def _parse_hdus(cls, hdulist):
         """
         Parses STIX FITS data files to create TimeSeries.
+
         Parameters
         ----------
         hdulist :
@@ -318,6 +347,15 @@ class QLBackground(GenericTimeSeries):
 class QLVariance(GenericTimeSeries):
     """
     Quicklook X-ray background detector time series.
+
+    Examples
+    --------
+    >>> from stixpy.data import test
+    >>> from sunpy.timeseries import TimeSeries
+    >>> from stixpy.timeseries.quicklook import QLLightCurve
+    >>> bg = TimeSeries(test.STIX_QL_VARIANCE_TIMESERIES)
+    >>> bg
+    <stixpy.timeseries.quicklook.QLVariance object at ...>
     """
     def plot(self, axes=None, **plot_args):
         """
@@ -388,6 +426,7 @@ class QLVariance(GenericTimeSeries):
     def _parse_hdus(cls, hdulist):
         """
         Parses STIX FITS data files to create TimeSeries.
+
         Parameters
         ----------
         hdulist :

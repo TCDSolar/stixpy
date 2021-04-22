@@ -18,27 +18,6 @@ from sunpy.net import Fido
 from sunpy.net import attrs as a
 plt.rcParams.update({'font.size': 7})
 
-def get_aia_map(start_day, end_day, wavelength, path):
-    '''
-    e.g
-    start_day = '2020-10-01'
-    end_day = '2020-10-02'
-    path = '/Users/Username/Desktop/'
-    wavelength[nm] = 19.5
-    '''
-    # Fetching AIA Data
-    aia = (a.Instrument.aia &
-           a.Sample(24 * u.hour) &
-           a.Time(start_day, end_day))
-    wave = a.Wavelength(wavelength, wavelength)
-    res = Fido.search(wave, aia)
-    files = Fido.fetch(res, path = path)
-
-    # Converting to sunpy map
-    aia_map  = sunpy.map.Map(files)
-    return (aia_map)
-
-
 def get_SOLO_Pos(start_day, end_day):
     """
         Return the position of SOLO in SOLO_HEE coordinate frame

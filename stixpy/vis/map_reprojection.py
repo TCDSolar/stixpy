@@ -112,7 +112,7 @@ def reproject_map(map, observer, out_shape=(512, 512)):
     return (outmap)
 
 
-def aia_reproj_plot(map, observer):
+def map_reproj_plot(map, observer):
     """
     Reprojects a map to be viewed from a different observer
 
@@ -125,7 +125,7 @@ def aia_reproj_plot(map, observer):
 
     Returns
     -------
-    Plots reprojected map, input map and polar positions of SOLO, AIA, and The Sun
+    Plots reprojected map, input map and polar positions of observer, input map observer, and The Sun
     """
     reprojected_map = reproject_map(map, observer)
     fig1 = plt.figure(figsize=(16, 6))
@@ -186,4 +186,4 @@ observer = get_SOLO_Pos(map)
 reprojected_map = reproject_map(map, observer)
 
 # Run plotting function
-aia_reproj_plot(map, observer)
+map_reproj_plot(map, observer)

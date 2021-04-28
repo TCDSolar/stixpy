@@ -1,235 +1,189 @@
 from datetime import datetime
-from stixcore.ephemeris.manager import Position
-import stixcore.data.test
 from pathlib import Path
-import sunpy
-import sys
-from sunpy.coordinates import get_body_heliographic_stonyhurst
-from astropy.coordinates import SkyCoord
-import astropy.units as u
-from sunpy.map import Map
-from sunpy.coordinates import get_body_heliographic_stonyhurst
-from sunpy.coordinates import frames
-from astropy.wcs import WCS
-from pathlib import Path
-from reproject import reproject_interp
-import matplotlib.pyplot as plt
-from sunpy.net import Fido
-from sunpy.net import attrs as a
-plt.rcParams.update({'font.size': 7})
 
-def get_SOLO_Pos(start_day, end_day):
+import astropy.units as u
+import matplotlib.pyplot as plt
+import stixcore.data.test
+import sunpy
+from astropy.coordinates import SkyCoord
+from astropy.wcs import WCS
+from reproject import reproject_interp
+from stixcore.ephemeris.manager import Position
+from sunpy.coordinates import frames
+from sunpy.coordinates import get_body_heliographic_stonyhurst
+from sunpy.map import Map
+
+
+def get_SOLO_Pos(map):
     """
-        Return the position of SOLO in SOLO_HEE coordinate frame
-        Parameters
-        ----------
-        start_day : string
-            Provide a string of the start date with YYYY-DD-MM formatting. e.g '2020-03-09'
-        end_day : string
-            Provide a string of a the end date with YYYY-DD-MM formatting. e.g '2020-03-10'
-        Returns
-        -------
-        p : tuple
-            position of SOLO in SOLO_HEE coordinate frame
+    Returns position of SOLO at the time the map was observed
+
+    Parameters
+    ----------
+    map : `sunpy.map.Map`
+        Map to reproject to be as seen from SOLO
+
+    Returns
+    -------
+    solo_hgs : `astropy.coordinates.SkyCoord`
+        The position of SOLO in HeliographicStonyhurst frame
     """
     # Specifiying year, month, day
-    start_year = int(start_day[0:4])
-    start_month = int(start_day[5:7])
-    start_day = int(start_day[8:10])
+    date = map.date.value[0:10]
+    date_year = int(date[0:4])
+    date_month = int(date[5:7])
+    date_day = int(date[8:10])
 
-    from pathlib import Path
-    mkp = Path(stixcore.ephemeris.manager.__file__).parent.parent / 'data' / 'test' / 'ephemeris' / 'test_position_20201001_V01.mk'
+    mkp = Path(
+        stixcore.ephemeris.manager.__file__).parent.parent / 'data' / 'test' / 'ephemeris' / 'test_position_20201001_V01.mk'
     with Position(meta_kernel_path=mkp) as pos:
-        p = pos.get_position(date=datetime(start_year, start_month, start_day), frame='SOLO_HEE')
+        p = pos.get_position(date=datetime(date_year, date_month, date_day), frame='SOLO_HEE')
     print(p)
-    return(p)
-#__________________________________
-
-
-def convert_SOLO_coords(start_day, end_day, p, aiamap):
-    """
-        Returns the position of SOLO in HeliographicStonyhurst frame and returns the reference frame (AIA as seen by SOLAR ORBITER)
-        Parameters
-        ----------
-        start_day : string
-            Provide a string of the start date with YYYY-DD-MM formatting. e.g '2020-03-09'
-        end_day : string
-            Provide a string of a the end date with YYYY-DD-MM formatting. e.g '2020-03-10'
-        p : tuple
-            Position of SOLO in SOLO_HEE coordinate frame
-        aiamap: SunPy map
-            AIA map
-        Returns
-        -------
-        solo_hgs_ref_coord : SkyCoord
-            The reference frame for the reprojection (AIA as seen by SOLAR ORBITER)
-        solo_hgs : SkyCoord
-            The position of SOLO in HeliographicStonyhurst frame
-    """
-    # Converting return of STIXCORE POISITION to HeliocentricEarthEcliptic frame
-    solo_hee = SkyCoord(*p, frame=frames.HeliocentricEarthEcliptic, representation_type='cartesian', obstime=start_day)
-
+    solo_hee = SkyCoord(*p, frame=frames.HeliocentricEarthEcliptic, representation_type='cartesian', obstime=date)
     # Converting HeliocentricEarthEcliptic coords of SOLAR ORBTER position to HeliographicStonyhurst frame
     solo_hgs = solo_hee.transform_to(frames.HeliographicStonyhurst)
-
-    # Creating reference frame (AIA as seen by SOLAR ORBITER)
-    solo_hgs_ref_coord = SkyCoord(aiamap.reference_coordinate.Tx,aiamap.reference_coordinate.Ty,obstime=aiamap.reference_coordinate.obstime,
-    observer=solo_hgs,frame="helioprojective")
-    return (solo_hgs_ref_coord, solo_hgs)
-#__________________________________
+    return (solo_hgs)
 
 
-def create_wcs_header(solo_hgs_ref_coord, aia_map):
+def create_headers(obs_ref_coord, map, out_shape=(512, 512)):
     """
-        Returns the header, wcs header, and the shape of the reprojected map
-        ----------
-        solo_hgs_ref_coord : SkyCoord
-            The reference frame for the reprojection (AIA as seen by SOLAR ORBITER)
-        solo_hgs : SkyCoord
-            The position of SOLO in HeliographicStonyhurst frame
-        Returns
-        -------
-        solo_wcs : WCS
-            wcs header
-        out_shape : tuple
-            the shape of the reprojected map
-        solo_header : MetaDict
-            header
+    Generates MetaDict WCS headers for reprojected map
+
+    Parameters
+    ----------
+    obs_ref_coord : `sunpy.map.Map`
+        Target WCS reference coordinate (as seen by observer).
+        Generated in map_reproject_to_observer function.
+    observer : `astropy.coordinates.SkyCoord`
+        The coordinates of the observer in HeliographicStonyhurst frame
+    out_shape : `tuple`
+        The shape of the reprojected map - defaults to (512, 512)
+
+    Returns
+    -------
+    obs_wcs_header : `astropy.wcs`
+        WCS header for reprojected map
+    obs_metadict_header : `MetaDict`
+        MetaDict header for reprojected map
     """
-    out_shape = (512, 512)
-    solo_header = sunpy.map.make_fitswcs_header(
-    out_shape,
-    solo_hgs_ref_coord,
-    scale=u.Quantity(aia_map.scale)*8,
-    rotation_matrix=aia_map.rotation_matrix,
-    instrument="AIA",
-    wavelength=aia_map.wavelength)
+    obs_metadict_header = sunpy.map.make_fitswcs_header(
+        out_shape,
+        obs_ref_coord,
+        scale=u.Quantity(map.scale) * 8,
+        rotation_matrix=map.rotation_matrix,
+        instrument=map.detector,
+        wavelength=map.wavelength)
 
-    solo_wcs = WCS(solo_header)
-    print('header 4096: ', solo_wcs)
-    return(solo_wcs, out_shape, solo_header)
-#__________________________________
+    obs_wcs_header = WCS(obs_metadict_header)
+    return (obs_wcs_header, obs_metadict_header)
 
 
-def aia_reproj_interp(aia_map, solo_wcs, out_shape, solo_header):
+# __________________________________
+
+def reproject_map(map, observer, out_shape=(512, 512)):
     """
-        Returns the reprojected map (AIA as seen from SOLO)
-        ----------
-        aia_map : SunPy Map
-            AIA map
-        solo_wcs : WCS
-            wcs header constructed for reprojection
-        out_shape : tuple
-            the shape of the reprojected map
-        solo_header : MetaDict
-            header
-        Returns
-        -------
-        outmap : SunPy map
-            the reprojected map (AIA as seen from SOLO)
-    """
-    # Performing reprojection to generate map of AIA as seen by Solar Orbiter
-    output, footprint = reproject_interp(aia_map, solo_wcs, out_shape)
-    outmap = sunpy.map.Map((output, solo_header))
-    print('outmap 4096: ', outmap)
+    Reprojects a map to be viewed from a different observer
 
-    outmap.plot_settings = aia_map.plot_settings
-    return(outmap)
-#__________________________________
+    Parameters
+    ----------
+    map : `sunpy.map.Map`
+        The input map to be reprojected
+    observer : `astropy.coordinates.SkyCoord`
+        The coordinates of the observer in HeliographicStonyhurst frame
+    obs_wcs_header : `astropy.wcs`
+        WCS header for reprojected map
+    obs_MetaDict_header : `MetaDict`
+        MetaDict header for reprojected map
+    out_shape : `tuple`
+        The shape of the reprojected map - defaults to (512, 512)
+
+    Returns
+    -------
+    map : `sunpy.map.Map`
+        Reprojected map
+    """
+    obs_ref_coord = SkyCoord(map.reference_coordinate.Tx, map.reference_coordinate.Ty,
+                             obstime=map.reference_coordinate.obstime,
+                             observer=observer, frame="helioprojective")
+    obs_wcs_header, obs_metadict_header = create_headers(obs_ref_coord, map, out_shape=out_shape)
+    output, footprint = reproject_interp(map, obs_wcs_header, out_shape)
+    outmap = sunpy.map.Map(output, obs_metadict_header)
+    outmap.plot_settings = map.plot_settings
+    return (outmap)
 
 
-def aia_reproj_plot(start_day, end_day, aia_map, outmap, solo_hgs):
+def aia_reproj_plot(map, observer):
     """
-        Plots the SunPy AIA maps: reprojected map (AIA as seen from SOLO) and the input map
-        Performs polar plot of the positions of SOLO, AIA, and The Sun
-        ----------
-        start_day : string
-            Provide a string of the start date with YYYY-DD-MM formatting. e.g '2020-03-09'
-        end_day : string
-            Provide a string of a the end date with YYYY-DD-MM formatting. e.g '2020-03-10'
-        aia_map : SunPy Map
-            AIA map
-        outmap : SunPy map
-            the reprojected map (AIA as seen from SOLO)
-        solo_hgs : SkyCoord
-            The position of SOLO in HeliographicStonyhurst frame
-        Returns
-        -------
-        Plots reprojected map, input map and polar positions of SOLO, AIA, and The Sun
+    Reprojects a map to be viewed from a different observer
+
+    Parameters
+    ----------
+    map : `sunpy.map.Map`
+        The input map to be reprojected
+    observer : `astropy.coordinates.SkyCoord`
+        The coordinates of the observer in HeliographicStonyhurst frame
+
+    Returns
+    -------
+    Plots reprojected map, input map and polar positions of SOLO, AIA, and The Sun
     """
-    fig1 = plt.figure(figsize=(16,6))
-    ax1 = fig1.add_subplot(1, 3, 1, projection=aia_map)
-    aia_map.plot(axes=ax1)
-    outmap.draw_grid(color='w')
-    ax2 = fig1.add_subplot(1, 3, 2, projection=outmap)
+    reprojected_map = reproject_map(map, observer)
+    fig1 = plt.figure(figsize=(16, 6))
+    ax1 = fig1.add_subplot(1, 3, 1, projection=map)
+    map.plot(axes=ax1, title='Input ' + map.detector + ' map ' + map.date.value[0:10])
+    reprojected_map.draw_grid(annotate=False, color='w')
+    ax2 = fig1.add_subplot(1, 3, 2, projection=reprojected_map)
     ax2 = plt.gca()
-    outmap.plot(axes=ax2, title='AIA observation as seen from Solar Orbiter')
-    outmap.draw_grid(color='w')
+    reprojected_map.plot(axes=ax2, title='Map as seen by observer ' + map.date.value[0:10])
+    reprojected_map.draw_grid(annotate=False, color='k')
     ax2.axes.get_yaxis().set_visible(False)
 
-    date = start_day
-    solo_coords = solo_hgs
-    aia_coords = aia_map.observer_coordinate
+    date = map.date.value[0:10]
+    observer_coords = observer
+    input_coords = map.observer_coordinate
     # Plotting position of the Sun
-    sun = get_body_heliographic_stonyhurst("sun",  date)
+    sun_coords = get_body_heliographic_stonyhurst("sun", date)
 
     # Plotting polar positions
     ax3 = fig1.add_subplot(1, 3, 3, projection="polar")
-    ax3.plot(solo_coords.lon.to(u.rad),
-             solo_coords.radius.to(u.AU),
-            'o', ms=10,
-            label="SOLO")
-    ax3.plot(aia_coords.lon.to(u.rad),
-             aia_coords.radius.to(u.AU),
-            'o', ms=10,
-            label="AIA")
-    ax3.plot(sun.lon.to(u.rad),
-             sun.radius.to(u.AU),
-            'o', ms=10,
-            label="Sun")
+    ax3.plot(observer_coords.lon.to(u.rad),
+             observer_coords.radius.to(u.AU),
+             'o', ms=10,
+             label="Reprojected Map Observer")
+    ax3.plot(input_coords.lon.to(u.rad),
+             input_coords.radius.to(u.AU),
+             'o', ms=10,
+             label="Input Map Observer")
+    ax3.plot(sun_coords.lon.to(u.rad),
+             sun_coords.radius.to(u.AU),
+             'o', ms=10,
+             label="Sun")
     plt.legend()
     plt.show()
-    return()
-#__________________________________
+    return ()
 
 
-'''
-EXAMPLE
+# __________________________________
 
-# Fetch Map
-def get_aia_map(start_day, end_day, wavelength, path):
 
-    e.g
-    start_day = '2020-10-01'
-    end_day = '2020-10-02'
-    path = '/Users/Username/Desktop/'
-    wavelength[nm] = 19.5
+# Example using AIA map
 
-    # Fetching AIA Data
-    aia = (a.Instrument.aia &
-           a.Sample(24 * u.hour) &
-           a.Time(start_day, end_day))
-    wave = a.Wavelength(wavelength, wavelength)
-    res = Fido.search(wave, aia)
-    files = Fido.fetch(res, path = path)
+# Fetch map using FIDO
+aia = (a.Instrument.aia &
+       a.Sample(24 * u.hour) &
+       a.Time('2021-03-09', '2021-03-10'))
+wave = a.Wavelength(19.3 * u.nm, 19.3 * u.nm)
+res = Fido.search(wave, aia)
+files = Fido.fetch(res)
 
-    # Converting to sunpy map
-    aia_map  = sunpy.map.Map(files)
-    return (aia_map)
+# Convert using to SunPy map
+map = sunpy.map.Map(files)
 
-# Sample Inputs
-sample_start_day = '2021-03-09'
-sample_end_day = '2021-03-10'
-sample_wavelength = 19.5*u.nm
-sample_path = '/Users/brendanclarke/Desktop/'
+# Set SOLO as observer
+observer = get_SOLO_Pos(map)
 
-# Performing Reprojection
+# Reproject Map
+reprojected_map = reproject_map(map, observer)
 
-aia_map = get_aia_map(sample_start_day, sample_end_day, sample_wavelength, sample_path)
-p = get_SOLO_Pos(sample_start_day, sample_end_day)
-solo_hgs_ref_coord, solo_hgs = convert_SOLO_coords(sample_start_day, sample_end_day, p, aia_map)
-solo_wcs, out_shape, solo_header  = create_wcs_header(solo_hgs_ref_coord, aia_map)
-outmap = aia_reproj_interp(aia_map, solo_wcs, out_shape, solo_header)
-
-aia_reproj_plot(sample_start_day, sample_end_day, aia_map, outmap, solo_hgs)
-'''
+# Run plotting function
+aia_reproj_plot(map, observer)

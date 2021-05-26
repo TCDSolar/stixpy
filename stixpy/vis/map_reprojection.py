@@ -12,8 +12,9 @@ from stixcore.ephemeris.manager import Position
 from sunpy.coordinates import frames
 from sunpy.coordinates import get_body_heliographic_stonyhurst
 from sunpy.map import Map
+from sunpy.net import Fido, attrs as a
 
-
+# __________________________________
 def get_SOLO_Pos(map):
     """
     Returns position of SOLO at the time the map was observed
@@ -44,18 +45,17 @@ def get_SOLO_Pos(map):
     solo_hgs = solo_hee.transform_to(frames.HeliographicStonyhurst)
     return (solo_hgs)
 
-
+# __________________________________
 def create_headers(obs_ref_coord, map, out_shape=(512, 512)):
     """
-    Generates MetaDict WCS headers for reprojected map
+    Generates MetaDict and WCS headers for reprojected map
 
     Parameters
     ----------
     obs_ref_coord : `sunpy.map.Map`
         Target WCS reference coordinate (as seen by observer).
         Generated in map_reproject_to_observer function.
-    observer : `astropy.coordinates.SkyCoord`
-        The coordinates of the observer in HeliographicStonyhurst frame
+
     out_shape : `tuple`
         The shape of the reprojected map - defaults to (512, 512)
 
@@ -66,20 +66,26 @@ def create_headers(obs_ref_coord, map, out_shape=(512, 512)):
     obs_metadict_header : `MetaDict`
         MetaDict header for reprojected map
     """
-    obs_metadict_header = sunpy.map.make_fitswcs_header(
-        out_shape,
-        obs_ref_coord,
-        scale=u.Quantity(map.scale) * 8,
-        rotation_matrix=map.rotation_matrix,
-        instrument=map.detector,
-        wavelength=map.wavelength)
-
+    if map.wavelength.unit.to_string() == '':
+        obs_metadict_header = sunpy.map.make_fitswcs_header(
+            out_shape,
+            obs_ref_coord,
+            scale=u.Quantity(map.scale) * 8,
+            rotation_matrix=map.rotation_matrix,
+            instrument=map.detector)
+    else:
+        obs_metadict_header = sunpy.map.make_fitswcs_header(
+            out_shape,
+            obs_ref_coord,
+            scale=u.Quantity(map.scale) * 8,
+            rotation_matrix=map.rotation_matrix,
+            instrument=map.detector,
+            wavelength=map.wavelength)
     obs_wcs_header = WCS(obs_metadict_header)
     return (obs_wcs_header, obs_metadict_header)
 
 
 # __________________________________
-
 def reproject_map(map, observer, out_shape=(512, 512)):
     """
     Reprojects a map to be viewed from a different observer
@@ -90,10 +96,6 @@ def reproject_map(map, observer, out_shape=(512, 512)):
         The input map to be reprojected
     observer : `astropy.coordinates.SkyCoord`
         The coordinates of the observer in HeliographicStonyhurst frame
-    obs_wcs_header : `astropy.wcs`
-        WCS header for reprojected map
-    obs_MetaDict_header : `MetaDict`
-        MetaDict header for reprojected map
     out_shape : `tuple`
         The shape of the reprojected map - defaults to (512, 512)
 
@@ -112,6 +114,7 @@ def reproject_map(map, observer, out_shape=(512, 512)):
     return (outmap)
 
 
+# __________________________________
 def map_reproj_plot(map, observer):
     """
     Reprojects a map to be viewed from a different observer
@@ -128,7 +131,7 @@ def map_reproj_plot(map, observer):
     Plots reprojected map, input map and polar positions of observer, input map observer, and The Sun
     """
     reprojected_map = reproject_map(map, observer)
-    fig1 = plt.figure(figsize=(16, 6))
+    fig1 = plt.figure(figsize=(16, 4))
     ax1 = fig1.add_subplot(1, 3, 1, projection=map)
     map.plot(axes=ax1, title='Input ' + map.detector + ' map ' + map.date.value[0:10])
     reprojected_map.draw_grid(annotate=False, color='w')
@@ -161,17 +164,14 @@ def map_reproj_plot(map, observer):
     plt.legend()
     plt.show()
     return ()
-
-
 # __________________________________
 
-
 # Example using AIA map
-
+'''
 # Fetch map using FIDO
 aia = (a.Instrument.aia &
        a.Sample(24 * u.hour) &
-       a.Time('2021-03-09', '2021-03-10'))
+       a.Time('2021-04-17', '2021-04-18'))
 wave = a.Wavelength(19.3 * u.nm, 19.3 * u.nm)
 res = Fido.search(wave, aia)
 files = Fido.fetch(res)
@@ -187,3 +187,28 @@ reprojected_map = reproject_map(map, observer)
 
 # Run plotting function
 map_reproj_plot(map, observer)
+'''
+# __________________________________
+
+# Example using HMI map
+'''
+# Fetch map using FIDO
+
+result = Fido.search(a.Time('2020/06/12 13:20:00', '2020/06/12 13:40:00'),
+                     a.Instrument.hmi, a.Physobs.los_magnetic_field)
+jsoc_result = result[0][10]
+
+downloaded_file = Fido.fetch(jsoc_result)
+
+# Convert using to SunPy map
+map = sunpy.map.Map(downloaded_file)
+
+# Set SOLO as observer
+observer = get_SOLO_Pos(map)
+
+# Reproject Map
+reprojected_map = reproject_map(map, observer)
+
+# Run plotting function
+map_reproj_plot(map, observer)
+'''

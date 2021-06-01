@@ -8,8 +8,10 @@ An AIA map
    :include-source: true
 
    import astropy.units as u
+   from astropy.coordinates import SkyCoord
    from sunpy.net import Fido, attrs as a
    from sunpy.map import Map
+   from sunpy.coordinates.frames import HeliographicStonyhurst
    from stixpy.vis.map_reprojection import reproject_map, plot_map_reproj, get_solo_position
 
    # Search and download map using FIDO
@@ -24,8 +26,10 @@ An AIA map
    map = Map(results)
    map = map.resample([512, 512]*u.pix)
 
-   # Set SOLO as observer
-   observer = get_solo_position(map)
+   # Get SOLO position observer
+   # observer = get_solo_position(map) # broken on RTD
+   observer = SkyCoord(-97.01771373*u.deg, 21.20931737*u.deg, 1.25689226e+08*u.km,
+                       frame=HeliographicStonyhurst, obstime='2021-04-17 00:00:04.840000')
 
    # Reproject Map
    reprojected_map = reproject_map(map, observer, out_shape=(768, 768))
@@ -40,8 +44,10 @@ A HMI map
    :include-source: true
 
    import astropy.units as u
+   from astropy.coordinates import SkyCoord
    from sunpy.net import Fido, attrs as a
    from sunpy.map import Map
+   from sunpy.coordinates.frames import HeliographicStonyhurst
    from stixpy.vis.map_reprojection import reproject_map, plot_map_reproj, get_solo_position
 
    # Search and download map using FIDO
@@ -54,7 +60,9 @@ A HMI map
    map = map.resample([512, 512] * u.pix)
 
    # Set SOLO as observer
-   observer = get_solo_position(map)
+   # observer = get_solo_position(map) # broke on RTD
+   observer = SkyCoord(56.18727061*u.deg, 3.5358653*u.deg, 77369481.8542484*u.km,
+                       frame=HeliographicStonyhurst, obstime='2020-06-12 13:20:08.300000')
 
    # Reproject Map
    reprojected_map = reproject_map(map, observer, out_shape=(1024, 1024))

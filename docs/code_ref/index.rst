@@ -10,3 +10,4 @@ Code Reference
    data
    timeseries
    science
+   vis

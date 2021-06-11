@@ -19,4 +19,5 @@ def test_qlbackground():
 
 def test_qlvariance():
     ql_lc = TimeSeries(test.STIX_QL_VARIANCE_TIMESERIES)
+    ql_lc.peek()
     assert isinstance(ql_lc, QLVariance)

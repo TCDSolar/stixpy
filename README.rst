@@ -5,6 +5,14 @@ Analysis software for Solar Orbiter Spectrometer Telescope for Imaging X-rays
     :target: http://www.sunpy.org
     :alt: Powered by SunPy Badge
 
+.. image:: https://readthedocs.org/projects/stixpy/badge/?version=latest
+    :target: https://stixpy.readthedocs.io/en/latest/?badge=latest
+    :alt: Documentation Status
+
+.. image:: https://dev.azure.com/SMALONEY/stixpy/_apis/build/status/samaloney.stixpy?repoName=samaloney%2Fstixpy&branchName=master
+    :target: https://dev.azure.com/SMALONEY/stixpy/_build
+    :alt: Build Status
+
 Installation
 ------------
 

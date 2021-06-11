@@ -2,6 +2,7 @@ from collections import OrderedDict
 
 import astropy.units as u
 import matplotlib.dates
+import numpy as np
 
 from astropy.table import Table, QTable
 from astropy.io import fits
@@ -14,11 +15,38 @@ from sunpy.timeseries.timeseriesbase import GenericTimeSeries
 __all__ = ['QLLightCurve', 'QLBackground', 'QLVariance']
 
 
+eta = 2.5 * u.us
+tau = 12.5 * u.us
+
+
+def _lfrac(trigger_rate):
+    nin = trigger_rate / (1 - (trigger_rate * (tau+eta)))
+    return np.exp(-eta * nin) / (1 + tau * nin)
+
+
 class QLLightCurve(GenericTimeSeries):
     """
     Quicklook X-ray time series.
 
     Nominally in 5 energy bands from 4 - 150 kev
+
+    Examples
+    --------
+    >>> from stixpy.data import test
+    >>> from sunpy.timeseries import TimeSeries
+    >>> from stixpy.timeseries.quicklook import QLLightCurve
+    >>> lc = TimeSeries(test.STIX_QL_LIGHTCURVE_TIMESERIES)
+    >>> lc
+    QLLightCurve
+           <sunpy.time.timerange.TimeRange object at ...>
+        Start: 2020-05-05 00:00:01
+        End:   2020-05-05 23:59:57
+        Center:2020-05-05 11:59:59
+        Duration:0.999952986111111 days or
+               23.998871666666666 hours or
+               1439.9323 minutes or
+               86395.938 seconds
+    <BLANKLINE>
     """
     _source = 'stix'
 
@@ -38,6 +66,7 @@ class QLLightCurve(GenericTimeSeries):
         # Check we have a timeseries valid for plotting
         self._validate_data_for_plotting()
 
+        fig = plt.figure()
         # Now make the plot
         fig = self.plot(**kwargs)
 
@@ -113,17 +142,19 @@ class QLLightCurve(GenericTimeSeries):
     def _parse_hdus(cls, hdulist):
         """
         Parses STIX FITS data files to create TimeSeries.
+
         Parameters
         ----------
         hdulist :
         """
         header = hdulist[0].header
         control = QTable(hdulist[1].data)
+        header['control'] = control
         data = QTable(hdulist[2].data)
         energies = QTable(hdulist[3].data)
         energy_delta = energies['e_high'] - energies['e_low'] << u.keV
 
-        live_time = data['timedel']*u.s - data['triggers']/16.0 * 12.5*u.us
+        live_time = _lfrac(data['triggers']/(16*data['timedel']*u.s))
 
         data['counts'] = data['counts'] / (live_time.reshape(-1, 1) * energy_delta)
 
@@ -172,7 +203,69 @@ class QLLightCurve(GenericTimeSeries):
 class QLBackground(GenericTimeSeries):
     """
     Quicklook X-ray background detector time series.
+
+    Examples
+    --------
+    >>> from stixpy.data import test
+    >>> from sunpy.timeseries import TimeSeries
+    >>> from stixpy.timeseries.quicklook import QLLightCurve
+    >>> bg = TimeSeries(test.STIX_QL_BACKGROUND_TIMESERIES)
+    >>> bg
+    <stixpy.timeseries.quicklook.QLBackground object at ...>
     """
+
+    def plot(self, axes=None, **plot_args):
+        """
+        Show a plot of the data.
+
+        Parameters
+        ----------
+        axes : `~matplotlib.axes.Axes`, optional
+            If provided the image will be plotted on the given axes.
+            Defaults to `None`, so the current axes will be used.
+        **plot_args : `dict`, optional
+            Additional plot keyword arguments that are handed to
+            :meth:`pandas.DataFrame.plot`.
+
+        Returns
+        -------
+        axes : `~matplotlib.axes.Axes`
+            The plot axes.
+        """
+        import matplotlib.pyplot as plt
+        # Get current axes
+        if axes is None:
+            fig, axes = plt.subplots()
+
+        self._validate_data_for_plotting()
+        quantity_support()
+
+        dates = matplotlib.dates.date2num(self.to_dataframe().index)
+
+        labels = [f'{col} keV' for col in self.columns[4:]]
+
+        [axes.plot_date(dates, self.to_dataframe().iloc[:, 4+i], '-', label=labels[i], **plot_args)
+         for i in range(5)]
+
+        axes.legend(loc='upper right')
+
+        axes.set_yscale("log")
+
+        axes.set_title('STIX Quick Look')
+        axes.set_ylabel('count s$^{-1}$ keV$^{-1}$')
+
+        axes.yaxis.grid(True, 'major')
+        axes.xaxis.grid(False, 'major')
+        axes.legend()
+
+        # TODO: display better tick labels for date range (e.g. 06/01 - 06/05)
+        formatter = matplotlib.dates.DateFormatter('%d %H:%M')
+        axes.xaxis.set_major_formatter(formatter)
+
+        axes.fmt_xdata = matplotlib.dates.DateFormatter('%d %H:%M')
+        fig.autofmt_xdate()
+
+        return fig
 
     @classmethod
     def _parse_file(cls, filepath):
@@ -191,6 +284,7 @@ class QLBackground(GenericTimeSeries):
     def _parse_hdus(cls, hdulist):
         """
         Parses STIX FITS data files to create TimeSeries.
+
         Parameters
         ----------
         hdulist :
@@ -198,12 +292,15 @@ class QLBackground(GenericTimeSeries):
         """
         header = hdulist[0].header
         control = Table(hdulist[1].data)
+        header['control'] = control
         data = Table(hdulist[2].data)
         energies = Table(hdulist[3].data)
 
         energy_delta = energies['e_high'] - energies['e_low'] << u.keV
 
-        data['background'] = data['background'] / (data['timedel'].reshape(-1, 1) * energy_delta)
+        live_time = _lfrac(data['triggers']/(16*data['timedel']*u.s))
+
+        data['background'] = data['background'] / (live_time.reshape(-1, 1) * energy_delta)
 
         names = [f'{energies["e_low"][i]}-{energies["e_high"][i]}' for i in range(5)]
 
@@ -250,7 +347,67 @@ class QLBackground(GenericTimeSeries):
 class QLVariance(GenericTimeSeries):
     """
     Quicklook X-ray background detector time series.
+
+    Examples
+    --------
+    >>> from stixpy.data import test
+    >>> from sunpy.timeseries import TimeSeries
+    >>> from stixpy.timeseries.quicklook import QLLightCurve
+    >>> bg = TimeSeries(test.STIX_QL_VARIANCE_TIMESERIES)
+    >>> bg
+    <stixpy.timeseries.quicklook.QLVariance object at ...>
     """
+    def plot(self, axes=None, **plot_args):
+        """
+        Show a plot of the data.
+
+        Parameters
+        ----------
+        axes : `~matplotlib.axes.Axes`, optional
+            If provided the image will be plotted on the given axes.
+            Defaults to `None`, so the current axes will be used.
+        **plot_args : `dict`, optional
+            Additional plot keyword arguments that are handed to
+            :meth:`pandas.DataFrame.plot`.
+
+        Returns
+        -------
+        axes : `~matplotlib.axes.Axes`
+            The plot axes.
+        """
+        import matplotlib.pyplot as plt
+        # Get current axes
+        if axes is None:
+            fig, axes = plt.subplots()
+
+        self._validate_data_for_plotting()
+        quantity_support()
+
+        dates = matplotlib.dates.date2num(self.to_dataframe().index)
+
+        label = f'{self.columns[2]} keV'
+
+        axes.plot_date(dates, self.to_dataframe().iloc[:, 2], '-', label=label, **plot_args)
+
+        axes.legend(loc='upper right')
+
+        axes.set_yscale("log")
+
+        axes.set_title('STIX Quick Look Variance')
+        axes.set_ylabel('count s$^{-1}$ keV$^{-1}$')
+
+        axes.yaxis.grid(True, 'major')
+        axes.xaxis.grid(False, 'major')
+        axes.legend()
+
+        # TODO: display better tick labels for date range (e.g. 06/01 - 06/05)
+        formatter = matplotlib.dates.DateFormatter('%d %H:%M')
+        axes.xaxis.set_major_formatter(formatter)
+
+        axes.fmt_xdata = matplotlib.dates.DateFormatter('%d %H:%M')
+        fig.autofmt_xdate()
+
+        return fig
 
     @classmethod
     def _parse_file(cls, filepath):
@@ -269,6 +426,7 @@ class QLVariance(GenericTimeSeries):
     def _parse_hdus(cls, hdulist):
         """
         Parses STIX FITS data files to create TimeSeries.
+
         Parameters
         ----------
         hdulist :
@@ -276,15 +434,24 @@ class QLVariance(GenericTimeSeries):
         """
         header = hdulist[0].header
         control = Table(hdulist[1].data)
+        header['control'] = control
         data = Table(hdulist[2].data)
         energies = Table(hdulist[3].data)
-
-        # [f'{energies[i]["e_low"]} - {energies[i]["e_high"]} keV' for i in range(5)]
+        dE = energies['e_high'] - energies['e_low'] << u.keV
+        name = f'{energies["e_low"][0]}-{energies["e_high"][0]}'
         data['time'] = Time(header['date_obs']) + TimeDelta(data['time'] * u.s)
+
+        data['variance'] = data['variance']/(dE * data['timedel'])
+
+        data.add_column(data['variance'], name=name)
+        data.remove_column('variance')
+        data.add_column(data['variance_err'], name=f'{name}_err')
+        data.remove_column('variance_err')
+
         units = OrderedDict([('control_index', None),
                              ('timedel', u.s),
-                             ('variance', u.count**2),
-                             ('variance_err', u.count**2)])
+                             (name, u.count),
+                             (f'{name}_err', u.count)])
 
         data_df = data.to_pandas()
         data_df.index = data_df['time']

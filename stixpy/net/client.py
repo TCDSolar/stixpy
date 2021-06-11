@@ -8,10 +8,32 @@ __all__ = ["STIXClient"]
 
 
 class STIXClient(GenericClient):
+    """
+    A Fido client to search and download STIX data from the STIX instrument archive
+
+    Examples
+    --------
+    >>> from sunpy.net import Fido, attrs as a
+    >>> from stixpy.net import client
+    >>> query = Fido.search(a.Time('2020-06-05', '2020-06-07'), a.Instrument.stix,
+    ...                     a.stix.DataProduct.ql_lightcurve)  #doctest: +REMOTE_DATA
+    >>> query  #doctest: +REMOTE_DATA
+    <sunpy.net.fido_factory.UnifiedResponse object at ...>
+    Results from 1 Provider:
+    <BLANKLINE>
+    3 Results from the STIXClient:
+           Start Time               End Time        ...  DataProduct  Request ID
+    ----------------------- ----------------------- ... ------------- ----------
+    2020-06-05 00:00:00.000 2020-06-05 23:59:59.999 ... ql-lightcurve          -
+    2020-06-06 00:00:00.000 2020-06-06 23:59:59.999 ... ql-lightcurve          -
+    2020-06-07 00:00:00.000 2020-06-07 23:59:59.999 ... ql-lightcurve          -
+    <BLANKLINE>
+    <BLANKLINE>
+    """
     baseurl = (r'https://homepages.dias.ie/smaloney/stix-data/'
                r'{level}/{year:4d}/{month:02d}/{day:02d}/{datatype}/')
     ql_filename = r'solo_{level}_stix-{product}_\d{{8}}_V\d{{2}}.fits'
-    sci_filename = (r'solo_{level}_stix-{product}-\d{{8}}_'
+    sci_filename = (r'solo_{level}_stix-{product}-\d+_'
                     r'\d{{8}}T\d{{6}}-\d{{8}}T\d{{6}}_V\d{{2}}_\d{{5}}.fits')
 
     base_pattern = r'{}/{Level}/{year:4d}/{month:02d}/{day:02d}/{DataType}/'
@@ -55,7 +77,7 @@ class STIXClient(GenericClient):
                         pattern = self.base_pattern + self.sci_pattern
 
                     url = url.format(level=level, year=year, month=month, day=day,
-                                     datatype=datatype, product=product.replace('_', '-'))
+                                     datatype=datatype.upper(), product=product.replace('_', '-'))
 
                     scraper = Scraper(url, regex=True)
                     filesmeta = scraper._extract_files_meta(tr, extractor=pattern)

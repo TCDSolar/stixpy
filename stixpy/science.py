@@ -204,8 +204,8 @@ class TimesSeriesPlotMixin:
 
         counts_shape = self.data['counts'].shape
         counts, errors, times, timedeltas, energies \
-            = self.get_data(detector_indices=((0, 7), (9, 31)),
-                            pixel_indices=[[0, counts_shape[3]]],
+            = self.get_data(detector_indices=None,
+                            pixel_indices=None,
                             time_indices=time_indices, energy_indices=energy_indices)
         labels = [f'{el.value} - {eh.value}' for el, eh in energies['e_low', 'e_high']]
 

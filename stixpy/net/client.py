@@ -33,7 +33,7 @@ class STIXClient(GenericClient):
     baseurl = (r'https://homepages.dias.ie/smaloney/stix-data/'
                r'{level}/{year:4d}/{month:02d}/{day:02d}/{datatype}/')
     ql_filename = r'solo_{level}_stix-{product}_\d{{8}}_V\d{{2}}.fits'
-    sci_filename = (r'solo_{level}_stix-{product}-\d{{8}}_'
+    sci_filename = (r'solo_{level}_stix-{product}-\d+_'
                     r'\d{{8}}T\d{{6}}-\d{{8}}T\d{{6}}_V\d{{2}}_\d{{5}}.fits')
 
     base_pattern = r'{}/{Level}/{year:4d}/{month:02d}/{day:02d}/{DataType}/'
@@ -77,7 +77,7 @@ class STIXClient(GenericClient):
                         pattern = self.base_pattern + self.sci_pattern
 
                     url = url.format(level=level, year=year, month=month, day=day,
-                                     datatype=datatype, product=product.replace('_', '-'))
+                                     datatype=datatype.upper(), product=product.replace('_', '-'))
 
                     scraper = Scraper(url, regex=True)
                     filesmeta = scraper._extract_files_meta(tr, extractor=pattern)

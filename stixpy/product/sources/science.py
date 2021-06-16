@@ -1,3 +1,6 @@
+import copy
+from pathlib import Path
+
 from itertools import product
 from collections import defaultdict
 
@@ -6,12 +9,14 @@ import numpy as np
 from astropy.table import QTable, vstack
 from astropy.time import Time
 from astropy.visualization import quantity_support
-from matplotlib import pyplot as plt
+from matplotlib import pyplot as plt, cm, colors
 from matplotlib.colors import LogNorm
 from matplotlib.dates import DateFormatter, HourLocator
+from matplotlib.patches import Patch
 from matplotlib.widgets import Slider
 from sunpy.time.timerange import TimeRange
 
+from stixpy.io.readers import read_subc_params
 from stixpy.product.product import L1Product
 
 __all__ = [
@@ -33,6 +38,10 @@ __all__ = [
 
 
 quantity_support()
+
+
+SubCollimatorConfig = read_subc_params(Path(read_subc_params.__code__.co_filename).parent
+                            / "data" / "common" / "detector" / "stx_subc_params.csv")
 
 
 class PPrintMixin:
@@ -333,17 +342,19 @@ class TimesSeriesPlotMixin:
         return lines
 
 
+
 class PixelPlotMixin:
     """
     Pixel plot mixin providing pixel plotting for pixel data.
     """
-
-    def plot_pixels(self, time_indices=None, energy_indices=None, fig=None):
+    def plot_pixels(self, *, kind='pixels', time_indices=None, energy_indices=None, fig=None, cmap=None):
         """
         Plot individual pixel data for each detector.
 
         Parameters
         ----------
+        kind : `string`         the options: 'pixels', 'errorbar', 'config'
+            This sets the visualization type of the subplots. The data will then be shown in the selected style.
         time_indices : `list` or `numpy.ndarray`
             If an 1xN array will be treated as mask if 2XN array will sum data between given
             indices. For example `time_indices=[0, 2, 5]` would return only the first, third and
@@ -354,6 +365,12 @@ class PixelPlotMixin:
             sixth times while `energy_indices=[[0, 2],[3, 5]]` would sum the data between.
         fig : optional `matplotlib.figure`
             The figure where to which the pixel plot will be added.
+        cmap : `string` | `colormap` optional
+            If the kind is `pixels` a colormap will be shown.
+            String : default colormap name
+            colormap: a custom colormap
+            NOTE: If the color of the special detectors 'cfl', 'bkg' is way above
+            the imaging detectors, the color will be automatically set to white.
 
         Returns
         -------
@@ -361,16 +378,35 @@ class PixelPlotMixin:
             The figure
         """
 
+        if kind not in ["pixels", "errorbar", "config"]:
+            kind = 'pixels'
+
         if fig:
-            axes = fig.subplots(nrows=4, ncols=8, sharex=True, sharey=True, figsize=(10, 5))
+            axes = fig.subplots(nrows=4, ncols=8, sharex=True, sharey=True, figsize=(7, 7))
         else:
-            fig, axes = plt.subplots(nrows=4, ncols=8, sharex=True, sharey=True, figsize=(10, 5))
+            fig, axes = plt.subplots(nrows=4, ncols=8, sharex=True, sharey=True, figsize=(7, 7))
 
-        counts, count_err, times, dt, energies = self.get_data(time_indices=time_indices, energy_indices=energy_indices)
+        counts, count_err, times, dt, energies = self.get_data(time_indices=time_indices,
+                                                               energy_indices=energy_indices)
 
-        counts = counts.to(u.ct / u.s / u.keV)
-        count_err = count_err.to(u.ct / u.s / u.keV)
-        dt = dt.to(u.s)
+        imaging_mask = np.ones(32, bool)
+        imaging_mask[8:10] = False
+
+        max_counts = counts[:, imaging_mask, :, :].max().value
+        min_counts = counts[:, imaging_mask, :, :].min().value
+
+        norm = plt.Normalize(min_counts, max_counts)  # Needed to select the color values for the pixels plot.
+        det_font = {'weight': 'regular', 'size': 8}
+        axes_font = {'weight': 'regular', 'size': 7}
+        quadrant_font = {'weight': 'regular', 'size': 15}
+
+        if cmap is None:
+            clrmap = copy.copy(cm.get_cmap('viridis'))
+            clrmap.set_over("w")
+        elif isinstance(cmap, str):
+            clrmap = copy.copy(cm.get_cmap(cmap))
+        else:
+            clrmap = cmap
 
         def timeval(val):
             return times[val].isot
@@ -378,66 +414,322 @@ class PixelPlotMixin:
         def energyval(val):
             return f"{energies[val]['e_low'].value}-{energies[val]['e_high']}"
 
-        axcolor = "lightgoldenrodyellow"
-        axenergy = plt.axes([0.15, 0.05, 0.55, 0.03], facecolor=axcolor)
-        senergy = SliderCustomValue(
-            axenergy, "Energy", 0, len(energies) - 1, format_func=energyval, valinit=0, valstep=1
-        )
-        axetime = plt.axes([0.15, 0.01, 0.55, 0.03], facecolor=axcolor)
-        stime = SliderCustomValue(axetime, "Time", 0, counts.shape[0] - 1, format_func=timeval, valinit=0, valstep=1)
+        def det_pixels_plot(counts, norm, axes, clrmap, fig, last=False):
+            """
+            Shows a plot to visualize the pixel counts; the pixels plot.
 
+            Parameters
+            ----------
+            counts : `List`
+                data collection with the number of counts
+            norm : `function`
+                normalizes the data in the parentheses
+            axes : `matplotlib.axes`
+                the axes in which the data will be plotted
+            clrmap : `colormap`
+                the colormap which will be used to visualize the data/counts
+            fig : `matplotlib.figure`
+                the current figure to use
+
+            Returns
+            -------
+            top: The 4 pixels positioned at the top
+            bottom: The 4 pixels positioned at the bottom
+            small: The 4 small pixels in the middle
+            """
+
+            # Set the variables needed.
+            bar1 = [1, 1, 1, 1]
+            bar2 = [-1, -1, -1, -1]
+            bar3 = [.2, .2, .2, .2]
+            x_pos = ['A', 'B', 'C', 'D']
+
+            counts = counts.reshape(3, 4)
+
+            # plot the pixels
+            top = axes.bar(x_pos, bar1, color=clrmap(norm(counts[0, :])),
+                           width=1, zorder=1, edgecolor="w", linewidth=0.5)
+            bottom = axes.bar(x_pos, bar2, color=clrmap(norm(counts[1, :])),
+                              width=1, zorder=1, edgecolor="w", linewidth=0.5)
+            small = axes.bar(x_pos, bar3, color=clrmap(norm(counts[2, :])),
+                             width=-0.5, align='edge', bottom=-0.1, zorder=1,
+                             edgecolor="w", linewidth=0.5)
+
+            # hide most of the axes ticks
+            if last:
+                axes.set_xticks(range(4))
+                axes.set_xticklabels(x_pos)
+                axes.axes.get_xaxis().set_visible(True)
+                axes.axes.get_yaxis().set_visible(False)
+            else:
+                axes.set_xticks([])
+                axes.axes.get_xaxis().set_visible(False)
+                axes.axes.get_yaxis().set_visible(False)
+
+            for i in range(4):
+                top[i].data = counts[0, i]
+                bottom[i].data = counts[1, i]
+                small[i].data = counts[2, i]
+
+            # Create the label annotation
+            annot = axes.annotate("", xy=(0, 0), xytext=(-60, 20),
+                                  textcoords="offset points",
+                                  bbox=dict(boxstyle="round", fc="w"),
+                                  arrowprops=dict(arrowstyle="-"), zorder=33)
+
+            annot.set_visible(False)
+
+            # Create a hover function
+            def update_annot(artist, annot):
+                """ update tooltip when hovering a given plotted object """
+                # find the middle of the bar
+                center_x = artist.get_x() + artist.get_width() / 2
+                center_y = artist.get_y() + artist.get_height() / 2
+                annot.xy = (center_x, center_y)
+
+                annot.set_text(artist.data.round(decimals=3))
+                # annot.get_bbox_patch().set_alpha(1)
+
+            def hover(event):
+                """ update and show a tooltip while hovering an object; hide it otherwise """
+                # one wants to hide the annotation only if no artist in the graph is hovered
+                annot.set_visible(False)
+                if isinstance(event.inaxes, type(axes)):
+                    for p in [top, bottom, small]:
+                        for artist in p:
+                            contains, _ = artist.contains(event)
+                            if contains:
+                                update_annot(artist, annot)
+                                annot.set_visible(True)
+                if last:
+                    fig.canvas.draw_idle()
+
+            fig.canvas.mpl_connect("motion_notify_event", hover)
+            return top, bottom, small
+
+        def det_errorbar_plot(counts, count_err, pixel_ids, detector_id, axes):
+            """ Shows a plot to visualize the counts; the errorbar plot. """
+            plot_cont = []
+            for pixel_id in pixel_ids:
+                plot_cont.append(axes.errorbar((0.5, 1.5, 2.5, 3.5),
+                                               counts[pixel_id],
+                                               yerr=count_err[pixel_id],
+                                               xerr=0.5, ls=''))
+            axes.set_xticks([])
+            if detector_id > 0:
+                axes.set_ylabel('')
+            return plot_cont
+
+        def det_config_plot(detector_config, axes, font, detector_id):
+            """ Shows a plot with the configurations of the detectors; the config plot. """
+            # Create Functions to convert 'Front' and 'Rear Orient'.
+            def mm2deg(x):
+                return x * 360.0 / 1
+
+            def deg2mm(x):
+                return x / 360.0 * 1
+
+            # get the information that will be plotted
+            if detector_config['Phase Sense'] > 0:
+                phase_sense = '+'
+            elif detector_config['Phase Sense'] < 0:
+                phase_sense = '-'
+            else:
+                phase_sense = 'n'
+
+            y = [detector_config['Slit Width'],
+                 detector_config['Front Pitch'],
+                 detector_config['Rear Pitch'],
+                 0,
+                 deg2mm(detector_config['Front Orient']),
+                 deg2mm(detector_config['Rear Orient'])]
+
+            x = np.arange(len(y))
+            color = ['black', 'orange', '#1f77b4', 'b', 'orange', '#1f77b4']
+
+            # plot the information on axes
+            axes.bar(x, y, color=color)
+            axes.text(x=0.8, y=0.7, s=f'Phase: {phase_sense}', **font)
+            axes.set_ylim(0, 1)
+            axes.axes.get_xaxis().set_visible(False)
+
+            # Create secondary y axis
+            ax2 = axes.secondary_yaxis('right', functions=(mm2deg, deg2mm))
+            ax2.set_yticks([0, 90, 270, 360])
+            ax2.set_yticklabels(['0°', '90°', '270°', '360°'], fontsize=8)
+            ax2.set_visible(False)
+            axes.axes.get_yaxis().set_visible(False)
+
+            # Create axes labeling and legend
+            if detector_id == 0:
+                axes.set_yticks([0, 1])
+                axes.set_ylabel('mm', **font)
+                axes.yaxis.set_label_coords(-0.1, 0.5)
+                axes.axes.get_yaxis().set_visible(True)
+                legend_bars = [Patch(facecolor='orange'), Patch(facecolor='#1f77b4')]
+                axes.legend(legend_bars, ['Front', 'Rear'], loc='center right', bbox_to_anchor=(0, 2.5))
+            if detector_id == 31:
+                ax2.set_visible(True)
+                axes.axes.get_xaxis().set_visible(True)
+                axes.set_xticks([0, 1.5, 4.5])
+                axes.set_xticklabels(['Slit Width', 'Pitch', 'Orientation'],
+                                     rotation=90)
+                # leave the spaces to set the correct x position of the label!
+                ax2.set_ylabel('               deg °', rotation=0, **font)
+                # x parameter doesn't change anything because it's a secondary
+                # y axis (has only 1 x position).
+                ax2.yaxis.set_label_coords(x=1, y=0.55)
+
+        def colorbar(counts, min_counts, max_counts, clrmap, fig):
+            """
+            Creates a colormap at the left side of the created figure.
+
+            NOTE: If the color of the special detectors 'cfl', 'bkg' is way above
+            the rest, the color will be automatically set to white.
+            """
+
+            norm = colors.Normalize(vmin=min_counts, vmax=max_counts)
+            cax = fig.add_axes([0.05, 0.15, 0.025, 0.8])
+            cbar = plt.colorbar(cm.ScalarMappable(norm=norm, cmap=clrmap),
+                                orientation='vertical', cax=cax)
+            cbar.ax.set_title(f'{str(counts.unit)}', rotation=90,
+                              x=-0.8, y=0.4)
+
+        def instrument_layout(fig, font):
+            """ Shows the layout of the instrument to make it easier to locate the detectors. """
+            x = [0, 2]
+            y = [1, 1]
+            fig.add_axes([0.06, 0.055, 0.97, 0.97])
+            plt.plot(x, y, c='b')
+            plt.plot(y, x, c='b')
+            plt.axis('off')
+            fig.add_axes([0.09, 0.08, 0.91, 0.92])
+            draw_circle_1 = plt.Circle((0.545, 0.540), 0.443, color='b',
+                                       alpha=0.1)
+            draw_circle_2 = plt.Circle((0.545, 0.540), 0.07, color='#2b330b',
+                                       alpha=0.95)
+            fig.add_artist(draw_circle_1)
+            fig.add_artist(draw_circle_2)
+            plt.axis('off')
+
+            # Label the quandrants of the instrument
+            fig.add_axes([0, 0, 1, 1])
+            plt.text(0.19, 0.89, 'Q1', **font)
+            plt.text(0.19, 0.17, 'Q2', **font)
+            plt.text(0.86, 0.17, 'Q3', **font)
+            plt.text(0.86, 0.89, 'Q4', **font)
+            plt.axis('off')
+
+        instrument_layout(fig, quadrant_font)  # Call the instrument layout
+
+        # Create the energy and time slider add the bottom of the figure
+        axcolor = 'lightgoldenrodyellow'
+        axenergy = plt.axes([0.15, 0.05, 0.55, 0.03], facecolor=axcolor)
+        senergy = SliderCustomValue(ax=axenergy,
+                                    label='Energy',
+                                    valmin=0,
+                                    valmax=len(energies)-1,
+                                    format_func=energyval,
+                                    valinit=0, valstep=1)
+        axetime = plt.axes([0.15, 0.01, 0.55, 0.03], facecolor=axcolor)
+        stime = SliderCustomValue(ax=axetime,
+                                  label='Time',
+                                  valmin=0,
+                                  valmax=counts.shape[0]-1,
+                                  format_func=timeval,
+                                  valinit=1, valstep=1)
+
+        pixel_ids = [slice(0, 4), slice(4, 8), slice(8, 12)]
         if counts.shape[2] == 4:
             pixel_ids = [slice(0, 4)]
-        elif counts.shape[2] == 8:
-            pixel_ids = [slice(0, 4), slice(4, 8)]
-        elif counts.shape[2] == 12:
-            pixel_ids = [slice(0, 4), slice(4, 8), slice(8, 12)]
-        else:
-            raise ValueError("Invalid number of pixels")
 
         containers = defaultdict(list)
 
+        xnorm = plt.Normalize(SubCollimatorConfig["SC Xcen"].min()*1.5, SubCollimatorConfig["SC Xcen"].max()*1.5)
+        ynorm = plt.Normalize(SubCollimatorConfig["SC Ycen"].min()*1.4, SubCollimatorConfig["SC Ycen"].max()*1.4)
+        if kind == 'pixels':
+            colorbar(counts, min_counts, max_counts, clrmap, fig)
+
+        # plot the layout of the 32 detectors
         for detector_id in range(32):
             row, col = divmod(detector_id, 8)
-            for pixel_id in pixel_ids:
-                errbar_cont = axes[row, col].errorbar(
-                    (0.5, 1.5, 2.5, 3.5),
-                    counts[0, detector_id, pixel_id, 0],
-                    yerr=count_err[0, detector_id, pixel_id, 0],
-                    xerr=0.5,
-                    ls="",
-                )
+            plot_cont = object
+            if kind == 'pixels':
+                plot_cont = det_pixels_plot(counts[0, detector_id, :, 0], norm,
+                                            axes[row, col], clrmap, fig,
+                                            last=(detector_id == 31))
+            elif kind == 'errorbar':
+                plot_cont = det_errorbar_plot(counts[0, detector_id, :, 0],
+                                              count_err[0, detector_id, :, 0],
+                                              pixel_ids, detector_id,
+                                              axes[row, col])
+            elif kind == 'config':
+                plot_cont = det_config_plot(SubCollimatorConfig[detector_id],
+                                            axes[row, col], axes_font,
+                                            detector_id)
 
-                containers[row, col].append(errbar_cont)
-                axes[row, col].set_xlim(0, 4)
-                axes[row, col].set_title(f"Det {detector_id}")
-                axes[row, col].set_xticks([])
-                if col != 0:
-                    # axs[row, col].set_yticks([])
-                    axes[row, col].set_ylabel("")
+            axes[row, col].set_zorder(100)
 
-        def update(_):
+            # set the custom position of the detectors
+            axes[row, col].set_position([xnorm(SubCollimatorConfig["SC Xcen"][detector_id]),
+                                         ynorm(SubCollimatorConfig["SC Ycen"][detector_id]),
+                                         1/11.0, 1/11.0])
+
+            containers[row, col].append(plot_cont)
+            axes[row, col].set_title(f'Det {SubCollimatorConfig["Grid Label"][detector_id]}', y=0.89,  **det_font)
+
+        def update_void(_):
+            """ get the value as this will update the slider """
+            _ = senergy.val
+            _ = stime.val
+
+        def update_pixels(_):
+            """ Update the value of the pixels plot when the energy and time slider is being used. """
+            energy_index = senergy.val
+            time_index = stime.val
+
+            for detector_id in range(32):
+                row, col = divmod(detector_id, 8)
+                cnts = counts[time_index, detector_id, :, energy_index]
+                top, bottom, small = containers[row, col][0]
+                cnts = cnts.reshape([3, 4])
+                for pix_artist, pix in zip(range(4), range(12)):
+                    norm_counts = norm(cnts[0][pix].value)
+                    top[pix_artist].set_color(clrmap(norm_counts))
+                    top[pix_artist].data = cnts[0][pix]
+                    top[pix_artist].set_edgecolor("w")
+
+                    norm_counts = norm(cnts[1][pix].value)
+                    bottom[pix_artist].set_color(clrmap(norm_counts))
+                    bottom[pix_artist].data = cnts[1][pix]
+                    bottom[pix_artist].set_edgecolor("w")
+
+                    norm_counts = norm(cnts[2][pix].value)
+                    small[pix_artist].set_color(clrmap(norm_counts))
+                    small[pix_artist].data = cnts[2][pix]
+                    small[pix_artist].set_edgecolor("w")
+
+        def update_errorbar(_):
+            """ Update the errorbar plot when the energy and time slider is being used. """
             energy_index = senergy.val
             time_index = stime.val
             pids_ = [slice(0, 4), slice(4, 8), slice(8, 12)]
             if counts.shape[2] == 4:
                 pids_ = [slice(0, 4)]
 
-            imaging_mask = np.ones(32, bool)
-            imaging_mask[8:10] = False
-
             for did in range(32):
                 r, c = divmod(did, 8)
-                axes[r, c].set_ylim(0, counts[time_index, imaging_mask, :, energy_index].max() * 1.2)
+                axes[r, c].set_ylim(0, counts[time_index, imaging_mask, :,
+                                              energy_index].max()*1.2)
 
                 for i, pid in enumerate(pids_):
-                    lines, caps, bars = containers[r, c][i]
+                    lines, caps, bars = containers[r, c][0][i]
                     lines.set_ydata(counts[time_index, did, pid, energy_index])
 
                     # horizontal bars at value
                     segs = np.array(bars[0].get_segments())
-                    segs[:, 0, 0] = [0.0, 1.0, 2.0, 3.0]
-                    segs[:, 1, 0] = [1.0, 2.0, 3.0, 4.0]
+                    segs[:, 0, 0] = [0., 1., 2., 3.]
+                    segs[:, 1, 0] = [1., 2., 3., 4.]
                     segs[:, 0, 1] = counts[time_index, did, pid, energy_index]
                     segs[:, 1, 1] = counts[time_index, did, pid, energy_index]
                     bars[0].set_segments(segs)
@@ -445,17 +737,22 @@ class PixelPlotMixin:
                     segs = np.array(bars[1].get_segments())
                     segs[:, 0, 0] = [0.5, 1.5, 2.5, 3.5]
                     segs[:, 1, 0] = [0.5, 1.5, 2.5, 3.5]
-                    segs[:, 0, 1] = (
-                        counts[time_index, did, pid, energy_index] - count_err[time_index, did, pid, energy_index]
-                    )
-                    segs[:, 1, 1] = (
-                        counts[time_index, did, pid, energy_index] + count_err[time_index, did, pid, energy_index]
-                    )
+                    segs[:, 0, 1] = counts[time_index, did, pid, energy_index] \
+                        - count_err[time_index, did, pid, energy_index]
+                    segs[:, 1, 1] = counts[time_index, did, pid, energy_index] \
+                        + count_err[time_index, did, pid, energy_index]
                     bars[1].set_segments(segs)
 
-        senergy.on_changed(update)
-        stime.on_changed(update)
+        update_function = update_pixels
 
+        if kind == 'config':
+            update_function = update_void
+        elif kind == 'errorbar':
+            update_function = update_errorbar
+
+        # Call the update functions
+        senergy.on_changed(update_function)
+        stime.on_changed(update_function)
 
 class ScienceData(L1Product):
     """

@@ -156,3 +156,5 @@ htmlcov/
 stixpy/data/*.fits
 /Minergie Test Data/
 /Start Practice/
+.vscode/launch.json
+.vscode/settings.json

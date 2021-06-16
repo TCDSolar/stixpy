@@ -154,3 +154,5 @@ htmlcov/
 
 #stixpy
 stixpy/data/*.fits
+.vscode/launch.json
+.vscode/settings.json

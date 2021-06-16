@@ -266,11 +266,19 @@ class PixelPlotMixin:
 
         axcolor = 'lightgoldenrodyellow'
         axenergy = plt.axes([0.15, 0.05, 0.55, 0.03], facecolor=axcolor)
-        senergy = SliderCustomValue(axenergy, 'Energy', 0, len(energies)-1, format_func=energyval,
+        senergy = SliderCustomValue(ax=axenergy,
+                                    label='Energy',
+                                    valmin=0,
+                                    valmax=len(energies)-1,
+                                    format_func=energyval,
                                     valinit=0, valstep=1)
         axetime = plt.axes([0.15, 0.01, 0.55, 0.03], facecolor=axcolor)
-        stime = SliderCustomValue(axetime, 'Time', 0, counts.shape[0]-1, format_func=timeval,
-                                  valinit=0, valstep=1)
+        stime = SliderCustomValue(ax=axetime,
+                                  label='Time',
+                                  valmin=0,
+                                  valmax=counts.shape[0]-1,
+                                  format_func=timeval,
+                                  valinit=1, valstep=1)
 
         pixel_ids = [slice(0, 4), slice(4, 8), slice(8, 12)]
         if counts.shape[2] == 4:

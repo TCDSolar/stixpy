@@ -13,6 +13,7 @@ from matplotlib.colors import LogNorm
 from matplotlib.dates import date2num, HourLocator, DateFormatter
 from matplotlib.widgets import Slider
 from sunpy.time.timerange import TimeRange
+from stixcore.config.reader import read_subc_params
 
 __all__ = ['ScienceData', 'RawPixelData', 'CompressedPixelData', 'SummedCompressedPixelData',
            'Visibility', 'Spectrogram', 'PPrintMixin', 'IndexMasks', 'DetectorMasks', 'PixelMasks',
@@ -20,7 +21,8 @@ __all__ = ['ScienceData', 'RawPixelData', 'CompressedPixelData', 'SummedCompress
 
 quantity_support()
 
-
+SCP = read_subc_params(Path(read_subc_params.__code__.co_filename).parent
+                            / "data" / "common" / "detector" / "stx_subc_params.csv")
 class PPrintMixin:
     """
     Provides pretty printing for index masks.
@@ -251,9 +253,9 @@ class PixelPlotMixin:
         """
 
         if fig:
-            axes = fig.subplots(nrows=4, ncols=8, sharex=True, sharey=True, figsize=(10, 5))
+            axes = fig.subplots(nrows=4, ncols=8, sharex=True, sharey=True, figsize=(7, 7))
         else:
-            fig, axes = plt.subplots(nrows=4, ncols=8, sharex=True, sharey=True, figsize=(10, 5))
+            fig, axes = plt.subplots(nrows=4, ncols=8, sharex=True, sharey=True, figsize=(7, 7))
 
         counts, count_err, times, dt, energies = self.get_data(time_indices=time_indices,
                                                                energy_indices=energy_indices)
@@ -286,6 +288,9 @@ class PixelPlotMixin:
 
         containers = defaultdict(list)
 
+        xnorm = plt.Normalize(SCP["SC Xcen"].min()*1.5, SCP["SC Xcen"].max()*1.5)
+        ynorm = plt.Normalize(SCP["SC Ycen"].min()*1.5, SCP["SC Ycen"].max()*1.5)
+
         for detector_id in range(32):
             row, col = divmod(detector_id, 8)
             for pixel_id in pixel_ids:
@@ -293,12 +298,15 @@ class PixelPlotMixin:
                                                       counts[0, detector_id, pixel_id, 0],
                                                       yerr=count_err[0, detector_id, pixel_id, 0],
                                                       xerr=0.5, ls='')
+                x = SCP["SC Xcen"][detector_id]
+                y = SCP["SC Ycen"][detector_id]
+                axes[row, col].set_position([xnorm(x), ynorm(y), 1/10.0, 1/10.0])
 
                 containers[row, col].append(errbar_cont)
                 axes[row, col].set_xlim(0, 4)
                 axes[row, col].set_title(f'Det {detector_id}')
                 axes[row, col].set_xticks([])
-                if col != 0:
+                if detector_id > 0:
                     # axs[row, col].set_yticks([])
                     axes[row, col].set_ylabel('')
 

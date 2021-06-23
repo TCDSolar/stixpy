@@ -32,4 +32,4 @@ plt.show()
 pd.plot_pixels(energy_indices=[[1, 10], [10, 30]])
 plt.show()
 
-print(1)
+print("Hallo")

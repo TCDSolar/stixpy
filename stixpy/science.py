@@ -232,7 +232,7 @@ class PixelPlotMixin:
     """
     Pixel plot mixin providing pixel plotting for pixel data.
     """
-    def plot_pixels(self, *, plottype='pixels', time_indices=None, energy_indices=None, fig=None, cmap='viridis'):
+    def plot_pixels(self, *, kind='pixels', time_indices=None, energy_indices=None, fig=None, cmap='viridis'):
         """
         Plot individual pixel data for each detector.
 
@@ -261,8 +261,8 @@ class PixelPlotMixin:
             The figure
         """
 
-        if not plottype in ["pixels", "errorbar", "config"]:
-            plottype = 'pixels'
+        if not kind in ["pixels", "errorbar", "config"]:
+            kind = 'pixels'
 
         if fig:
             axes = fig.subplots(nrows=4, ncols=8, sharex=True, sharey=True, figsize=(7, 7))
@@ -286,7 +286,7 @@ class PixelPlotMixin:
         def energyval(val):
             return f"{energies[val]['e_low'].value}-{energies[val]['e_high']}"
 
-        def det_pixels_plot(counts, norm, axes, clrmap, fig):
+        def det_pixels_plot(counts, norm, axes, clrmap, fig, last=False):
             """
             Parameters
             ----------
@@ -310,96 +310,80 @@ class PixelPlotMixin:
             cdata_bottom = counts[4:8]
             cdata_small = counts[8:12]
 
-            b1 = axes.bar(x_pos, bar1, color=clrmap(norm(cdata_top)), width=1, zorder=1, label='T')
-            b2 = axes.bar(x_pos, bar2, color=clrmap(norm(cdata_bottom)), width=1, zorder=1, label='B')
-            b3 = axes.bar(x_pos, bar3, color=clrmap(norm(cdata_small)), width=-0.5, align='edge', bottom=-0.1, zorder=1)
+            top = axes.bar(x_pos, bar1, color=clrmap(norm(cdata_top)), width=1, zorder=1, edgecolor="w", linewidth=0.5)
+            bottom = axes.bar(x_pos, bar2, color=clrmap(norm(cdata_bottom)), width=1, zorder=1, edgecolor="w", linewidth=0.5)
+            small = axes.bar(x_pos, bar3, color=clrmap(norm(cdata_small)), width=-0.5, align='edge', bottom=-0.1, zorder=1, edgecolor="w", linewidth=0.5)
+
+            for i in range(4):
+                top[i].data = cdata_top[i]
+                bottom[i].data = cdata_bottom[i]
+                small[i].data = cdata_small[i]
+
             axes.axes.get_xaxis().set_visible(False)
             axes.axes.get_yaxis().set_visible(False)
 
-            annot = axes.annotate("", xy=(0, 0), xytext=(-60, 20), textcoords="offset points",
-                                            bbox=dict(boxstyle="round", fc="w"),
-                                            arrowprops=dict(arrowstyle="-"), zorder=33)
+            annot = axes.annotate("", xy=(0, 0), xytext=(-60, 20),
+                                  textcoords="offset points",
+                                  bbox=dict(boxstyle="round", fc="w"),
+                                  arrowprops=dict(arrowstyle="-"), zorder=33)
 
             annot.set_visible(False)
 
-            def update_annot(artist, annot, cdata_top, cdata_bottom):
+            def update_annot(artist, annot):
                 """ update tooltip when hovering a given plotted object """
                 # find the middle of the bar
                 center_x = artist.get_x() + artist.get_width() / 2
                 center_y = artist.get_y() + artist.get_height() / 2
                 annot.xy = (center_x, center_y)
 
-                # Get the artists and the labels
-                handles, labels = artist.axes.get_legend_handles_labels()
-
-                # Search for your current artist within all plot groups
-                label = [label for h, label in zip(handles, labels) if artist in h.get_children()]
-
-                # Get the bar Index
-                bar_ind = artist.get_x()
-                text = object
-
-                for lb, data in zip(['T', 'B'], [cdata_top, cdata_bottom]):
-                    if label == [lb]:
-                        if bar_ind == -0.5:
-                            text = data[0]
-                        elif bar_ind == 0.5:
-                            text = data[1]
-                        elif bar_ind == 1.5:
-                            text = data[2]
-                        else:
-                            text = data[3]
-
-                annot.set_text(text)
+                annot.set_text(artist.data)
                 annot.get_bbox_patch().set_alpha(1)
 
             def hover(event):
                 """ update and show a tooltip while hovering an object; hide it otherwise """
+                # one wants to hide the annotation only if no artist in the graph is hovered
+                annot.set_visible(False)
                 if isinstance(event.inaxes, type(axes)):
-                    for p in [b1, b2]:
+                    for p in [top, bottom, small]:
                         for artist in p:
                             contains, _ = artist.contains(event)
                             if contains:
-                                update_annot(artist, annot, cdata_top, cdata_bottom)
+                                update_annot(artist, annot)
                                 annot.set_visible(True)
-                                fig.canvas.draw_idle()
-                else:
-                    # one wants to hide the annotation only if no artist in the graph is hovered
-                    annot.set_visible(False)
+                if last:
                     fig.canvas.draw_idle()
 
-            cid = fig.canvas.mpl_connect("motion_notify_event", hover)
-            return [b1, b2, b3, annot, cid]
+            fig.canvas.mpl_connect("motion_notify_event", hover)
+            return (top, bottom, small)
 
-
-
-        def det_config_plot(info, axes, font, detector_id):
+        def det_config_plot(detector_config, axes, font, detector_id):
 
             def mm2deg(x):
-                return x * 360 / 1
+                return x * 360.0 / 1
 
             def deg2mm(x):
-                return x / 360 * 1
+                return x / 360.0 * 1
 
-            if info['Phase Sense'] > 0:
+            if detector_config['Phase Sense'] > 0:
                 phase_sense = '+'
-            elif info['Phase Sense'] < 0:
+            elif detector_config['Phase Sense'] < 0:
                 phase_sense = '-'
             else:
                 phase_sense = 'n'
 
-            front_pitch = info['Front Pitch']
-            front_orient = info['Front Orient']
-            rear_pitch = info['Rear Pitch']
-            rear_orient = info['Rear Orient']
-            slit_width = info['Slit Width']
-            y1 = [slit_width, front_pitch, rear_pitch, 0, deg2mm(front_orient), deg2mm(rear_orient)]
-            x = np.arange(len(y1))
+            y = [detector_config['Slit Width'],
+                 detector_config['Front Pitch'],
+                 detector_config['Rear Pitch'],
+                 0,
+                 deg2mm(detector_config['Front Orient']),
+                 deg2mm(detector_config['Rear Orient'])]
+
+            x = np.arange(len(y))
             x_ticklabels = ['Slit Width', 'Pitch', '', '', 'Orientation', '']
             color = ['black', 'orange', '#1f77b4', 'b', 'orange', '#1f77b4']
 
             # plot the information on axes
-            axes.bar(x, y1, color=color)
+            axes.bar(x, y, color=color)
             axes.text(x=0.8, y=0.7, s=f'Phase: {phase_sense}', **font)
             axes.set_ylim(0, 1)
             axes.axes.get_xaxis().set_visible(False)
@@ -495,23 +479,23 @@ class PixelPlotMixin:
 
         xnorm = plt.Normalize(SCP["SC Xcen"].min()*1.5, SCP["SC Xcen"].max()*1.5)
         ynorm = plt.Normalize(SCP["SC Ycen"].min()*1.5, SCP["SC Ycen"].max()*1.5)
-        if plottype == 'pixels':
+        if kind == 'pixels':
             colorbar(counts, min_counts, max_counts, clrmap, fig)
 
         for detector_id in range(32):
             row, col = divmod(detector_id, 8)
             plot_cont = object
-            if plottype == 'pixels':
-                plot_cont = det_pixels_plot(counts[0, detector_id, :, 0], norm, axes[row, col], clrmap, fig)
+            if kind == 'pixels':
+                plot_cont = det_pixels_plot(counts[0, detector_id, :, 0], norm, axes[row, col], clrmap, fig, last=detector_id==31)
                 axes[row, col].set_xticks([])
-            elif plottype == 'errorbar':
+            elif kind == 'errorbar':
                 for pixel_id in pixel_ids:
                     plot_cont = axes[row, col].errorbar((0.5, 1.5, 2.5, 3.5),
                                                       counts[0, detector_id, pixel_id, 0],
                                                       yerr=count_err[0, detector_id, pixel_id, 0],
                                                       xerr=0.5, ls='')
                 axes[row, col].set_xticks([])
-            elif plottype == 'config':
+            elif kind == 'config':
                 # if not detector_id in [8, 9]:
                 plot_cont = det_config_plot(SCP[detector_id], axes[row, col], ax_font, detector_id)
 
@@ -532,71 +516,28 @@ class PixelPlotMixin:
         def update_pixels(_):
             energy_index = senergy.val
             time_index = stime.val
-            imaging_mask = np.ones(32, bool)
-            imaging_mask[8:10] = False
 
             for detector_id in range(32):
                 row, col = divmod(detector_id, 8)
                 # axes[row, col].clear()
-                cnts = counts[time_index, imaging_mask, :, energy_index][detector_id]
-                top, bottom, small, annot, cid = containers[row, col][0]
+                cnts = counts[time_index, detector_id, :, energy_index]
+                top, bottom, small = containers[row, col][0]
                 cnts = cnts.reshape([3, 4])
                 for pix_artist, pix in zip(range(4), range(12)):
                     norm_counts = norm(cnts[0][pix].value)
                     top[pix_artist].set_color(clrmap(norm_counts))
+                    top[pix_artist].data = cnts[0][pix]
+                    top[pix_artist].set_edgecolor("w")
+
                     norm_counts = norm(cnts[1][pix].value)
                     bottom[pix_artist].set_color(clrmap(norm_counts))
+                    bottom[pix_artist].data = cnts[1][pix]
+                    bottom[pix_artist].set_edgecolor("w")
+
                     norm_counts = norm(cnts[2][pix].value)
                     small[pix_artist].set_color(clrmap(norm_counts))
-
-                def update_annot(artist, annot, cdata_top, cdata_bottom):
-                    """ update tooltip when hovering a given plotted object """
-                    # find the middle of the bar
-                    center_x = artist.get_x() + artist.get_width() / 2
-                    center_y = artist.get_y() + artist.get_height() / 2
-                    annot.xy = (center_x, center_y)
-
-                    # Get the artists and the labels
-                    handles, labels = artist.axes.get_legend_handles_labels()
-
-                    # Search for your current artist within all plot groups
-                    label = [label for h, label in zip(handles, labels) if artist in h.get_children()]
-
-                    # Get the bar Index
-                    bar_ind = artist.get_x()
-                    text = object
-
-                    for lb, data in zip(['T', 'B'], [cdata_top, cdata_bottom]):
-                        if label == [lb]:
-                            if bar_ind == -0.5:
-                                text = data[0]
-                            elif bar_ind == 0.5:
-                                text = data[1]
-                            elif bar_ind == 1.5:
-                                text = data[2]
-                            else:
-                                text = data[3]
-
-                    annot.set_text(text)
-                    annot.get_bbox_patch().set_alpha(1)
-
-                def hoverUpdate(event):
-                    """ update and show a tooltip while hovering an object; hide it otherwise """
-                    if isinstance(event.inaxes, type(axes)):
-                        for p in [top, bottom]:
-                            for artist in p:
-                                contains, _ = artist.contains(event)
-                                if contains:
-                                    update_annot(artist, annot, cnts[0, :], cnts[1, :])
-                                    annot.set_visible(True)
-                                    fig.canvas.draw_idle()
-                    else:
-                        # one wants to hide the annotation only if no artist in the graph is hovered
-                        annot.set_visible(False)
-                        fig.canvas.draw_idle()
-
-                fig.canvas.mpl_disconnect(cid)
-                containers[row, col][0][4] = fig.canvas.mpl_connect("motion_notify_event", hoverUpdate)
+                    small[pix_artist].data = cnts[2][pix]
+                    small[pix_artist].set_edgecolor("w")
 
         def update_errorbar(_):
             energy_index = senergy.val
@@ -636,9 +577,9 @@ class PixelPlotMixin:
 
         updatefunction = update_pixels
 
-        if plottype == 'config':
+        if kind == 'config':
             updatefunction = update_void
-        elif plottype == 'errorbar':
+        elif kind == 'errorbar':
             updatefunction = update_errorbar
 
         senergy.on_changed(updatefunction)

@@ -17,15 +17,15 @@ pd_file = Fido.fetch(query[0])
 pd = ScienceData.from_fits(pd_file[0])
 
 # jsut printg the object gives a textual overview, pixel data support the same plot methods as
-pd
+# pd
 
 l1 = ScienceData.from_fits(test.STIX_SCI_XRAY_L1)
 
 # spectrograms with an additional method to plot the pixel data
-# pd.plot_pixels(energy_indices=[[1, 5], [5, 20], [20, 30]])
-# plt.show()
+pd.plot_pixels(energy_indices=[[1, 5], [5, 20], [20, 30]])
+plt.show()
 
-l1.plot_pixels(plottype='pixels')
+l1.plot_pixels(kind='pixels')
 plt.show()
 
 print(1)

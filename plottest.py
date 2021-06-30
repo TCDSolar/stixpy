@@ -22,14 +22,10 @@ pd
 l1 = ScienceData.from_fits(test.STIX_SCI_XRAY_L1)
 
 # spectrograms with an additional method to plot the pixel data
-pd.plot_pixels(energy_indices=[[1, 5], [5, 20], [20, 30]])
-plt.show()
+# pd.plot_pixels(energy_indices=[[1, 5], [5, 20], [20, 30]])
+# plt.show()
 
-counts, count_err, times, dt, energies = l1.get_data(time_indices=[0], energy_indices=[0])
-counts = counts.reshape([32, 12])
-
-
-l1.plot_pixels()
+l1.plot_pixels(plottype='pixels')
 plt.show()
 
 print(1)

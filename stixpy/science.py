@@ -9,9 +9,12 @@ from astropy.table import QTable, vstack
 from astropy.time import Time
 from astropy.visualization import quantity_support
 from matplotlib import pyplot as plt
+from matplotlib import cm
+from matplotlib import colors
 from matplotlib.colors import LogNorm
 from matplotlib.dates import date2num, HourLocator, DateFormatter
 from matplotlib.widgets import Slider
+from matplotlib.widgets import Button
 from sunpy.time.timerange import TimeRange
 from stixcore.config.reader import read_subc_params
 
@@ -229,12 +232,15 @@ class PixelPlotMixin:
     """
     Pixel plot mixin providing pixel plotting for pixel data.
     """
-    def plot_pixels(self, time_indices=None, energy_indices=None, fig=None):
+    def plot_pixels(self, plottype, time_indices=None, energy_indices=None, fig=None, cmap='viridis'):
         """
         Plot individual pixel data for each detector.
 
         Parameters
         ----------
+        plottype : `string`
+            The user can choose how he wants to visualize the data. The possible options ar 'errorbar' and 'pixels'.
+            The data will then be shown in the selected style.
         time_indices : `list` or `numpy.ndarray`
             If an 1xN array will be treated as mask if 2XN array will sum data between given
             indices. For example `time_indices=[0, 2, 5]` would return only the first, third and
@@ -245,6 +251,9 @@ class PixelPlotMixin:
             sixth times while `energy_indices=[[0, 2],[3, 5]]` would sum the data between.
         fig : optional `matplotlib.figure`
             The figure where to which the pixel plot will be added.
+        cmap : optional `colormap' type
+            If the plottype is `bar` a colormap will be shown. Select different types of colormaps
+            to change the colormap used.
 
         Returns
         -------
@@ -260,11 +269,198 @@ class PixelPlotMixin:
         counts, count_err, times, dt, energies = self.get_data(time_indices=time_indices,
                                                                energy_indices=energy_indices)
 
+        max_counts = counts.max().value
+        min_counts = counts.min().value
+        norm = plt.Normalize(min_counts, max_counts)
+        det_font = {'weight': 'regular', 'size': 6}
+        ax_font = {'weight': 'regular', 'size': 7}
+        q_font = {'weight': 'regular', 'size': 15}
+        clrmap = cm.get_cmap(cmap)
+
         def timeval(val):
             return times[val].isot
 
         def energyval(val):
             return f"{energies[val]['e_low'].value}-{energies[val]['e_high']}"
+
+        def det_pixels_plot(counts, norm, axes, clrmap, fig):
+            """
+            Parameters
+            ----------
+            counts = data collection of the number of counts
+            norm = normalizes the data in the parentheses
+            axes = the axes in which the data will be plotted
+            clrmap = the colormap which will be used to visualize the data/counts
+            fig = helps the hover function to understand in which figure it should return the label
+
+            Returns
+            -------
+            A barplot which visualizes the data with the help of a colorbar.
+            """
+            # Set the variables needed.
+            bar1 = [1, 1, 1, 1]
+            bar2 = [-1, -1, -1, -1]
+            bar3 = [.2, .2, .2, .2]
+            x_pos = ['A', 'B', 'C', 'D']
+
+            cdata_a = counts[0:4]  # .astype(int)
+            cdata_b = counts[4:8]  # .astype(int)
+            b1 = axes.bar(x_pos, bar1, color=clrmap(norm(cdata_a)), width=1, zorder=1, label='T')
+            b2 = axes.bar(x_pos, bar2, color=clrmap(norm(cdata_b)), width=1, zorder=1, label='B')
+            axes.bar(x_pos, bar3, color='black', width=-0.5, align='edge', bottom=-0.1, zorder=1)
+            axes.axes.get_xaxis().set_visible(False)
+            axes.axes.get_yaxis().set_visible(False)
+
+            annot = axes.annotate("", xy=(0, 0), xytext=(-60, 20), textcoords="offset points",
+                                            bbox=dict(boxstyle="round", fc="w"),
+                                            arrowprops=dict(arrowstyle="-"), zorder=33)
+
+            annot.set_visible(False)
+
+            def update_annot(artist, annot, cdata_a, cdata_b):
+                """ update tooltip when hovering a given plotted object """
+                # find the middle of the bar
+                center_x = artist.get_x() + artist.get_width() / 2
+                center_y = artist.get_y() + artist.get_height() / 2
+                annot.xy = (center_x, center_y)
+
+                # Get the artists and the labels
+                handles, labels = artist.axes.get_legend_handles_labels()
+
+                # Search for your current artist within all plot groups
+                label = [label for h, label in zip(handles, labels) if artist in h.get_children()]
+
+                # Get the bar Index
+                bar_ind = artist.get_x()
+                text = object
+
+                for lb, data in zip(['T', 'B'], [cdata_a, cdata_b]):
+                    if label == [lb]:
+                        if bar_ind == -0.5:
+                            text = data[0]
+                        elif bar_ind == 0.5:
+                            text = data[1]
+                        elif bar_ind == 1.5:
+                            text = data[2]
+                        else:
+                            text = data[3]
+
+                annot.set_text(text)
+                annot.get_bbox_patch().set_alpha(1)
+
+            def hover(event):
+                """ update and show a tooltip while hovering an object; hide it otherwise """
+                if isinstance(event.inaxes, type(axes)):
+                    for p in [b1, b2]:
+                        for artist in p:
+                            contains, _ = artist.contains(event)
+                            if contains:
+                                update_annot(artist, annot, cdata_a, cdata_b)
+                                annot.set_visible(True)
+                                fig.canvas.draw_idle()
+                else:
+                    # one wants to hide the annotation only if no artist in the graph is hovered
+                    annot.set_visible(False)
+                    fig.canvas.draw_idle()
+
+            fig.canvas.mpl_connect("motion_notify_event", hover)
+
+        def mm2deg(x):
+            return x * 360 / 1
+
+        def deg2mm(x):
+            return x / 360 * 1
+
+        def det_config_plot(info, axes, font, detector_id):
+            if info['Phase Sense'] > 0:
+                phase_sense = '+'
+            elif info['Phase Sense'] < 0:
+                phase_sense = '-'
+            else:
+                phase_sense = 'n'
+
+            front_pitch = info['Front Pitch']
+            front_orient = info['Front Orient']
+            rear_pitch = info['Rear Pitch']
+            rear_orient = info['Rear Orient']
+            slit_width = info['Slit Width']
+            y1 = [slit_width, front_pitch, rear_pitch, 0, deg2mm(front_orient), deg2mm(rear_orient)]
+            x = np.arange(len(y1))
+            x_ticklabels = ['Slit Width', 'Pitch', '', '', 'Orientation', '']
+            color = ['black', 'orange', '#1f77b4', 'b', 'orange', '#1f77b4']
+
+            # plot the information on axes
+            axes.bar(x, y1, color=color)
+            axes.text(x=0.8, y=0.7, s=f'Phase: {phase_sense}', **font)
+            axes.set_ylim(0, 1)
+            axes.axes.get_xaxis().set_visible(False)
+
+            # Create secondary y axis
+            ax2 = axes.secondary_yaxis('right', functions=(mm2deg, deg2mm))
+            ax2.set_yticks([0, 90, 270, 360])
+            ax2.set_yticklabels(['0°', '90°', '270°', '360°'], fontsize=8)
+
+            if not detector_id == 22:
+                axes.set_yticks([0, 1])
+                axes.set_ylabel('mm', **font)
+                axes.yaxis.set_label_coords(-0.1, 0.5)
+                ax2.set_visible(False)
+                axes.axes.get_yaxis().set_visible(False)
+            elif detector_id == 22:
+                # leave the spaces to set the correct x position of the label!!
+                ax2.set_ylabel('               deg °', rotation=0, **font)
+                # x parameter doesn't change anything because it's a secondary y axis (has only 1 x position).
+                ax2.yaxis.set_label_coords(x=1, y=0.55)
+
+            if detector_id == 0:
+                axes.axes.get_yaxis().set_visible(True)
+            elif detector_id == 27:
+                axes.axes.get_xaxis().set_visible(True)
+                axes.set_xticklabels(x_ticklabels, fontsize=8, rotation=-90)
+
+        def colorbar(counts, min_counts, max_counts, clrmap, fig):
+            """ Creates a colormap at the left side of the created figure. """
+            norm = colors.Normalize(vmin=min_counts, vmax=max_counts)
+            cax = fig.add_axes([0.05, 0.15, 0.025, 0.8])
+            cbar = plt.colorbar(cm.ScalarMappable(norm=norm, cmap=clrmap), orientation='vertical', cax=cax)
+            cbar.ax.set_title(f'{str(counts.unit)}', rotation=90, x=-0.8, y=0.4)
+
+        def helpers(fig, font):
+            """ Shows helpers in the background of the subplots to make it easier to locate the detectors. """
+            x = [0, 2]
+            y = [1, 1]
+            fig.add_axes([0.06, 0.055, 0.97, 0.97])
+            plt.plot(x, y, c='b')
+            plt.plot(y, x, c='b')
+            plt.axis('off')
+            fig.add_axes([0.09, 0.08, 0.91, 0.92])
+            draw_circle_1 = plt.Circle((0.545, 0.540), 0.443, color='b', alpha=0.1)
+            draw_circle_2 = plt.Circle((0.545, 0.540), 0.07, color='#2b330b', alpha=0.95)
+            fig.add_artist(draw_circle_1)
+            fig.add_artist(draw_circle_2)
+            plt.axis('off')
+            fig.add_axes([0, 0, 1, 1])
+            plt.text(0.19, 0.89, 'Q1', **font)
+            plt.text(0.19, 0.17, 'Q2', **font)
+            plt.text(0.86, 0.17, 'Q3', **font)
+            plt.text(0.86, 0.89, 'Q4', **font)
+            plt.axis('off')
+
+        helpers(fig, q_font)
+
+        """
+        def _switch(event):
+            Switches the plottype if the 'switch' button is getting pressed.
+            # det_config_plot(SCP[detector_id], axes[3, 5], det_font)
+            # axes[3, 5].set_zorder(500)
+            # plt.show()
+            return bt
+
+        button_pos = fig.add_axes([0.87, 0.09, 0.1, 0.06])
+        button_pos.set_zorder(200)
+        bt = Button(button_pos, 'switch', color='gray', hovercolor='green')
+        bt.on_clicked(_switch)
+        """
 
         axcolor = 'lightgoldenrodyellow'
         axenergy = plt.axes([0.15, 0.05, 0.55, 0.03], facecolor=axcolor)
@@ -290,25 +486,36 @@ class PixelPlotMixin:
 
         xnorm = plt.Normalize(SCP["SC Xcen"].min()*1.5, SCP["SC Xcen"].max()*1.5)
         ynorm = plt.Normalize(SCP["SC Ycen"].min()*1.5, SCP["SC Ycen"].max()*1.5)
+        if plottype == 'pixels':
+            counts = counts.reshape([32, 12])
+            colorbar(counts, min_counts, max_counts, clrmap, fig)
 
         for detector_id in range(32):
             row, col = divmod(detector_id, 8)
-            for pixel_id in pixel_ids:
-                errbar_cont = axes[row, col].errorbar((0.5, 1.5, 2.5, 3.5),
+            plot_cont = object
+            if plottype == 'pixels':
+                plot_cont = det_pixels_plot(counts[detector_id], norm, axes[row, col], clrmap, fig)
+                axes[row, col].set_xticks([])
+            elif plottype == 'errorbar':
+                for pixel_id in pixel_ids:
+                    plot_cont = axes[row, col].errorbar((0.5, 1.5, 2.5, 3.5),
                                                       counts[0, detector_id, pixel_id, 0],
                                                       yerr=count_err[0, detector_id, pixel_id, 0],
                                                       xerr=0.5, ls='')
-                x = SCP["SC Xcen"][detector_id]
-                y = SCP["SC Ycen"][detector_id]
-                axes[row, col].set_position([xnorm(x), ynorm(y), 1/10.0, 1/10.0])
-
-                containers[row, col].append(errbar_cont)
-                axes[row, col].set_xlim(0, 4)
-                axes[row, col].set_title(f'Det {detector_id}')
                 axes[row, col].set_xticks([])
-                if detector_id > 0:
-                    # axs[row, col].set_yticks([])
-                    axes[row, col].set_ylabel('')
+            elif plottype == 'config':
+                # if not detector_id in [8, 9]:
+                plot_cont = det_config_plot(SCP[detector_id], axes[row, col], ax_font, detector_id)
+
+            axes[row, col].set_zorder(100)
+            x = SCP["SC Xcen"][detector_id]
+            y = SCP["SC Ycen"][detector_id]
+            axes[row, col].set_position([xnorm(x), ynorm(y), 1/11.0, 1/11.0])
+
+            containers[row, col].append(plot_cont)
+            axes[row, col].set_title(f'Det {SCP["Grid Label"][detector_id]}', y=0.89,  **det_font)
+            if detector_id > 0:
+                axes[row, col].set_ylabel('')
 
         def update(_):
             energy_index = senergy.val

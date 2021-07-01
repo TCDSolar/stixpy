@@ -17,6 +17,7 @@ from matplotlib.widgets import Slider
 from matplotlib.widgets import Button
 from sunpy.time.timerange import TimeRange
 from stixcore.config.reader import read_subc_params
+import copy
 
 __all__ = ['ScienceData', 'RawPixelData', 'CompressedPixelData', 'SummedCompressedPixelData',
            'Visibility', 'Spectrogram', 'PPrintMixin', 'IndexMasks', 'DetectorMasks', 'PixelMasks',
@@ -24,7 +25,7 @@ __all__ = ['ScienceData', 'RawPixelData', 'CompressedPixelData', 'SummedCompress
 
 quantity_support()
 
-SCP = read_subc_params(Path(read_subc_params.__code__.co_filename).parent
+SubCollimatorConfig = read_subc_params(Path(read_subc_params.__code__.co_filename).parent
                             / "data" / "common" / "detector" / "stx_subc_params.csv")
 class PPrintMixin:
     """
@@ -232,7 +233,7 @@ class PixelPlotMixin:
     """
     Pixel plot mixin providing pixel plotting for pixel data.
     """
-    def plot_pixels(self, *, kind='pixels', time_indices=None, energy_indices=None, fig=None, cmap='viridis'):
+    def plot_pixels(self, *, kind='pixels', time_indices=None, energy_indices=None, fig=None, cmap=None):
         """
         Plot individual pixel data for each detector.
 
@@ -272,13 +273,24 @@ class PixelPlotMixin:
         counts, count_err, times, dt, energies = self.get_data(time_indices=time_indices,
                                                                energy_indices=energy_indices)
 
-        max_counts = counts.max().value
-        min_counts = counts.min().value
+        imaging_mask = np.ones(32, bool)
+        imaging_mask[8:10] = False
+
+        max_counts = counts[:, imaging_mask, :, :].max().value
+        min_counts = counts[:, imaging_mask, :, :].min().value
+
         norm = plt.Normalize(min_counts, max_counts)
-        det_font = {'weight': 'regular', 'size': 6}
+        det_font = {'weight': 'regular', 'size': 8}
         ax_font = {'weight': 'regular', 'size': 7}
         q_font = {'weight': 'regular', 'size': 15}
-        clrmap = cm.get_cmap(cmap)
+
+        if cmap is None:
+            clrmap = copy.copy(cm.get_cmap('viridis'))
+            clrmap.set_over("w")
+        elif isinstance(cmap, str):
+            clrmap = copy.copy(cm.get_cmap(cmap))
+        else:
+            clrmap = cmap
 
         def timeval(val):
             return times[val].isot
@@ -306,21 +318,31 @@ class PixelPlotMixin:
             bar3 = [.2, .2, .2, .2]
             x_pos = ['A', 'B', 'C', 'D']
 
-            cdata_top = counts[0:4]
-            cdata_bottom = counts[4:8]
-            cdata_small = counts[8:12]
+            counts = counts.reshape(3, 4)
 
-            top = axes.bar(x_pos, bar1, color=clrmap(norm(cdata_top)), width=1, zorder=1, edgecolor="w", linewidth=0.5)
-            bottom = axes.bar(x_pos, bar2, color=clrmap(norm(cdata_bottom)), width=1, zorder=1, edgecolor="w", linewidth=0.5)
-            small = axes.bar(x_pos, bar3, color=clrmap(norm(cdata_small)), width=-0.5, align='edge', bottom=-0.1, zorder=1, edgecolor="w", linewidth=0.5)
+            top = axes.bar(x_pos, bar1, color=clrmap(norm(counts[0, :])),
+                           width=1, zorder=1, edgecolor="w", linewidth=0.5)
+            bottom = axes.bar(x_pos, bar2, color=clrmap(norm(counts[1, :])),
+                              width=1, zorder=1, edgecolor="w", linewidth=0.5)
+            small = axes.bar(x_pos, bar3, color=clrmap(norm(counts[2, :])),
+                             width=-0.5, align='edge', bottom=-0.1, zorder=1,
+                             edgecolor="w", linewidth=0.5)
+
+            #hide most of the axes ticks
+            if last:
+                axes.set_xticks(range(4))
+                axes.set_xticklabels(x_pos)
+                axes.axes.get_xaxis().set_visible(True)
+                axes.axes.get_yaxis().set_visible(False)
+            else:
+                axes.set_xticks([])
+                axes.axes.get_xaxis().set_visible(False)
+                axes.axes.get_yaxis().set_visible(False)
 
             for i in range(4):
-                top[i].data = cdata_top[i]
-                bottom[i].data = cdata_bottom[i]
-                small[i].data = cdata_small[i]
-
-            axes.axes.get_xaxis().set_visible(False)
-            axes.axes.get_yaxis().set_visible(False)
+                top[i].data = counts[0, i]
+                bottom[i].data = counts[1, i]
+                small[i].data = counts[2, i]
 
             annot = axes.annotate("", xy=(0, 0), xytext=(-60, 20),
                                   textcoords="offset points",
@@ -336,8 +358,8 @@ class PixelPlotMixin:
                 center_y = artist.get_y() + artist.get_height() / 2
                 annot.xy = (center_x, center_y)
 
-                annot.set_text(artist.data)
-                annot.get_bbox_patch().set_alpha(1)
+                annot.set_text(artist.data.round(decimals=3))
+                #annot.get_bbox_patch().set_alpha(1)
 
             def hover(event):
                 """ update and show a tooltip while hovering an object; hide it otherwise """
@@ -355,6 +377,18 @@ class PixelPlotMixin:
 
             fig.canvas.mpl_connect("motion_notify_event", hover)
             return (top, bottom, small)
+
+        def det_errorbar_plot(counts, count_err, pixel_ids, detector_id, axes):
+            plot_cont = []
+            for pixel_id in pixel_ids:
+                plot_cont.append(axes.errorbar((0.5, 1.5, 2.5, 3.5),
+                                               counts[pixel_id],
+                                               yerr=count_err[pixel_id],
+                                               xerr=0.5, ls=''))
+            axes.set_xticks([])
+            if detector_id > 0:
+                axes.set_ylabel('')
+            return plot_cont
 
         def det_config_plot(detector_config, axes, font, detector_id):
 
@@ -393,7 +427,7 @@ class PixelPlotMixin:
             ax2.set_yticks([0, 90, 270, 360])
             ax2.set_yticklabels(['0°', '90°', '270°', '360°'], fontsize=8)
 
-            if not detector_id == 22:
+            if detector_id != 22:
                 axes.set_yticks([0, 1])
                 axes.set_ylabel('mm', **font)
                 axes.yaxis.set_label_coords(-0.1, 0.5)
@@ -402,7 +436,8 @@ class PixelPlotMixin:
             elif detector_id == 22:
                 # leave the spaces to set the correct x position of the label!!
                 ax2.set_ylabel('               deg °', rotation=0, **font)
-                # x parameter doesn't change anything because it's a secondary y axis (has only 1 x position).
+                # x parameter doesn't change anything because it's a secondary
+                # y axis (has only 1 x position).
                 ax2.yaxis.set_label_coords(x=1, y=0.55)
 
             if detector_id == 0:
@@ -415,11 +450,14 @@ class PixelPlotMixin:
             """ Creates a colormap at the left side of the created figure. """
             norm = colors.Normalize(vmin=min_counts, vmax=max_counts)
             cax = fig.add_axes([0.05, 0.15, 0.025, 0.8])
-            cbar = plt.colorbar(cm.ScalarMappable(norm=norm, cmap=clrmap), orientation='vertical', cax=cax)
-            cbar.ax.set_title(f'{str(counts.unit)}', rotation=90, x=-0.8, y=0.4)
+            cbar = plt.colorbar(cm.ScalarMappable(norm=norm, cmap=clrmap),
+                                orientation='vertical', cax=cax)
+            cbar.ax.set_title(f'{str(counts.unit)}', rotation=90,
+                              x=-0.8, y=0.4)
 
-        def helpers(fig, font):
-            """ Shows helpers in the background of the subplots to make it easier to locate the detectors. """
+        def instrument_layout(fig, font):
+            """ Shows helpers in the background of the subplots to make it
+            easier to locate the detectors. """
             x = [0, 2]
             y = [1, 1]
             fig.add_axes([0.06, 0.055, 0.97, 0.97])
@@ -427,8 +465,10 @@ class PixelPlotMixin:
             plt.plot(y, x, c='b')
             plt.axis('off')
             fig.add_axes([0.09, 0.08, 0.91, 0.92])
-            draw_circle_1 = plt.Circle((0.545, 0.540), 0.443, color='b', alpha=0.1)
-            draw_circle_2 = plt.Circle((0.545, 0.540), 0.07, color='#2b330b', alpha=0.95)
+            draw_circle_1 = plt.Circle((0.545, 0.540), 0.443, color='b',
+                                       alpha=0.1)
+            draw_circle_2 = plt.Circle((0.545, 0.540), 0.07, color='#2b330b',
+                                       alpha=0.95)
             fig.add_artist(draw_circle_1)
             fig.add_artist(draw_circle_2)
             plt.axis('off')
@@ -439,21 +479,7 @@ class PixelPlotMixin:
             plt.text(0.86, 0.89, 'Q4', **font)
             plt.axis('off')
 
-        helpers(fig, q_font)
-
-        """
-        def _switch(event):
-            Switches the plottype if the 'switch' button is getting pressed.
-            # det_config_plot(SCP[detector_id], axes[3, 5], det_font)
-            # axes[3, 5].set_zorder(500)
-            # plt.show()
-            return bt
-
-        button_pos = fig.add_axes([0.87, 0.09, 0.1, 0.06])
-        button_pos.set_zorder(200)
-        bt = Button(button_pos, 'switch', color='gray', hovercolor='green')
-        bt.on_clicked(_switch)
-        """
+        instrument_layout(fig, q_font)
 
         axcolor = 'lightgoldenrodyellow'
         axenergy = plt.axes([0.15, 0.05, 0.55, 0.03], facecolor=axcolor)
@@ -477,8 +503,8 @@ class PixelPlotMixin:
 
         containers = defaultdict(list)
 
-        xnorm = plt.Normalize(SCP["SC Xcen"].min()*1.5, SCP["SC Xcen"].max()*1.5)
-        ynorm = plt.Normalize(SCP["SC Ycen"].min()*1.5, SCP["SC Ycen"].max()*1.5)
+        xnorm = plt.Normalize(SubCollimatorConfig["SC Xcen"].min()*1.5, SubCollimatorConfig["SC Xcen"].max()*1.5)
+        ynorm = plt.Normalize(SubCollimatorConfig["SC Ycen"].min()*1.4, SubCollimatorConfig["SC Ycen"].max()*1.4)
         if kind == 'pixels':
             colorbar(counts, min_counts, max_counts, clrmap, fig)
 
@@ -486,32 +512,32 @@ class PixelPlotMixin:
             row, col = divmod(detector_id, 8)
             plot_cont = object
             if kind == 'pixels':
-                plot_cont = det_pixels_plot(counts[0, detector_id, :, 0], norm, axes[row, col], clrmap, fig, last=detector_id==31)
-                axes[row, col].set_xticks([])
+                plot_cont = det_pixels_plot(counts[0, detector_id, :, 0], norm,
+                                            axes[row, col], clrmap, fig,
+                                            last=(detector_id == 31))
             elif kind == 'errorbar':
-                for pixel_id in pixel_ids:
-                    plot_cont = axes[row, col].errorbar((0.5, 1.5, 2.5, 3.5),
-                                                      counts[0, detector_id, pixel_id, 0],
-                                                      yerr=count_err[0, detector_id, pixel_id, 0],
-                                                      xerr=0.5, ls='')
-                axes[row, col].set_xticks([])
+                plot_cont = det_errorbar_plot(counts[0, detector_id, :, 0],
+                                              count_err[0, detector_id, :, 0],
+                                              pixel_ids, detector_id,
+                                              axes[row, col])
             elif kind == 'config':
-                # if not detector_id in [8, 9]:
-                plot_cont = det_config_plot(SCP[detector_id], axes[row, col], ax_font, detector_id)
+                plot_cont = det_config_plot(SubCollimatorConfig[detector_id],
+                                            axes[row, col], ax_font,
+                                            detector_id)
 
             axes[row, col].set_zorder(100)
-            x = SCP["SC Xcen"][detector_id]
-            y = SCP["SC Ycen"][detector_id]
-            axes[row, col].set_position([xnorm(x), ynorm(y), 1/11.0, 1/11.0])
+
+            axes[row, col].set_position([xnorm(SubCollimatorConfig["SC Xcen"][detector_id]),
+                                         ynorm(SubCollimatorConfig["SC Ycen"][detector_id]),
+                                         1/11.0, 1/11.0])
 
             containers[row, col].append(plot_cont)
-            axes[row, col].set_title(f'Det {SCP["Grid Label"][detector_id]}', y=0.89,  **det_font)
-            if detector_id > 0:
-                axes[row, col].set_ylabel('')
+            axes[row, col].set_title(f'Det {SubCollimatorConfig["Grid Label"][detector_id]}', y=0.89,  **det_font)
 
         def update_void(_):
-            energy_index = senergy.val
-            time_index = stime.val
+            # get the val as this will update the slider
+            _ = senergy.val
+            _ = stime.val
 
         def update_pixels(_):
             energy_index = senergy.val
@@ -546,16 +572,13 @@ class PixelPlotMixin:
             if counts.shape[2] == 4:
                 pids_ = [slice(0, 4)]
 
-            imaging_mask = np.ones(32, bool)
-            imaging_mask[8:10] = False
-
             for did in range(32):
                 r, c = divmod(did, 8)
                 axes[r, c].set_ylim(0, counts[time_index, imaging_mask, :,
                                               energy_index].max()*1.2)
 
                 for i, pid in enumerate(pids_):
-                    lines, caps, bars = containers[r, c][i]
+                    lines, caps, bars = containers[r, c][0][i]
                     lines.set_ydata(counts[time_index, did, pid, energy_index])
 
                     # horizontal bars at value

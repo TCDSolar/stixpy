@@ -15,17 +15,21 @@ query
 # Again the 2nd to last file seem to match the time range of interest
 pd_file = Fido.fetch(query[0])
 pd = ScienceData.from_fits(pd_file[0])
+print(pd_file[0])
 
 # jsut printg the object gives a textual overview, pixel data support the same plot methods as
 # pd
 
 l1 = ScienceData.from_fits(test.STIX_SCI_XRAY_L1)
 
-# spectrograms with an additional method to plot the pixel data
-pd.plot_pixels(energy_indices=[[1, 5], [5, 20], [20, 30]])
-plt.show()
+# spectrograms with an additional method to plot the pixel data default kind is pixel
+#pd.plot_pixels(energy_indices=[[1, 5], [5, 20], [20, 30]])
+#plt.show()
 
-l1.plot_pixels(kind='pixels')
+#pd.plot_pixels(kind='config')
+#plt.show()
+
+pd.plot_pixels(kind='errorbar', energy_indices=[[1, 5], [5, 20], [20, 30]])
 plt.show()
 
 print(1)

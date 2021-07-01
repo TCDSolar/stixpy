@@ -413,7 +413,6 @@ class PixelPlotMixin:
                  deg2mm(detector_config['Rear Orient'])]
 
             x = np.arange(len(y))
-            x_ticklabels = ['Slit Width', 'Pitch', '', '', 'Orientation', '']
             color = ['black', 'orange', '#1f77b4', 'b', 'orange', '#1f77b4']
 
             # plot the information on axes
@@ -426,25 +425,25 @@ class PixelPlotMixin:
             ax2 = axes.secondary_yaxis('right', functions=(mm2deg, deg2mm))
             ax2.set_yticks([0, 90, 270, 360])
             ax2.set_yticklabels(['0°', '90°', '270°', '360°'], fontsize=8)
+            ax2.set_visible(False)
+            axes.axes.get_yaxis().set_visible(False)
 
-            if detector_id != 22:
+            if detector_id == 0:
                 axes.set_yticks([0, 1])
                 axes.set_ylabel('mm', **font)
                 axes.yaxis.set_label_coords(-0.1, 0.5)
-                ax2.set_visible(False)
-                axes.axes.get_yaxis().set_visible(False)
-            elif detector_id == 22:
+                axes.axes.get_yaxis().set_visible(True)
+            if detector_id == 31:
+                ax2.set_visible(True)
+                axes.axes.get_xaxis().set_visible(True)
+                axes.set_xticks([0, 1.5, 4.5])
+                axes.set_xticklabels(['Slit Width', 'Pitch', 'Orientation'],
+                                     rotation=90)
                 # leave the spaces to set the correct x position of the label!!
                 ax2.set_ylabel('               deg °', rotation=0, **font)
                 # x parameter doesn't change anything because it's a secondary
                 # y axis (has only 1 x position).
                 ax2.yaxis.set_label_coords(x=1, y=0.55)
-
-            if detector_id == 0:
-                axes.axes.get_yaxis().set_visible(True)
-            elif detector_id == 27:
-                axes.axes.get_xaxis().set_visible(True)
-                axes.set_xticklabels(x_ticklabels, fontsize=8, rotation=-90)
 
         def colorbar(counts, min_counts, max_counts, clrmap, fig):
             """ Creates a colormap at the left side of the created figure. """

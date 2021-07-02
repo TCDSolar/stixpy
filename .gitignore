@@ -154,7 +154,4 @@ htmlcov/
 
 #stixpy
 stixpy/data/*.fits
-/Minergie Test Data/
-/Matplotlib Practice/
-.vscode/launch.json
-.vscode/settings.json
+.vscode/*

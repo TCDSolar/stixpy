@@ -21,8 +21,8 @@ print(pd_file[0])
 # pd
 
 #l1 = ScienceData.from_fits(test.STIX_SCI_XRAY_L1)
-l2 = ScienceData.from_fits(test.STIX_SCI_XRAY_L2)
-l2.plot_pixels()
+#l2 = ScienceData.from_fits(test.STIX_SCI_XRAY_L2)
+#l2.plot_pixels()
 
 # plot the pixel data as default "kind=pixels"
 pd.plot_pixels(energy_indices=[[1, 5], [5, 20], [20, 30]])

@@ -251,11 +251,12 @@ class PixelPlotMixin:
             sixth times while `energy_indices=[[0, 2],[3, 5]]` would sum the data between.
         fig : optional `matplotlib.figure`
             The figure where to which the pixel plot will be added.
-        cmap : optional `colormap' type
-            If the kind is `bar` a colormap will be shown. Select different types of colormaps
-            to change the colormap used.
+        cmap : `string` | `colormap` optional
+            If the kind is `pixels` a colormap will be shown.
+            String : default colormap name
+            colormap: a custom colormap
             NOTE: If the color of the special detectors 'cfl', 'bkg' is way above
-            the rest, the color will be automatically set to white.
+            the imaging detectors, the color will be automatically set to white.
 
         Returns
         -------
@@ -263,7 +264,7 @@ class PixelPlotMixin:
             The figure
         """
 
-        if not kind in ["pixels", "errorbar", "config"]:
+        if kind not in ["pixels", "errorbar", "config"]:
             kind = 'pixels'
 
         if fig:
@@ -305,11 +306,16 @@ class PixelPlotMixin:
 
             Parameters
             ----------
-            counts = data collection with the number of counts
-            norm = normalizes the data in the parentheses
-            axes = the axes in which the data will be plotted
-            clrmap = the colormap which will be used to visualize the data/counts
-            fig = sets the current figure
+            counts : `List`
+                data collection with the number of counts
+            norm : `function`
+                normalizes the data in the parentheses
+            axes : `matplotlib.axes`
+                the axes in which the data will be plotted
+            clrmap : `colormap`
+                the colormap which will be used to visualize the data/counts
+            fig : `matplotlib.figure`
+                the current figure to use
 
             Returns
             -------

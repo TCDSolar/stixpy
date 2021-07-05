@@ -12,17 +12,17 @@ class DataType(SimpleAttr):
     """
     Data type Quicklook (QL), science (SCI), or housekeeping (HK)
     """
-    def __init__(self, value):
-        if str(value).casefold not in [t.casefold for t in DATA_TYPES]:
-            raise ValueError(f'Data type must be one of {DATA_TYPES} not {value}')
-        super().__init__(value)
+    # def __init__(self, value):
+    #     if str(value).casefold not in [t.casefold for t in DATA_TYPES]:
+    #         raise ValueError(f'Data type must be one of {DATA_TYPES} not {value}')
+    #     super().__init__(value)
 
 
 class DataProduct(SimpleAttr):
     """
     Data product
     """
-    def __init__(self, value):
-        if str(value).casefold not in [t.casefold for t in DATA_PRODUCTS]:
-            raise ValueError(f'Data product must be one of {DATA_PRODUCTS} not {value}')
-        super().__init__(value)
+    # def __init__(self, value):
+    #     if str(value).casefold not in [t.casefold for t in DATA_PRODUCTS]:
+    #         raise ValueError(f'Data product must be one of {DATA_PRODUCTS} not {value}')
+    #     super().__init__(value)

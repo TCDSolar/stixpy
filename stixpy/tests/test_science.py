@@ -6,7 +6,7 @@ from stixpy.science import *
 
 
 def test_sciencedata_get_data():
-    l1 = ScienceData.from_fits(test.STIX_SCI_XRAY_L1)
+    l1 = ScienceData.from_fits(test.STIX_SCI_XRAY_CPD)
     tot = l1.data['counts']
     norm = (l1.data['timedel'].reshape(5, 1, 1, 1) * l1.dE)
     rate = tot / norm
@@ -90,7 +90,7 @@ def test_sciencedata_get_data():
 
 def test_science_l0():
     type_, num_times, num_detectors, num_pixels, num_energies = RawPixelData, 5, 32, 12, 32
-    res = ScienceData.from_fits(test.STIX_SCI_XRAY_L0)
+    res = ScienceData.from_fits(test.STIX_SCI_XRAY_RPD)
     assert isinstance(res, type_)
     assert len(res.times) == num_times
     assert np.array_equal(res.detectors.masks, np.ones((1, num_detectors)))
@@ -100,7 +100,7 @@ def test_science_l0():
 
 def test_science_l1():
     type_, num_times, num_detectors, num_pixels, num_energies = CompressedPixelData, 5, 32, 12, 32
-    res = ScienceData.from_fits(test.STIX_SCI_XRAY_L1)
+    res = ScienceData.from_fits(test.STIX_SCI_XRAY_CPD)
     assert isinstance(res, type_)
     assert len(res.times) == num_times
     assert np.array_equal(res.detectors.masks, np.ones((1, num_detectors)))
@@ -110,7 +110,7 @@ def test_science_l1():
 
 def test_science_l2():
     type_, num_times, num_detectors, num_pixels, num_energies = SummedCompressedPixelData, 5, 32, 4, 32
-    res = ScienceData.from_fits(test.STIX_SCI_XRAY_L2)
+    res = ScienceData.from_fits(test.STIX_SCI_XRAY_SCPD)
     assert isinstance(res, type_)
     assert len(res.times) == num_times
     assert np.array_equal(res.detectors.masks, np.ones((1, num_detectors)))
@@ -118,21 +118,21 @@ def test_science_l2():
     assert np.array_equal(res.energy_masks.masks, np.ones((1, num_energies)))
 
 
-def test_science_l3():
-    type_, num_times, num_detectors, num_pixels, num_energies = Visibility, 5, 32, 12, 32
-    res = ScienceData.from_fits(test.STIX_SCI_XRAY_L3)
-    assert isinstance(res, type_)
-    assert len(res.times) == num_times
-    assert np.array_equal(res.detectors.masks, np.ones((1, num_detectors)))
-    # assert np.array_equal(res.pixels.masks, np.ones((1, num_pixels)))
-    assert np.array_equal(res.energy_masks.masks, np.ones((1, num_energies)))
+# def test_science_l3():
+#     type_, num_times, num_detectors, num_pixels, num_energies = Visibility, 5, 32, 12, 32
+#     res = ScienceData.from_fits(test.STIX_SCI_XRAY_VIS)
+#     assert isinstance(res, type_)
+#     assert len(res.times) == num_times
+#     assert np.array_equal(res.detectors.masks, np.ones((1, num_detectors)))
+#     # assert np.array_equal(res.pixels.masks, np.ones((1, num_pixels)))
+#     assert np.array_equal(res.energy_masks.masks, np.ones((1, num_energies)))
 
 
 def test_spectrogram():
     type_, num_times, num_detectors, num_pixels, num_energies = Spectrogram, 5, 32, 12, 32
-    res = ScienceData.from_fits(test.STIX_SCI_SPECTROGRAM)
+    res = ScienceData.from_fits(test.STIX_SCI_XRAY_SPEC)
     assert isinstance(res, type_)
     assert len(res.times) == num_times
     assert np.array_equal(res.detectors.masks, np.ones((1, num_detectors)))
-    assert np.array_equal(res.pixels.masks, np.ones((1, num_pixels)))
+    # assert np.array_equal(res.pixels.masks, np.ones((1, num_pixels)))
     assert np.array_equal(res.energy_masks.masks, np.ones((1, num_energies)))

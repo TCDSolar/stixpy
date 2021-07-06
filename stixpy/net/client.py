@@ -30,15 +30,15 @@ class STIXClient(GenericClient):
     <BLANKLINE>
     <BLANKLINE>
     """
-    baseurl = (r'https://homepages.dias.ie/smaloney/stix-data/'
+    baseurl = (r'http://pub099.cs.technik.fhnw.ch/data/fits/'
                r'{level}/{year:4d}/{month:02d}/{day:02d}/{datatype}/')
     ql_filename = r'solo_{level}_stix-{product}_\d{{8}}_V\d{{2}}.fits'
     sci_filename = (r'solo_{level}_stix-{product}-\d+_'
-                    r'\d{{8}}T\d{{6}}-\d{{8}}T\d{{6}}_V\d{{2}}_\d{{5}}.fits')
+                    r'\d{{8}}T\d{{6}}_\d{{8}}T\d{{6}}_V\d{{2}}_\d{{5}}.fits')
 
     base_pattern = r'{}/{Level}/{year:4d}/{month:02d}/{day:02d}/{DataType}/'
     ql_pattern = r'solo_{Level}_{descriptor}_{time}_{ver}.fits'
-    sci_pattern = r'solo_{Level}_{descriptor}_{start}-{end}_{ver}_{tc}.fits'
+    sci_pattern = r'solo_{Level}_{descriptor}_{start}_{end}_{ver}_{tc}.fits'
 
     required = {a.Time, a.Instrument}
 
@@ -120,7 +120,8 @@ class STIXClient(GenericClient):
         from sunpy.net import attrs
         adict = {attrs.Instrument: [('STIX', 'Spectrometer/Telescope for Imaging X-rays')],
                  attrs.Level: [('L1', 'STIX: Decommutated, uncompressed, uncalibrated data.')],
-                 attrs.stix.DataType: [('QL', 'Quick Look'), ('SCI', 'Science Data')],
+                 attrs.stix.DataType: [('QL', 'Quick Look'), ('SCI', 'Science Data'),
+                                       ('CAL', 'Calibration')],
                  attrs.stix.DataProduct: [('ql_lightcurve', 'Quick look light curve'),
                                           ('ql_background', 'Quick look background light curve'),
                                           ('ql_variance', 'Quick look variance curve'),
@@ -129,10 +130,10 @@ class STIXClient(GenericClient):
                                                                       'calibration spectrum'),
                                           ('ql_flareflag',
                                            'Quick look energy calibration spectrum'),
-                                          ('sci_xray_l0', 'Uncompressed pixel counts (12)'),
-                                          ('sci_xray_l1', 'Compressed pixel counts (12)'),
-                                          ('sci_xray_l2', 'Compressed summed pixel counts (4)'),
-                                          ('sci_xray_l3', 'Compressed visibilities'),
-                                          ('sci_spectrogram', 'spectrogram')]
+                                          ('sci_xray_rpd', 'Raw Pixel Data'),
+                                          ('sci_xray_cpd', 'Compressed Pixel Data'),
+                                          ('sci_xray_scpd', 'Summed Compressed Pixel Data'),
+                                          ('sci_xray_vis', 'Visibilities'),
+                                          ('sci_xray_spec', 'Spectrogram')]
                  }
         return adict

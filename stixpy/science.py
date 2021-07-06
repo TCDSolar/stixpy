@@ -209,7 +209,7 @@ class TimesSeriesPlotMixin:
             lines = [axes.errorbar(times.to_datetime(), counts[:, 0, 0, ech], yerr=errors[:, 0, 0, ech],
                            fmt='.', label=labels[ech]) for ech in range(len(energies))]
         else:
-            lies = axes.plot(times.to_datetime(), counts[:, 0, 0, :])
+            lines = axes.plot(times.to_datetime(), counts[:, 0, 0, :])
         axes.set_yscale('log')
         # axes.legend()
         axes.xaxis.set_major_formatter(DateFormatter("%d %H:%M"))

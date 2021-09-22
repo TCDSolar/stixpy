@@ -92,6 +92,8 @@ class QLLightCurve(GenericTimeSeries):
         # Get current axes
         if axes is None:
             fig, axes = plt.subplots()
+        else:
+            fig = plt.gcf()
 
         self._validate_data_for_plotting()
         quantity_support()

@@ -100,7 +100,7 @@ class QLLightCurve(GenericTimeSeries):
 
         dates = matplotlib.dates.date2num(self.to_dataframe().index)
 
-        labels = [f'{col} keV' for col in self.columns[5:]]
+        labels = [f'{col}' for col in self.columns[5:]]
 
         lines = [axes.plot_date(dates, self.to_dataframe().iloc[:, 5+i], '-', label=labels[i], **plot_args)
          for i in range(5)]
@@ -158,7 +158,7 @@ class QLLightCurve(GenericTimeSeries):
 
         data['counts'] = data['counts'] / (live_time.reshape(-1, 1) * energy_delta)
 
-        names = [f'{energies["e_low"][i]}-{energies["e_high"][i]}' for i in range(5)]
+        names = ['{:d}-{:d} keV'.format(energies["e_low"][i].astype(int),energies["e_high"][i].astype(int)) for i in range(5)]
 
         [data.add_column(data['counts'][:, i], name=names[i]) for i in range(5)]
         data.remove_column('counts')

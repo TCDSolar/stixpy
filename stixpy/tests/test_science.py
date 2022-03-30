@@ -78,9 +78,9 @@ def test_sciencedata_get_data():
     l1.data['counts'] = 1/(5*30) * u.ct
     l1.data['counts_err'] = 0 * u.ct
     l1.data['timedel'] = 1/5*u.s
-    l1.dE[:] = 1/30*u.keV
-    l1.energies['e_high'][1:-1] = (np.arange(31) / 30)[1:] * u.keV
-    l1.energies['e_low'][1:-1] = (np.arange(31) / 30)[:-1] * u.keV
+    l1.dE[:] = ((1/30)*u.keV).astype(np.float32)
+    l1.energies['e_high'][1:-1] = ((np.arange(31) / 30)[1:] * u.keV).astype(np.float32)
+    l1.energies['e_low'][1:-1] = ((np.arange(31) / 30)[:-1] * u.keV).astype(np.float32)
     l1.data['time'] = l1.time_range.start + np.arange(5)/5*u.s
     count, count_err, times, timedel, energies = l1.get_data(time_indices=[[0, 4]],
                                                              energy_indices=[[1, 30]])

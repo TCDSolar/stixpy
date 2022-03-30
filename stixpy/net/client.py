@@ -33,12 +33,12 @@ class STIXClient(GenericClient):
     baseurl = (r'http://pub099.cs.technik.fhnw.ch/data/fits/'
                r'{level}/{year:4d}/{month:02d}/{day:02d}/{datatype}/')
     ql_filename = r'solo_{level}_stix-{product}_\d{{8}}_V\d{{2}}.fits'
-    sci_filename = (r'solo_{level}_stix-{product}-\d+_'
-                    r'\d{{8}}T\d{{6}}_\d{{8}}T\d{{6}}_V\d{{2}}_\d{{5}}.fits')
+    sci_filename = (r'solo_{level}_stix-{product}_'
+                    r'\d{{8}}T\d{{6}}-\d{{8}}T\d{{6}}_V\d{{2}}_\d+-\d{{5}}.fits')
 
     base_pattern = r'{}/{Level}/{year:4d}/{month:02d}/{day:02d}/{DataType}/'
     ql_pattern = r'solo_{Level}_{descriptor}_{time}_{ver}.fits'
-    sci_pattern = r'solo_{Level}_{descriptor}_{start}_{end}_{ver}_{tc}.fits'
+    sci_pattern = r'solo_{Level}_{descriptor}_{start}-{end}_{Ver}_{Request}-{tc}.fits'
 
     required = {a.Time, a.Instrument}
 
@@ -89,26 +89,22 @@ class STIXClient(GenericClient):
 
     def post_search_hook(self, exdict, matchdict):
         rowdict = super().post_search_hook(exdict, matchdict)
+        product = rowdict.pop('descriptor').strip('stix-')
         if rowdict.get('DataType') == 'QL':
-            product = rowdict.pop('descriptor').strip('stix-')
             rowdict['DataProduct'] = product
             rowdict['Request ID'] = '-'
             rowdict.pop('ver')
             rowdict.pop('time')
         elif rowdict.get('DataType') == 'SCI':
-            descriptor = rowdict.pop('descriptor')
-            *product, req_id = descriptor.split('-')
-            product = '-'.join(product[1:])
             rowdict['DataProduct'] = product
-            rowdict['Request ID'] = int(req_id)
+            rowdict['Request ID'] = int(rowdict['Request'])
             ts = rowdict.pop('start')
             te = rowdict.pop('end')
             tr = TimeRange(ts, te)
-            rowdict['Time'] = tr
             rowdict['Start Time'] = tr.start.iso
             rowdict['End Time'] = tr.end.iso
-            rowdict.pop('ver')
             rowdict.pop('tc')
+            rowdict.pop('Request')
         return rowdict
 
     @classmethod

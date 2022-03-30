@@ -12,8 +12,8 @@ def client():
 
 @pytest.mark.remote_data
 def test_search_date(client):
-    res = client.search(a.Time('2020-05-01T00:00', '2020-05-02T00:00'), a.Instrument.stix)
-    assert len(res) == 37
+    res = client.search(a.Time('2020-05-01T00:00', '2020-05-01T23:59'), a.Instrument.stix)
+    assert len(res) == 32
 
 
 @pytest.mark.remote_data

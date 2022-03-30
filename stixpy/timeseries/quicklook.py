@@ -40,12 +40,12 @@ class QLLightCurve(GenericTimeSeries):
     QLLightCurve
            <sunpy.time.timerange.TimeRange object at ...>
         Start: 2020-05-06 00:00:01
-        End:   2020-05-06 00:00:09
-        Center:2020-05-06 00:00:05
-        Duration:9.259294581021038e-05 days or
-               0.002222230699445049 hours or
-               0.13333384196670295 minutes or
-               8.000030518002177 seconds
+        End:   2020-05-06 23:59:57
+        Center:2020-05-06 11:59:59
+        Duration:0.9999538194444444 days or
+               23.998891666666665 hours or
+               1439.9334999999999 minutes or
+               86396.01 seconds
     <BLANKLINE>
     """
     _source = 'stix'
@@ -162,7 +162,7 @@ class QLLightCurve(GenericTimeSeries):
         data.remove_column('counts')
         [data.add_column(data['counts_err'][:, i], name=f'{names[i]}_err') for i in range(5)]
         data.remove_column('counts_err')
-        data['time'] = Time(header['date_obs']) + TimeDelta(data['time'] * u.s)
+        data['time'] = Time(header['date-obs']) + data['time'] * u.cs
 
         units = OrderedDict([('control_index', None),
                              ('timedel', u.s),
@@ -311,7 +311,7 @@ class QLBackground(GenericTimeSeries):
         [data.add_column(data['counts_err'][:, i], name=f'{names[i]}_err') for i in range(5)]
         data.remove_column('counts_err')
 
-        data['time'] = Time(header['date_obs']) + TimeDelta(data['time'] * u.s)
+        data['time'] = Time(header['date-obs']) + TimeDelta(data['time'] * u.s)
 
         # [f'{energies[i]["e_low"]} - {energies[i]["e_high"]} keV' for i in range(5)]
 
@@ -443,9 +443,9 @@ class QLVariance(GenericTimeSeries):
         energies = Table(hdulist[4].data)
         dE = energies['e_high'] - energies['e_low'] << u.keV
         name = f'{energies["e_low"][0]}-{energies["e_high"][0]}'
-        data['time'] = Time(header['date_obs']) + TimeDelta(data['time'] * u.s)
+        data['time'] = Time(header['date-obs']) + TimeDelta(data['time'] * u.s)
 
-        data['variance'] = data['variance'].reshape(-1)/(dE * data['timedel'])
+        #data['variance'] = data['variance'].reshape(-1)/(dE * data['timedel'])
 
         data.add_column(data['variance'], name=name)
         data.remove_column('variance')

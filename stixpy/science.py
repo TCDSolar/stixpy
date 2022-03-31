@@ -6,7 +6,7 @@ import numpy as np
 
 from astropy.io import fits
 from astropy.table import QTable, vstack
-from astropy.time import Time
+from astropy.time import Time, TimeDelta
 from astropy.visualization import quantity_support
 from matplotlib import pyplot as plt
 from matplotlib.colors import LogNorm
@@ -600,7 +600,7 @@ class ScienceData:
         header = fits.getheader(file)
         control = QTable.read(file, hdu=1)
         data = QTable.read(file, hdu=2)
-        data['time'] = Time(header['date_obs']) + data['time']
+        data['time'] = Time(header['date-obs']) + TimeDelta(data['time'])
         energies = QTable.read(file, hdu=4)
 
         filename = file.name
@@ -896,8 +896,8 @@ class Spectrogram(ScienceData, TimesSeriesPlotMixin, SpectrogramPlotMixin):
         self.control = control
         self.data = data
         self.energies_ = energies
-        self.detector_masks = DetectorMasks(self.control['detector_mask'])
-        self.pixel_masks = PixelMasks(self.control['pixel_mask'])
+        self.detector_masks = DetectorMasks(self.control['detector_masks'])
+        self.pixel_masks = PixelMasks(self.control['pixel_masks'])
         self.energy_masks = EnergyMasks(self.control['energy_bin_mask'])
         self.dE = np.hstack([[1], np.diff(energies['e_low'][1:]).value, [1]]) * u.keV
 

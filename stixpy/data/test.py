@@ -21,18 +21,18 @@ _unzip_test_data()
 _TEST_DATA = {
     'STIX_QL_BACKGROUND_TIMESERIES': 'solo_L1_stix-ql-background_20200506_V01.fits',
     'STIX_QL_CALIBRATION': 'solo_L1_stix-cal-energy_20200506_V01.fits',
-    # 'STIX_QL_FLAREFLAG':  'solo_L1_stix-ql-flareflag_20200505_V01.fits',
+    'STIX_QL_FLAREFLAG':  'solo_L1_stix-ql-ql-tmstatusflarelist_20200506_V01.fits',
     'STIX_QL_LIGHTCURVE_TIMESERIES': 'solo_L1_stix-ql-lightcurve_20200506_V01.fits',
     'STIX_QL_SPECTRA': 'solo_L1_stix-ql-spectra_20200506_V01.fits',
     'STIX_QL_VARIANCE_TIMESERIES': 'solo_L1_stix-ql-variance_20200506_V01.fits',
     'STIX_SCI_XRAY_SPEC':
-        'solo_L1_stix-sci-xray-spec-87031812_20200505T235959_20200506T000019_V01_50886.fits',
+        'solo_L1_stix-sci-xray-spec_20200505T235959-20200506T000019_V01_87031812-50886.fits',
     'STIX_SCI_XRAY_RPD':
-        'solo_L1_stix-sci-xray-rpd-87031808_20200505T235959_20200506T000019_V01_50882.fits',
+        'solo_L1_stix-sci-xray-rpd_20200505T235959-20200506T000019_V01_87031808-50882.fits',
     'STIX_SCI_XRAY_CPD':
-        'solo_L1_stix-sci-xray-cpd-87031809_20200505T235959_20200506T000019_V01_50883.fits',
+        'solo_L1_stix-sci-xray-cpd_20200505T235959-20200506T000019_V01_87031809-50883.fits',
     'STIX_SCI_XRAY_SCPD':
-        'solo_L1_stix-sci-xray-scpd-87031810_20200505T235959_20200506T000019_V01_50884.fits',
+        'solo_L1_stix-sci-xray-scpd_20200505T235959-20200506T000019_V01_87031810-50884.fits',
     # 'STIX_SCI_XRAY_VIS':
     #     'solo_L1_stix-sci-xray-vis-87031811_20200505T235958-20200510T000014_V01_50885.fits'
 }

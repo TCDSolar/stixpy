@@ -594,8 +594,11 @@ class ScienceData:
         ----------
         file : `str` or `pathlib.Path`
             The path to the file to open read.
+
+
         """
 
+        print("hello!")
         file = Path(file)
         header = fits.getheader(file)
         control = QTable.read(file, hdu=1)

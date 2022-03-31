@@ -589,6 +589,7 @@ class ScienceData:
     def from_fits(cls, file):
         """
         Parses STIX FITS data files to create science products.
+        Should only be applied to L1 fits files (not L1A)
 
         Parameters
         ----------

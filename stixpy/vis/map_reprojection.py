@@ -111,8 +111,8 @@ def get_solo_position(map):
 
     solo_hee = SkyCoord(*p, frame=frames.HeliocentricEarthEcliptic, representation_type='cartesian',
                         obstime=map.date.datetime)
-    # Converting HeliocentricEarthEcliptic coords of SOLAR ORBTER position to HeliographicStonyhurst
-    # frame
+    # Converting HeliocentricEarthEcliptic coords of SOLAR ORBITER position to
+    # HeliographicStonyhurst frame
     solo_hgs = solo_hee.transform_to(frames.HeliographicStonyhurst)
     return solo_hgs
 

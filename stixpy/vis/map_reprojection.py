@@ -83,7 +83,7 @@ import sunpy
 from astropy.coordinates import SkyCoord
 from astropy.wcs import WCS
 from reproject import reproject_interp
-from stixcore.ephemeris.manager import Position
+from stixcore.ephemeris.manager import Spice
 from stixcore.data.test import test_data
 from sunpy.coordinates import frames
 from sunpy.coordinates import get_body_heliographic_stonyhurst
@@ -105,14 +105,11 @@ def get_solo_position(map):
     solo_hgs : `astropy.coordinates.SkyCoord`
         The position of SOLO in HeliographicStonyhurst frame
     """
-    mkp = Path(test_data.ephemeris.META_KERNEL_POS)
-    with Position(meta_kernel_path=mkp) as pos:
-        p = pos.get_position(date=map.date.datetime, frame='SOLO_HEE')
-
+    p = Spice.instance.get_position(date=map.date.datetime, frame='SOLO_HEE')
     solo_hee = SkyCoord(*p, frame=frames.HeliocentricEarthEcliptic, representation_type='cartesian',
                         obstime=map.date.datetime)
-    # Converting HeliocentricEarthEcliptic coords of SOLAR ORBTER position to HeliographicStonyhurst
-    # frame
+    # Converting HeliocentricEarthEcliptic coords of SOLAR ORBITER position to
+    # HeliographicStonyhurst frame
     solo_hgs = solo_hee.transform_to(frames.HeliographicStonyhurst)
     return solo_hgs
 

@@ -65,10 +65,7 @@ class QLLightCurve(GenericTimeSeries):
         import matplotlib.pyplot as plt
         # Check we have a timeseries valid for plotting
         self._validate_data_for_plotting()
-
-        fig = plt.figure()
-        # Now make the plot
-        fig = self.plot(**kwargs)
+        self.plot(**kwargs)
 
     def plot(self, axes=None, **plot_args):
         """
@@ -216,6 +213,22 @@ class QLBackground(GenericTimeSeries):
     >>> bg
     <stixpy.timeseries.quicklook.QLBackground object at ...>
     """
+    @peek_show
+    def peek(self, **kwargs):
+        """
+        Displays a graphical overview of the data in this object for user evaluation.
+        For the creation of plots, users should instead use the
+        `.plot` method and Matplotlib's pyplot framework.
+
+        Parameters
+        ----------
+        **kwargs : `dict`
+            Any additional plot arguments that should be used when plotting.
+        """
+        import matplotlib.pyplot as plt
+        # Check we have a timeseries valid for plotting
+        self._validate_data_for_plotting()
+        self.plot(**kwargs)
 
     def plot(self, axes=None, **plot_args):
         """
@@ -313,7 +326,7 @@ class QLBackground(GenericTimeSeries):
         [data.add_column(data['counts_err'][:, i], name=f'{names[i]}_err') for i in range(5)]
         data.remove_column('counts_err')
 
-        data['time'] = Time(header['date-obs']) + TimeDelta(data['time'] * u.s)
+        data['time'] = Time(header['date-obs']) + TimeDelta(data['time'] * u.cs)
 
         # [f'{energies[i]["e_low"]} - {energies[i]["e_high"]} keV' for i in range(5)]
 
@@ -393,7 +406,7 @@ class QLVariance(GenericTimeSeries):
 
         label = f'{self.columns[2]} keV'
 
-        axes.plot_date(dates, self.to_dataframe().iloc[:, 2], '-', label=label, **plot_args)
+        axes.plot_date(dates, self.to_dataframe().iloc[:, 2], '-', label=label) #, **plot_args)
 
         axes.legend(loc='upper right')
 
@@ -443,11 +456,13 @@ class QLVariance(GenericTimeSeries):
         header['control'] = control
         data = Table(hdulist[2].data)
         energies = Table(hdulist[4].data)
-        dE = energies['e_high'] - energies['e_low'] << u.keV
-        name = f'{energies["e_low"][0]}-{energies["e_high"][0]}'
-        data['time'] = Time(header['date-obs']) + TimeDelta(data['time'] * u.s)
+        dE = energies[control['energy_bin_mask'][0]]['e_high'][-1] \
+             - energies[control['energy_bin_mask'][0]]['e_low'][0] << u.keV
+        name = f'{energies[control["energy_bin_mask"][0]]["e_low"][0]}' \
+               f'-{energies[control["energy_bin_mask"][0]]["e_high"][-1]}'
+        data['time'] = Time(header['date-obs']) + TimeDelta(data['time'] * u.cs)
 
-        #data['variance'] = data['variance'].reshape(-1)/(dE * data['timedel'])
+        data['variance'] = data['variance'].reshape(-1)/(dE * data['timedel'])
 
         data.add_column(data['variance'], name=name)
         data.remove_column('variance')

@@ -83,7 +83,12 @@ class STIXClient(GenericClient):
                     filesmeta = scraper._extract_files_meta(tr, extractor=pattern)
                     for i in filesmeta:
                         rowdict = self.post_search_hook(i, matchdict)
-                        metalist.append(rowdict)
+                        file_tr = rowdict.pop('tr', None)
+                        if file_tr is not None:
+                            if file_tr.start >= tr.start and file_tr.end <= tr.end:
+                                metalist.append(rowdict)
+                        else:
+                            metalist.append(rowdict)
 
         return QueryResponse(metalist, client=self)
 
@@ -101,6 +106,7 @@ class STIXClient(GenericClient):
             ts = rowdict.pop('start')
             te = rowdict.pop('end')
             tr = TimeRange(ts, te)
+            rowdict['tr'] = tr
             rowdict['Start Time'] = tr.start.iso
             rowdict['End Time'] = tr.end.iso
             rowdict.pop('tc')

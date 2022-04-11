@@ -603,6 +603,8 @@ class ScienceData:
         data['time'] = Time(header['date-obs']) + TimeDelta(data['time'])
         energies = QTable.read(file, hdu=4)
 
+        #TODO Fix time before FSW update
+
         filename = file.name
         if 'xray-rpd' in filename:
             return RawPixelData(header=header, control=control, data=data, energies=energies)

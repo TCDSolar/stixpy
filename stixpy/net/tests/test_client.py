@@ -18,9 +18,17 @@ def test_search_date(client):
 
 @pytest.mark.remote_data
 def test_search_date_product():
-    res = Fido.search(a.Time('2020-05-01T00:00', '2020-05-01T23:59'),
+    res1 = Fido.search(a.Time('2020-05-01T00:00', '2020-05-01T23:59'),
                       a.stix.DataProduct.ql_lightcurve, a.Instrument.stix)
-    assert len(res) == 1
+    assert len(res1[0]) == 1
+
+    res2 = Fido.search(a.Time('2020-05-01T00:00', '2020-05-02T00:00'),
+                      a.stix.DataProduct.ql_lightcurve, a.Instrument.stix)
+    assert len(res2[0]) == 2
+
+    res3 = Fido.search(a.Time("2022-01-20 05:40", "2022-01-20 06:20"), a.Instrument("STIX"),
+                      a.stix.DataType("sci"))
+    assert len(res3[0]) == 4
 
 
 @pytest.mark.remote_data
@@ -40,7 +48,7 @@ def test_search_date_product_xray_level1():
 @pytest.mark.remote_data
 def test_fido():
     res = Fido.search(a.Time('2020-11-17T00:00', '2020-11-17T23:59'), a.Instrument.stix)
-    assert len(res['stix']) == 47
+    assert len(res['stix']) == 46
 
     res_ql = Fido.search(a.Time('2020-11-17T00:00', '2020-11-17T23:59'), a.Instrument.stix,
                          a.stix.DataType.ql)
@@ -48,4 +56,4 @@ def test_fido():
 
     res_sci = Fido.search(a.Time('2020-11-17T00:00', '2020-11-17T23:59'), a.Instrument.stix,
                           a.stix.DataType.sci)
-    assert len(res_sci['stix']) == 42
+    assert len(res_sci['stix']) == 41

@@ -98,7 +98,7 @@ class PixelMasks(PPrintMixin):
         text = f'{self.__class__.__name__}\n'
         for m, i in zip(self.masks, self.indices):
             text += f'    {self._pprint_indices(i)}: ' \
-                    f'[{str(np.where(m.shape[0], np.eye(*m.shape), np.full(m.shape, "_")))}]\n'
+                    f'[{str(np.where(m.shape[0], m, np.full(m.shape, "_")))}]\n'
         return text
 
 
@@ -359,15 +359,16 @@ class ScienceData:
             self.pixel_masks = PixelMasks(self.data['pixel_masks'])
         if 'energy_bin_mask' in self.control.colnames:
             self.energy_masks = EnergyMasks(self.control['energy_bin_mask'])
-            self.dE = (energies['e_high'] - energies['e_low'])
-            self.dE[[0, -1]] = 1 * u.keV
+            self.dE = (energies['e_high'] - energies['e_low'])[self.energy_masks.masks[0] == 1]
+            #
 
     @property
     def time_range(self):
         """
         A `sunpy.time.TimeRange` for the data.
         """
-        return TimeRange(self.data['time'].min(), self.data['time'].max())
+        return TimeRange(self.data['time'][0] - self.data['timedel'][0]/2,
+                         self.data['time'][-1] + self.data['timedel'][-1]/2)
 
     @property
     def pixels(self):
@@ -388,7 +389,7 @@ class ScienceData:
         """
         A `astropy.table.Table` object representing the energies contained in the data.
         """
-        return self.energies_
+        return self.energies_[self.energy_masks.masks[0] == 1]
 
     @property
     def times(self):
@@ -473,14 +474,14 @@ class ScienceData:
 
         e_norm = self.dE
         if energy_indices is not None:
-            energy_indices = np.asarray(energy_indices)
+            energy_indices = np.squeeze(np.asarray(energy_indices))
             if energy_indices.ndim == 1:
-                energy_mask = np.full(32, False)
+                energy_mask = np.full(shape[-1], False)
                 energy_mask[energy_indices] = True
                 counts = counts[..., energy_mask]
                 counts_var = counts_var[..., energy_mask]
                 e_norm = self.dE[energy_mask]
-                energies = self.energies_[energy_mask]
+                energies = self.energies[energy_mask]
             elif energy_indices.ndim == 2:
                 counts = np.concatenate([np.sum(counts[..., el:eh+1], axis=-1, keepdims=True)
                                          for el, eh in energy_indices], axis=-1)
@@ -499,7 +500,7 @@ class ScienceData:
 
         t_norm = self.data['timedel']
         if time_indices is not None:
-            time_indices = np.asarray(time_indices)
+            time_indices = np.squeeze(np.asarray(time_indices))
             if time_indices.ndim == 1:
                 time_mask = np.full(times.shape, False)
                 time_mask[time_indices] = True

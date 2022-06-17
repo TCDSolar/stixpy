@@ -1,3 +1,5 @@
+import warnings
+
 import astropy.coordinates as coord
 import astropy.units as u
 import numpy as np
@@ -17,7 +19,7 @@ from stixpy.net.client import STIXClient  # noqa
 
 logger = get_logger(__name__, 'DEBUG')
 
-__all__ = ['STIXImagingFrame', '_get_rotation_matrix_and_position', 'hpc_to_stixim', 'hpc_to_stixim']
+__all__ = ['STIXImagingFrame', '_get_rotation_matrix_and_position', 'hpc_to_stixim', 'stixim_to_hpc']
 
 STIX_X_SHIFT = 26.1 * u.arcsec  # fall back to this when non sas solution available
 STIX_Y_SHIFT = 58.2 * u.arcsec  # fall back to this when non sas solution available
@@ -35,23 +37,26 @@ class STIXImagingFrame(SunPyBaseCoordinateFrame):
 
     Aligned to orientation of SIIX 'pixels' +X corresponds the same direction as toward pixels
     0 and 4, when viewed from behind +Y corresponds direction toward pixels 0 to 3.
-        ---------
-       | 3  | 7  |
-    D  |   _|_   |
-       |  |11 |  |
-        ---------
-       | 2  | 6  |
-    C  |   _|_   |
-       |  |10 |  |
-        ---------
-       | 1  | 5  |
-    B  |   _|_   |
-       |  | 9 |  |
-        ---------
-       | 0  | 4  |
-    A  |   _|_   |
-       |  | 8 |  |
-        --------
+
+    .. code-block:: text
+
+            ---------
+           | 3  | 7  |
+        D  |   _|_   |
+           |  |11 |  |
+            ---------
+           | 2  | 6  |
+        C  |   _|_   |
+           |  |10 |  |
+            ---------
+           | 1  | 5  |
+        B  |   _|_   |
+           |  | 9 |  |
+            ---------
+           | 0  | 4  |
+        A  |   _|_   |
+           |  | 8 |  |
+            ---------
 
     """
 
@@ -75,31 +80,9 @@ def _get_rotation_matrix_and_position(obstime):
     Returns
     -------
     """
-    # Find, download, read aux file with pointing, sas and position information
-    logger.debug('Searching for AUX data')
-    query = Fido.search(a.Time(obstime, obstime), a.Instrument.stix, a.Level.l2,
-                        a.stix.DataType.aux, a.stix.DataProduct.aux_auxiliary)
-    if len(query['stix']) != 1:
-        raise ValueError('Exactly one AUX file should be found but %d were found.', len(query['stix']))
-    logger.debug('Downloading AUX data')
-    files = Fido.fetch(query)
-    if len(files.errors) > 0:
-        raise ValueError('There were errors downloading the data.')
-
-    # Read and extract data
-    logger.debug('Loading and extracting AUX data')
-    hdu = fits.getheader(files[0], ext=0)
-    aux = QTable.read(files[0], hdu=2)
-    start_time = Time(hdu.get('DATE-BEG'))
-    rel_date = (obstime - start_time).to('s')
-    idx = np.argmin(np.abs(rel_date - aux['time']))
-    sas_x, sas_y = aux[idx][['y_srf', 'z_srf']]
-    roll, yaw, pitch = aux[idx]['roll_angle_rpy']
-    solo_position_heeq = aux[idx]['solo_loc_heeq_zxy']
-    logger.debug('SAS: %s, %s, Orientation: %s, %s, %s, Position: %s', sas_x, sas_y, roll, yaw,
-                 pitch, solo_position_heeq)
+    roll, pitch, yaw, sas_x, sas_y, solo_position_heeq = _get_aux_data(obstime)
     if np.isnan(sas_x) or np.isnan(sas_y):
-        logger.warning('SAS solution not available using spacecraft pointing and average SAS offset')
+        warnings.warn('SAS solution not available using spacecraft pointing and average SAS offset')
         sas_x = yaw
         sas_y = pitch
 
@@ -113,6 +96,33 @@ def _get_rotation_matrix_and_position(obstime):
     rmatrix = matrix_product(A, B, C, axes_matrix)
 
     return rmatrix, solo_position_heeq
+
+
+def _get_aux_data(obstime):
+    # Find, download, read aux file with pointing, sas and position information
+    logger.debug('Searching for AUX data')
+    query = Fido.search(a.Time(obstime, obstime), a.Instrument.stix, a.Level.l2,
+                        a.stix.DataType.aux, a.stix.DataProduct.aux_auxiliary)
+    if len(query['stix']) != 1:
+        raise ValueError('Exactly one AUX file should be found but %d were found.',
+                         len(query['stix']))
+    logger.debug('Downloading AUX data')
+    files = Fido.fetch(query)
+    if len(files.errors) > 0:
+        raise ValueError('There were errors downloading the data.')
+    # Read and extract data
+    logger.debug('Loading and extracting AUX data')
+    hdu = fits.getheader(files[0], ext=0)
+    aux = QTable.read(files[0], hdu=2)
+    start_time = Time(hdu.get('DATE-BEG'))
+    rel_date = (obstime - start_time).to('s')
+    idx = np.argmin(np.abs(rel_date - aux['time']))
+    sas_x, sas_y = aux[idx][['y_srf', 'z_srf']]
+    roll, yaw, pitch = aux[idx]['roll_angle_rpy']
+    solo_position_heeq = aux[idx]['solo_loc_heeq_zxy']
+    logger.debug('SAS: %s, %s, Orientation: %s, %s, %s, Position: %s', sas_x, sas_y, roll, yaw,
+                 pitch, solo_position_heeq)
+    return roll, pitch, yaw, sas_x, sas_y, solo_position_heeq
 
 
 @frame_transform_graph.transform(coord.FunctionTransform, STIXImagingFrame, Helioprojective)

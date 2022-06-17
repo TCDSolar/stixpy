@@ -2,6 +2,7 @@ import astropy.units as u
 import numpy as np
 import pytest
 from astropy.time import Time
+from astropy.tests.helper import assert_quantity_allclose, quantity_allclose
 
 from sunpy.coordinates.frames import Helioprojective, HeliographicStonyhurst
 
@@ -32,4 +33,6 @@ def test_test():
 
     stix_coord = STIXImagingFrame(earth_to_stix.x, earth_to_stix.y, obstime=obstime)
     stix_to_earth = stix_coord.transform_to(Helioprojective(observer='Earth', obstime=obstime))
-    print(1)
+
+    assert_quantity_allclose(earth_to_stix.y, 840.925692*u.arcsec)
+    assert_quantity_allclose(earth_to_stix.y, stix_to_earth.y)

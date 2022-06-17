@@ -27,13 +27,32 @@ STIX_Y_OFFSET = 8.0 * u.arcsec  # remaining offset after SAS solution
 
 class STIXImagingFrame(SunPyBaseCoordinateFrame):
     r"""
-    A coordinate or frame in the STIX Imaging system
+    STIX Imaging Frame
 
-    - ``x`` (aka "theta_x") is the angle relative to the plane containing the Sun-observer line
-      and the Sun's rotation axis, with positive values in the direction of the Sun's west limb.
-    - ``Ty`` (aka "theta_y") is the angle relative to the Sun's equatorial plane, with positive
-      values in the direction of the Sun's north pole.
+    - ``x`` (aka "theta_x") along the pixel rows
+    - ``y`` (aka "theta_y") along the pixel columns e.g A, B, C, D.
     - ``distance`` is the Sun-observer distance.
+
+    Aligned to orientation of SIIX 'pixels' +X corresponds the same direction as toward pixels
+    0 and 4, when viewed from behind +Y corresponds direction toward pixels 0 to 3.
+        ---------
+       | 3  | 7  |
+    D  |   _|_   |
+       |  |11 |  |
+        ---------
+       | 2  | 6  |
+    C  |   _|_   |
+       |  |10 |  |
+        ---------
+       | 1  | 5  |
+    B  |   _|_   |
+       |  | 9 |  |
+        ---------
+       | 0  | 4  |
+    A  |   _|_   |
+       |  | 8 |  |
+        --------
+
     """
 
     frame_specific_representation_info = {
@@ -47,15 +66,14 @@ class STIXImagingFrame(SunPyBaseCoordinateFrame):
 
 def _get_rotation_matrix_and_position(obstime):
     r"""
-    Return the rotation matrix for the STIX Imaging coordinate system and position of SOLO
+    Return rotation matrix STIX Imaging to SOLO HPC and position of SOLO in HEEQ.
 
     Parameters
     ----------
     obstime : `astropy.time.Time`
-
+        Time
     Returns
     -------
-
     """
     # Find, download, read aux file with pointing, sas and position information
     logger.debug('Searching for AUX data')
@@ -78,16 +96,21 @@ def _get_rotation_matrix_and_position(obstime):
     sas_x, sas_y = aux[idx][['y_srf', 'z_srf']]
     roll, yaw, pitch = aux[idx]['roll_angle_rpy']
     solo_position_heeq = aux[idx]['solo_loc_heeq_zxy']
+    logger.debug('SAS: %s, %s, Orientation: %s, %s, %s, Position: %s', sas_x, sas_y, roll, yaw,
+                 pitch, solo_position_heeq)
     if np.isnan(sas_x) or np.isnan(sas_y):
         logger.warning('SAS solution not available using spacecraft pointing and average SAS offset')
         sas_x = yaw
         sas_y = pitch
 
     # Generate the rotation matrix using the x-convention (see Goldstein)
+    axes_matrix = np.array([[1, 0, 0],
+                            [0, 0, 1],
+                            [0, 1, 0]])
     C = rotation_matrix(sas_x + STIX_X_OFFSET, "z")
     B = rotation_matrix(-1*sas_y + STIX_Y_OFFSET, "y")
     A = rotation_matrix(-1*roll, 'x')
-    rmatrix = matrix_product(A, B, C)
+    rmatrix = matrix_product(A, B, C, axes_matrix)
 
     return rmatrix, solo_position_heeq
 
@@ -95,13 +118,11 @@ def _get_rotation_matrix_and_position(obstime):
 @frame_transform_graph.transform(coord.FunctionTransform, STIXImagingFrame, Helioprojective)
 def stixim_to_hpc(stxcoord, hpcframe):
     r"""
-    Transform from stix imaging coordiantes to HPC
+    Transform STIX Imaging coordinates to given HPC frame
     """
     logger.debug('STIX: %s', stxcoord)
-    _check_observer_defined(hpcframe)
 
     rot_matrix, solo_pos_heeq = _get_rotation_matrix_and_position(stxcoord.obstime)
-
     solo_heeq = HeliographicStonyhurst(solo_pos_heeq, representation='cartesian',
                                        obstime=stxcoord.obstime)
 
@@ -122,22 +143,22 @@ def stixim_to_hpc(stxcoord, hpcframe):
 @frame_transform_graph.transform(coord.FunctionTransform, Helioprojective, STIXImagingFrame)
 def hpc_to_stixim(hpccoord, stxframe):
     r"""
-    Transform from HPC to stix imaging coordiantes.
+    Transform HPC coordinate to STIX Imaging frame.
     """
     logger.debug('Input HPC: %s', hpccoord)
     rmatrix, solo_pos_heeq = _get_rotation_matrix_and_position(hpccoord.obstime)
-
     solo_heeq = HeliographicStonyhurst(solo_pos_heeq, representation='cartesian',
                                        obstime=stxframe.obstime)
 
     # Create SOLO HPC
     solo_hpc_frame = Helioprojective(obstime=stxframe.obstime,
                                      observer=solo_heeq.transform_to(HeliographicStonyhurst))
+    # Transform input to SOLO HPC
     solo_hpc_coord = hpccoord.transform_to(solo_hpc_frame)
     logger.debug('SOLO HPC: %s', solo_hpc_coord)
 
+    # Transform from SOLO HPC to STIX imaging
     newrepr = solo_hpc_coord.cartesian.transform(matrix_transpose(rmatrix))
-
     stx_coord = stxframe.realize_frame(newrepr, obstime=solo_hpc_frame.obstime)
     logger.debug('STIX: %s', stx_coord)
     return stx_coord

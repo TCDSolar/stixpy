@@ -76,17 +76,17 @@ def _get_rotation_matrix_and_position(obstime):
     rel_date = (obstime - start_time).to('s')
     idx = np.argmin(np.abs(rel_date - aux['time']))
     sas_x, sas_y = aux[idx][['y_srf', 'z_srf']]
-    if np.isnan(sas_x) or np.isnan(sas_y):
-        logger.warning('SAS solution not available using average value')
-        sas_x = STIX_X_SHIFT
-        sas_y = STIX_Y_SHIFT
     roll, yaw, pitch = aux[idx]['roll_angle_rpy']
     solo_position_heeq = aux[idx]['solo_loc_heeq_zxy']
+    if np.isnan(sas_x) or np.isnan(sas_y):
+        logger.warning('SAS solution not available using spacecraft pointing and average SAS offset')
+        sas_x = yaw
+        sas_y = pitch
 
     # Generate the rotation matrix using the x-convention (see Goldstein)
     C = rotation_matrix(sas_x + STIX_X_OFFSET, "z")
-    B = rotation_matrix(sas_y - STIX_Y_OFFSET, "y")
-    A = rotation_matrix(roll, 'x')
+    B = rotation_matrix(-1*sas_y + STIX_Y_OFFSET, "y")
+    A = rotation_matrix(-1*roll, 'x')
     rmatrix = matrix_product(A, B, C)
 
     return rmatrix, solo_position_heeq
@@ -97,6 +97,7 @@ def stixim_to_hpc(stxcoord, hpcframe):
     r"""
     Transform from stix imaging coordiantes to HPC
     """
+    logger.debug('STIX: %s', stxcoord)
     _check_observer_defined(hpcframe)
 
     rot_matrix, solo_pos_heeq = _get_rotation_matrix_and_position(stxcoord.obstime)
@@ -110,10 +111,11 @@ def stixim_to_hpc(stxcoord, hpcframe):
     # Create SOLO HPC
     solo_hpc = Helioprojective(newrepr, obstime=stxcoord.obstime,
                                observer=solo_heeq.transform_to(HeliographicStonyhurst))
+    logger.debug('SOLO HPC: %s', solo_hpc)
 
     # Transform from SOLO HPC to input HPC
     hpc = solo_hpc.transform_to(hpcframe)
-
+    logger.debug('Target HPC: %s', hpc)
     return hpc
 
 
@@ -122,6 +124,7 @@ def hpc_to_stixim(hpccoord, stxframe):
     r"""
     Transform from HPC to stix imaging coordiantes.
     """
+    logger.debug('Input HPC: %s', hpccoord)
     rmatrix, solo_pos_heeq = _get_rotation_matrix_and_position(hpccoord.obstime)
 
     solo_heeq = HeliographicStonyhurst(solo_pos_heeq, representation='cartesian',
@@ -131,9 +134,10 @@ def hpc_to_stixim(hpccoord, stxframe):
     solo_hpc_frame = Helioprojective(obstime=stxframe.obstime,
                                      observer=solo_heeq.transform_to(HeliographicStonyhurst))
     solo_hpc_coord = hpccoord.transform_to(solo_hpc_frame)
+    logger.debug('SOLO HPC: %s', solo_hpc_coord)
 
     newrepr = solo_hpc_coord.cartesian.transform(matrix_transpose(rmatrix))
 
     stx_coord = stxframe.realize_frame(newrepr, obstime=solo_hpc_frame.obstime)
-
+    logger.debug('STIX: %s', stx_coord)
     return stx_coord

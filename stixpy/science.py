@@ -106,7 +106,7 @@ class SpectrogramPlotMixin:
     """
     Spectrogram plot mixin providing spectrogram plotting for pixel data.
     """
-    def plot_spectrogram(self, axes=None, time_indices=None, energy_indices=None, **kwargs):
+    def plot_spectrogram(self, axes=None, time_indices=None, energy_indices=None, **plot_kwargs):
         """
         Plot a spectrogram for the selected time and energies.
 
@@ -122,6 +122,8 @@ class SpectrogramPlotMixin:
             If an 1xN array will be treated as mask if 2XN array will sum data between given
             indices. For example `energy_indices=[0, 2, 5]` would return only the first, third and
             sixth times while `energy_indices=[[0, 2],[3, 5]]` would sum the data between.
+        **plot_kwargs : `dict`
+            Any additional arguments are passed to :meth:`~matplotlib.axes.Axes.pcolormesh`.
 
         Returns
         -------
@@ -149,8 +151,10 @@ class SpectrogramPlotMixin:
         t_edges = Time(np.concatenate(
             [times - timedeltas.reshape(-1) / 2, times[-1] + timedeltas.reshape(-1)[-1:] / 2]))
 
+        pcolor_kwargs = {'norm':LogNorm(), 'shading':'flat'}
+        pcolor_kwargs.update(plot_kwargs)
         im = axes.pcolormesh(t_edges.datetime, e_edges[1:-1], counts[:, 0, 0, 1:-1].T.value,
-               shading='flat', norm=LogNorm())
+                             **pcolor_kwargs)
 
         #axes.colorbar(im).set_label(format(counts.unit))
         axes.xaxis_date()

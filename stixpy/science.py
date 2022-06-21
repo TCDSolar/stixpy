@@ -438,7 +438,7 @@ class ScienceData:
             counts = counts.reshape(shape[0], 1, 1, shape[-1])
             counts_var = counts_var.reshape(shape[0], 1, 1, shape[-1])
 
-        energies = self.energies_
+        energies = self.energies_[[self.energy_masks.masks.astype(bool)[0]]]
         times = self.times
 
         if detector_indices is not None:
@@ -471,7 +471,7 @@ class ScienceData:
                     [np.sum(counts_var[..., pl:ph + 1, :], axis=2, keepdims=True)
                      for pl, ph in pixel_indices], axis=2)
 
-        e_norm = self.dE
+        e_norm = self.dE[self.energy_masks.masks.astype(bool)[0]]
         if energy_indices is not None:
             energy_indices = np.asarray(energy_indices)
             if energy_indices.ndim == 1:

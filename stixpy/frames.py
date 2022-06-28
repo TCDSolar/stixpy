@@ -141,7 +141,7 @@ def stixim_to_hpc(stxcoord, hpcframe):
 
     # Create SOLO HPC
     solo_hpc = Helioprojective(newrepr, obstime=stxcoord.obstime,
-                               observer=solo_heeq.transform_to(HeliographicStonyhurst))
+                               observer=solo_heeq)
     logger.debug('SOLO HPC: %s', solo_hpc)
 
     # Transform from SOLO HPC to input HPC
@@ -156,13 +156,13 @@ def hpc_to_stixim(hpccoord, stxframe):
     Transform HPC coordinate to STIX Imaging frame.
     """
     logger.debug('Input HPC: %s', hpccoord)
-    rmatrix, solo_pos_heeq = _get_rotation_matrix_and_position(hpccoord.obstime)
+    rmatrix, solo_pos_heeq = _get_rotation_matrix_and_position(stxcoord.obstime)
     solo_heeq = HeliographicStonyhurst(solo_pos_heeq, representation='cartesian',
                                        obstime=stxframe.obstime)
 
     # Create SOLO HPC
     solo_hpc_frame = Helioprojective(obstime=stxframe.obstime,
-                                     observer=solo_heeq.transform_to(HeliographicStonyhurst))
+                                     observer=solo_heeq)
     # Transform input to SOLO HPC
     solo_hpc_coord = hpccoord.transform_to(solo_hpc_frame)
     logger.debug('SOLO HPC: %s', solo_hpc_coord)

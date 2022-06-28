@@ -1,3 +1,5 @@
+import re
+import traceback
 import warnings
 
 import astropy.coordinates as coord
@@ -5,7 +7,10 @@ import astropy.units as u
 import numpy as np
 
 from astropy.coordinates import frame_transform_graph
+from astropy.coordinates.baseframe import BaseCoordinateFrame
+from astropy.coordinates.errors import ConvertError
 from astropy.coordinates.matrix_utilities import rotation_matrix, matrix_product, matrix_transpose
+from astropy.coordinates.representation import UnitSphericalRepresentation, SphericalRepresentation
 from astropy.io import fits
 from astropy.table import QTable
 from astropy.time import Time
@@ -13,6 +18,7 @@ from sunpy.coordinates.frames import HeliographicStonyhurst, Helioprojective, \
     SunPyBaseCoordinateFrame
 from sunpy.coordinates.transformations import _check_observer_defined
 from sunpy.net import Fido, attrs as a
+from sunpy.util.exceptions import warn_user
 
 from stixcore.util.logging import get_logger
 from stixpy.net.client import STIXClient  # noqa
@@ -31,15 +37,16 @@ class STIXImagingFrame(SunPyBaseCoordinateFrame):
     r"""
     STIX Imaging Frame
 
-    - ``x`` (aka "theta_x") along the pixel rows
-    - ``y`` (aka "theta_y") along the pixel columns e.g A, B, C, D.
+    - ``x`` (aka "theta_x") along the pixel rows (e.g. 0, 1, 2, 3; 4, 5, 6, 8).
+    - ``y`` (aka "theta_y") along the pixel columns (e.g. A, B, C, D).
     - ``distance`` is the Sun-observer distance.
 
-    Aligned to orientation of SIIX 'pixels' +X corresponds the same direction as toward pixels
-    0 and 4, when viewed from behind +Y corresponds direction toward pixels 0 to 3.
+    Aligned with SIIX 'pixels' +X corresponds direction along pixel row toward pixels
+    0, 4 and +Y corresponds direction along colums towards pixels 0, 1, 2, 3.
 
     .. code-block:: text
 
+      Col\Row
             ---------
            | 3  | 7  |
         D  |   _|_   |
@@ -67,6 +74,71 @@ class STIXImagingFrame(SunPyBaseCoordinateFrame):
             coord.RepresentationMapping('distance', 'distance')]
 
     }
+
+    def make_3d(self):
+        """
+        This method calculates the third coordinate of the Helioprojective
+        frame. It assumes that the coordinate point is on the surface of the Sun.
+        If a point in the frame is off limb then NaN will be returned.
+        Returns
+        -------
+        new_frame : `~sunpy.coordinates.frames.Helioprojective`
+            A new frame instance with all the attributes of the original but
+            now with a third coordinate.
+        """
+        # Skip if we already are 3D
+        if not self._is_2d:
+            return self
+
+        if not isinstance(self.observer, BaseCoordinateFrame):
+            raise ConvertError("Cannot calculate distance to the Sun "
+                               f"for observer '{self.observer}' "
+                               "without `obstime` being specified.")
+
+        rep = self.represent_as(UnitSphericalRepresentation)
+        lat, lon = rep.lat, rep.lon
+
+        # Check for the use of floats with lower precision than the native Python float
+        if not set([lon.dtype.type, lat.dtype.type]).issubset([float, np.float64, np.longdouble]):
+            warn_user("The Helioprojective component values appear to be lower "
+                      "precision than the native Python float: "
+                      f"Tx is {lon.dtype.name}, and Ty is {lat.dtype.name}. "
+                      "To minimize precision loss, you may want to cast the values to "
+                      "`float` or `numpy.float64` via the NumPy method `.astype()`.")
+
+        # Calculate the distance to the surface of the Sun using the law of cosines
+        cos_alpha = np.cos(lat) * np.cos(lon)
+        c = self.observer.radius ** 2 - self.rsun ** 2
+        b = -2 * self.observer.radius * cos_alpha
+        # Ignore sqrt of NaNs
+        with np.errstate(invalid='ignore'):
+            d = ((-1 * b) - np.sqrt(b ** 2 - 4 * c)) / 2  # use the "near" solution
+
+        if self._spherical_screen:
+            sphere_center = self._spherical_screen['center'].transform_to(self).cartesian
+            c = sphere_center.norm() ** 2 - self._spherical_screen['radius'] ** 2
+            b = -2 * sphere_center.dot(rep)
+            # Ignore sqrt of NaNs
+            with np.errstate(invalid='ignore'):
+                dd = ((-1 * b) + np.sqrt(b ** 2 - 4 * c)) / 2  # use the "far" solution
+
+            d = np.fmin(d, dd) if self._spherical_screen['only_off_disk'] else dd
+
+        # This warning can be triggered in specific draw calls when plt.show() is called
+        # we can not easily prevent this, so we check the specific function is being called
+        # within the stack trace.
+        stack_trace = traceback.format_stack()
+        matching_string = 'wcsaxes.*_draw_grid'
+        bypass = any([re.search(matching_string, string) for string in stack_trace])
+        if not bypass and np.all(np.isnan(d)) and np.any(np.isfinite(cos_alpha)):
+            warn_user("The conversion of these 2D helioprojective coordinates to 3D is all NaNs "
+                      "because off-disk coordinates need an additional assumption to be mapped to "
+                      "calculate distance from the observer. Consider using the context manager "
+                      "`Helioprojective.assume_spherical_screen()`.")
+
+        return self.realize_frame(SphericalRepresentation(lon=lon,
+                                                          lat=lat,
+                                                          distance=d))
 
 
 def _get_rotation_matrix_and_position(obstime):
@@ -133,7 +205,7 @@ def stixim_to_hpc(stxcoord, hpcframe):
     logger.debug('STIX: %s', stxcoord)
 
     rot_matrix, solo_pos_heeq = _get_rotation_matrix_and_position(stxcoord.obstime)
-    solo_heeq = HeliographicStonyhurst(solo_pos_heeq, representation='cartesian',
+    solo_heeq = HeliographicStonyhurst(solo_pos_heeq, representation_type='cartesian',
                                        obstime=stxcoord.obstime)
 
     # Transform from STIX imaging to SOLO HPC
@@ -141,7 +213,7 @@ def stixim_to_hpc(stxcoord, hpcframe):
 
     # Create SOLO HPC
     solo_hpc = Helioprojective(newrepr, obstime=stxcoord.obstime,
-                               observer=solo_heeq)
+                               observer=solo_heeq.transform_to(HeliographicStonyhurst))
     logger.debug('SOLO HPC: %s', solo_hpc)
 
     # Transform from SOLO HPC to input HPC
@@ -156,13 +228,13 @@ def hpc_to_stixim(hpccoord, stxframe):
     Transform HPC coordinate to STIX Imaging frame.
     """
     logger.debug('Input HPC: %s', hpccoord)
-    rmatrix, solo_pos_heeq = _get_rotation_matrix_and_position(stxcoord.obstime)
-    solo_heeq = HeliographicStonyhurst(solo_pos_heeq, representation='cartesian',
+    rmatrix, solo_pos_heeq = _get_rotation_matrix_and_position(stxframe.obstime)
+    solo_heeq = HeliographicStonyhurst(solo_pos_heeq, representation_type='cartesian',
                                        obstime=stxframe.obstime)
 
     # Create SOLO HPC
     solo_hpc_frame = Helioprojective(obstime=stxframe.obstime,
-                                     observer=solo_heeq)
+                                     observer=solo_heeq.transform_to(HeliographicStonyhurst))
     # Transform input to SOLO HPC
     solo_hpc_coord = hpccoord.transform_to(solo_hpc_frame)
     logger.debug('SOLO HPC: %s', solo_hpc_coord)

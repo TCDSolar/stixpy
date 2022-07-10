@@ -2,6 +2,7 @@ import logging
 import astropy.units as u
 import numpy as np
 
+
 from stixcore.imaging.em import em
 from stixcore.calibration.visibility import calibrate_visibility, create_visibility, \
     correct_phase_projection
@@ -18,6 +19,7 @@ cpd = ScienceData.from_fits('/Users/shane/Downloads/'
                             'solo_L1_stix-sci-xray-cpd_20200607T213709-20200607T215208'
                             '_V01_1178428688-49155.fits')
 
+
 time_range = ['2020-06-07T21:39:00', '2020-06-07T21:42:49']
 energy_range = [6, 10]
 flare_xy = [-1625, -700] * u.arcsec
@@ -25,6 +27,7 @@ flare_xy = [-1625, -700] * u.arcsec
 # TODO rename doesn't really create a complex vis just the real and imag parts
 vis = create_visibility(cpd, time_range=time_range,
                         energy_range=energy_range, phase_center=flare_xy, no_shadowing=False)
+
 
 # TODO rename
 cal_vis = calibrate_visibility(vis)

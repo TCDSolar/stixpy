@@ -75,8 +75,9 @@ def test_sciencedata_get_data():
 
     # Overwrite data with known values
     # 5 seconds, with dE 1/30keV across 30 channels
-    l1.data['counts'] = 1/(5*30) * u.ct
-    l1.data['counts_err'] = 0 * u.ct
+    l1.data['counts'] = 146/(5*30) * u.ct
+    l1.data.remove_column('counts_err')
+    l1.data['counts_err'] = np.full_like(l1.data['counts'], np.sqrt(146*145/(5*30))*u.ct)
     l1.data['timedel'] = 1/5*u.s
     l1.dE[:] = ((1/30)*u.keV).astype(np.float32)
     l1.energies['e_high'][1:-1] = ((np.arange(31) / 30)[1:] * u.keV).astype(np.float32)

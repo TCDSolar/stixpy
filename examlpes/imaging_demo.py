@@ -6,7 +6,7 @@ from stixcore.calibration.visibility import calibrate_visibility, create_visibil
     correct_phase_projection
 from stixpy.science import ScienceData
 from xrayvision.clean import vis_clean
-from xrayvision.imaging import back_project
+from xrayvision.imaging import vis_to_image
 from xrayvision.mem import mem
 from xrayvision.visibility import Visibility
 
@@ -34,18 +34,17 @@ idx = np.searchsorted(cal_vis.isc, isc_10_3)
 imsize = [129, 129]*u.pixel  # number of pixels of the map to reconstruct
 pixel = [2, 2]*u.arcsec   # pixel size in aresec
 
-stix_vis = Visibility(uv=np.vstack([cal_vis.u[idx], cal_vis.v[idx]]), vis=cal_vis.obsvis[idx],
-                      xyoffset=flare_xy, pixel_size=pixel)
+stix_vis = Visibility(vis=cal_vis.obsvis[idx], u=cal_vis.u[idx], v=cal_vis.v[idx])
 skeys = stix_vis.__dict__.keys()
 for k, v in cal_vis.__dict__.items():
     if k not in skeys:
         setattr(stix_vis, k, v[idx])
 
 # back projection (inverse transform) natural weighting
-bp_nat = back_project(stix_vis, imsize, pixel_size=pixel)
+bp_nat = vis_to_image(stix_vis, imsize, pixel_size=pixel)
 
 # back project (inverse transform) uniform weighting
-bp_uni = back_project(stix_vis, imsize, pixel_size=pixel, natural=False)
+bp_uni = vis_to_image(stix_vis, imsize, pixel_size=pixel, natural=False)
 
 # Clean
 niter = 60  # number of iterations

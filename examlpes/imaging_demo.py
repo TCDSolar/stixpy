@@ -2,6 +2,8 @@ import logging
 import astropy.units as u
 import numpy as np
 
+
+from stixcore.imaging.em import em
 from stixcore.calibration.visibility import calibrate_visibility, create_visibility, \
     correct_phase_projection
 from stixpy.science import ScienceData
@@ -13,14 +15,19 @@ from xrayvision.visibility import Visibility
 logger = logging.getLogger(__name__)
 logger.setLevel('DEBUG')
 
-cpd = ScienceData.from_fits('/Users/shane/Downloads/solo_L1_stix-sci-xray-cpd_20200607T213709-20200607T215208_V01_1178428688-49155.fits')
+cpd = ScienceData.from_fits('/Users/shane/Downloads/'
+                            'solo_L1_stix-sci-xray-cpd_20200607T213709-20200607T215208'
+                            '_V01_1178428688-49155.fits')
+
 
 time_range = ['2020-06-07T21:39:00', '2020-06-07T21:42:49']
 energy_range = [6, 10]
 flare_xy = [-1625, -700] * u.arcsec
 
 # TODO rename doesn't really create a complex vis just the real and imag parts
-vis = create_visibility(cpd, time_range=time_range, energy_range=energy_range, phase_center=flare_xy)
+vis = create_visibility(cpd, time_range=time_range,
+                        energy_range=energy_range, phase_center=flare_xy, no_shadowing=False)
+
 
 # TODO rename
 cal_vis = calibrate_visibility(vis)
@@ -47,12 +54,15 @@ bp_nat = vis_to_image(stix_vis, imsize, pixel_size=pixel)
 bp_uni = vis_to_image(stix_vis, imsize, pixel_size=pixel, natural=False)
 
 # Clean
-niter = 60  # number of iterations
-gain = 0.1  # gain used in each clean iteration
-beam_width = 20. * u.arcsec
-clean_map, model_map, resid_map = vis_clean(stix_vis, imsize, pixel=pixel, gain=gain, niter=niter,
-                                            clean_beam_width=20*u.arcsec)
+# niter = 60  # number of iterations
+# gain = 0.1  # gain used in each clean iteration
+# beam_width = 20. * u.arcsec
+# clean_map, model_map, resid_map = vis_clean(stix_vis, imsize, pixel=pixel, gain=gain, niter=niter,
+#                                             clean_beam_width=20*u.arcsec)
+#
+# mem_map = mem(stix_vis, shape=imsize, pixel=pixel)
 
-mem_map = mem(stix_vis, shape=imsize, pixel=pixel)
+vis = create_visibility(cpd, time_range=time_range, energy_range=energy_range, phase_center=flare_xy)
 
-print(mem_map)
+em_map = em(vis['rate'], stix_vis, shape=imsize, pixel_size=pixel, flare_xy=flare_xy, idx=idx)
+print(em_map)

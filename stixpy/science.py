@@ -15,7 +15,8 @@ from matplotlib.widgets import Slider
 from sunpy.time.timerange import TimeRange
 
 __all__ = ['ScienceData', 'RawPixelData', 'CompressedPixelData', 'SummedCompressedPixelData',
-           'Visibility', 'Spectrogram', 'PPrintMixin', 'IndexMasks', 'DetectorMasks', 'PixelMasks',
+           'Visibility', 'Spectrogram', 'TimesSeriesPlotMixin', 'SpectrogramPlotMixin',
+           'PixelPlotMixin', 'PPrintMixin', 'IndexMasks', 'DetectorMasks', 'PixelMasks',
            'EnergyMasks']
 
 quantity_support()
@@ -443,7 +444,7 @@ class ScienceData:
             counts = counts.reshape(shape[0], 1, 1, shape[-1])
             counts_var = counts_var.reshape(shape[0], 1, 1, shape[-1])
 
-        energies = self.energies_
+        energies = self.energies[:]
         times = self.times
 
         if detector_indices is not None:
@@ -879,9 +880,10 @@ class Spectrogram(ScienceData, TimesSeriesPlotMixin, SpectrogramPlotMixin):
         self.data = data
         self.energies_ = energies
         self.detector_masks = DetectorMasks(self.control['detector_masks'])
-        self.pixel_masks = PixelMasks(self.control['pixel_masks'])
+        self.pixel_masks = PixelMasks(self.data['pixel_masks'])
         self.energy_masks = EnergyMasks(self.control['energy_bin_mask'])
-        self.dE = np.hstack([[1], np.diff(energies['e_low'][1:]).value, [1]]) * u.keV
+        self.dE = (energies['e_high'] - energies['e_low'])[self.energy_masks.masks[0] == 1]
+        # self.dE = np.hstack([[1], np.diff(energies['e_low'][1:]).value, [1]]) * u.keV
 
 
 class SliderCustomValue(Slider):

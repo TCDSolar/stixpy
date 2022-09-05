@@ -22,11 +22,11 @@ class STIXClient(GenericClient):
     Results from 1 Provider:
     <BLANKLINE>
     3 Results from the STIXClient:
-           Start Time               End Time        ...  DataProduct  Request ID
-    ----------------------- ----------------------- ... ------------- ----------
-    2020-06-05 00:00:00.000 2020-06-05 23:59:59.999 ... ql-lightcurve          -
-    2020-06-06 00:00:00.000 2020-06-06 23:59:59.999 ... ql-lightcurve          -
-    2020-06-07 00:00:00.000 2020-06-07 23:59:59.999 ... ql-lightcurve          -
+           Start Time               End Time        Instrument ... Ver Request ID
+    ----------------------- ----------------------- ---------- ... --- ----------
+    2020-06-05 00:00:00.000 2020-06-05 23:59:59.999       STIX ... V01          -
+    2020-06-06 00:00:00.000 2020-06-06 23:59:59.999       STIX ... V01          -
+    2020-06-07 00:00:00.000 2020-06-07 23:59:59.999       STIX ... V01          -
     <BLANKLINE>
     <BLANKLINE>
     """
@@ -37,7 +37,7 @@ class STIXClient(GenericClient):
                     r'\d{{8}}T\d{{6}}-\d{{8}}T\d{{6}}_V\d{{2}}_\d+-\d{{5}}.fits')
 
     base_pattern = r'{}/{Level}/{year:4d}/{month:02d}/{day:02d}/{DataType}/'
-    ql_pattern = r'solo_{Level}_{descriptor}_{time}_{ver}.fits'
+    ql_pattern = r'solo_{Level}_{descriptor}_{time}_{Ver}.fits'
     sci_pattern = r'solo_{Level}_{descriptor}_{start}-{end}_{Ver}_{Request}-{tc}.fits'
 
     required = {a.Time, a.Instrument}
@@ -80,7 +80,7 @@ class STIXClient(GenericClient):
                         elif datatype.lower() == 'cal' and product.startswith('cal'):
                             url = self.baseurl + self.ql_filename
                             pattern = self.base_pattern + self.ql_pattern
-                        elif datatype.lower() == 'aux':
+                        elif datatype.lower() == 'aux' and product.startswith('aux'):
                             url = self.baseurl + self.ql_filename
                             pattern = self.base_pattern + self.ql_pattern
 
@@ -103,14 +103,10 @@ class STIXClient(GenericClient):
 
     def post_search_hook(self, exdict, matchdict):
         rowdict = super().post_search_hook(exdict, matchdict)
-        product = rowdict.pop('descriptor').strip('stix-')
-        if rowdict.get('DataType') == 'QL':
-            rowdict['DataProduct'] = product
-            rowdict['Request ID'] = '-'
-            rowdict.pop('ver')
-            rowdict.pop('time')
-        elif rowdict.get('DataType') == 'SCI':
-            rowdict['DataProduct'] = product
+        product = rowdict.pop('descriptor')[5:]  # Strip 'sci-' from product name
+        rowdict['DataProduct'] = product
+
+        if rowdict.get('DataType') == 'SCI':
             rowdict['Request ID'] = int(rowdict['Request'])
             ts = rowdict.pop('start')
             te = rowdict.pop('end')
@@ -120,6 +116,10 @@ class STIXClient(GenericClient):
             rowdict['End Time'] = tr.end.iso
             rowdict.pop('tc')
             rowdict.pop('Request')
+        else:
+            rowdict['Request ID'] = '-'
+            rowdict.pop('time')
+
         return rowdict
 
     @classmethod
@@ -149,6 +149,6 @@ class STIXClient(GenericClient):
                                           ('sci_xray_scpd', 'Summed Compressed Pixel Data'),
                                           ('sci_xray_vis', 'Visibilities'),
                                           ('sci_xray_spec', 'Spectrogram'),
-                                          ('aux_auxiliary', 'Auxilary ephermeris data')]
+                                          ('aux_auxiliary', 'Auxiliary ephemeris data')]
                  }
         return adict

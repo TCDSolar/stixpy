@@ -54,13 +54,13 @@ bp_nat = vis_to_image(stix_vis, imsize, pixel_size=pixel)
 bp_uni = vis_to_image(stix_vis, imsize, pixel_size=pixel, natural=False)
 
 # Clean
-# niter = 60  # number of iterations
-# gain = 0.1  # gain used in each clean iteration
-# beam_width = 20. * u.arcsec
-# clean_map, model_map, resid_map = vis_clean(stix_vis, imsize, pixel=pixel, gain=gain, niter=niter,
-#                                             clean_beam_width=20*u.arcsec)
-#
-# mem_map = mem(stix_vis, shape=imsize, pixel=pixel)
+niter = 60  # number of iterations
+gain = 0.1  # gain used in each clean iteration
+beam_width = 20. * u.arcsec
+clean_map, model_map, resid_map = vis_clean(stix_vis, imsize, pixel=pixel, gain=gain, niter=niter,
+                                            clean_beam_width=20*u.arcsec, natural=False)
+
+mem_map = mem(stix_vis, shape=imsize, pixel=pixel)
 
 vis = create_visibility(cpd, time_range=time_range, energy_range=energy_range, phase_center=flare_xy)
 

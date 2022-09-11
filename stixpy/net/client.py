@@ -156,6 +156,6 @@ class STIXClient(GenericClient):
                                           ('sci_xray_scpd', 'Summed Compressed Pixel Data'),
                                           ('sci_xray_vis', 'Visibilities'),
                                           ('sci_xray_spec', 'Spectrogram'),
-                                          ('aux_auxiliary', 'Auxiliary ephemeris data')]
+                                          ('aux_ephemeris', 'Auxiliary ephemeris data')]
                  }
         return adict

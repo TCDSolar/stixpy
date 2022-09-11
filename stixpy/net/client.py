@@ -74,6 +74,9 @@ class STIXClient(GenericClient):
                         if datatype.lower() == 'ql' and product.startswith('ql'):
                             url = self.baseurl + self.ql_filename
                             pattern = self.base_pattern + self.ql_pattern
+                        if datatype.lower() == 'hk' and product.startswith('hk'):
+                            url = self.baseurl + self.ql_filename
+                            pattern = self.base_pattern + self.ql_pattern
                         elif datatype.lower() == 'sci' and product.startswith('sci'):
                             url = self.baseurl + self.sci_filename
                             pattern = self.base_pattern + self.sci_pattern
@@ -141,8 +144,10 @@ class STIXClient(GenericClient):
                                ('L1', 'STIX: Engineering and UTC time conversion .'),
                                ('L2', 'STIX: Calibrated data.')],
                  attrs.stix.DataType: [('QL', 'Quick Look'), ('SCI', 'Science Data'),
-                                       ('CAL', 'Calibration'), ('AUX', 'Auxiliary')],
-                 attrs.stix.DataProduct: [('cal_energy', 'Energy Calibration'),
+                                       ('CAL', 'Calibration'), ('AUX', 'Auxiliary'),
+                                       ('HK', 'House Keeping')],
+                 attrs.stix.DataProduct: [('hk_maxi', 'House Keeping Maxi Report'),
+                                          ('cal_energy', 'Energy Calibration'),
                                           ('ql_lightcurve', 'Quick look light curve'),
                                           ('ql_background', 'Quick look background light curve'),
                                           ('ql_variance', 'Quick look variance curve'),

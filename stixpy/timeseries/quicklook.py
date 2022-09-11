@@ -508,9 +508,9 @@ class HKMaxi(GenericTimeSeries):
     >>> from stixpy.data import test
     >>> from sunpy.timeseries import TimeSeries
     >>> from stixpy.timeseries.quicklook import HKMaxi
-    >>> bg = TimeSeries(test.HKMaxi)
-    >>> bg
-    <stixpy.timeseries.quicklook.QLVariance object at ...>
+    >>> hk = TimeSeries(test.STIX_HK_MAXI_TIMESERIES)
+    >>> hk
+    <stixpy.timeseries.quicklook.HKMaxi ...>
     """
     # def plot(self, axes=None, **plot_args):
     #     """

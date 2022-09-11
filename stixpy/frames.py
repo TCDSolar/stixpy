@@ -174,7 +174,7 @@ def _get_aux_data(obstime):
     # Find, download, read aux file with pointing, sas and position information
     logger.debug('Searching for AUX data')
     query = Fido.search(a.Time(obstime, obstime), a.Instrument.stix, a.Level.l2,
-                        a.stix.DataType.aux, a.stix.DataProduct.aux_auxiliary)
+                        a.stix.DataType.aux, a.stix.DataProduct.aux_ephemeris)
     if len(query['stix']) != 1:
         raise ValueError('Exactly one AUX file should be found but %d were found.',
                          len(query['stix']))

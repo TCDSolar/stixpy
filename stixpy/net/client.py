@@ -94,7 +94,14 @@ class STIXClient(GenericClient):
                             rowdict = self.post_search_hook(i, matchdict)
                             file_tr = rowdict.pop('tr', None)
                             if file_tr is not None:
+                                # 4 cases full in, fully our start in or end in
                                 if file_tr.start >= tr.start and file_tr.end <= tr.end:
+                                    metalist.append(rowdict)
+                                elif tr.start <= file_tr.start and tr.end >= file_tr.end:
+                                    metalist.append(rowdict)
+                                elif tr.start <= file_tr.start <= tr.end:
+                                    metalist.append(rowdict)
+                                elif tr.start <= file_tr.end <= tr.end:
                                     metalist.append(rowdict)
                             else:
                                 metalist.append(rowdict)

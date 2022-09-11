@@ -13,7 +13,7 @@ def client():
 @pytest.mark.remote_data
 def test_search_date(client):
     res = client.search(a.Time('2020-05-01T00:00', '2020-05-01T23:59'), a.Instrument.stix)
-    assert len(res) == 34
+    assert len(res) == 35
 
 
 @pytest.mark.remote_data
@@ -28,7 +28,7 @@ def test_search_date_product():
 
     res3 = Fido.search(a.Time("2022-01-20 05:40", "2022-01-20 06:20"), a.Instrument("STIX"),
                       a.stix.DataType("sci"))
-    assert len(res3[0]) == 4
+    assert len(res3[0]) == 9
 
 
 @pytest.mark.remote_data
@@ -56,4 +56,4 @@ def test_fido():
 
     res_sci = Fido.search(a.Time('2020-11-17T00:00', '2020-11-17T23:59'), a.Instrument.stix,
                           a.stix.DataType.sci)
-    assert len(res_sci['stix']) == 41
+    assert len(res_sci['stix']) == 42

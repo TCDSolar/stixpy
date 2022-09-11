@@ -105,7 +105,7 @@ def test_science_l1():
     assert isinstance(res, type_)
     assert len(res.times) == num_times
     assert np.array_equal(res.detectors.masks, np.ones((1, num_detectors)))
-    assert np.array_equal(res.pixels.masks, np.eye(num_pixels)[None, ...])
+    assert np.array_equal(res.pixels.masks, np.ones(12)[None, ...])
     assert np.array_equal(res.energy_masks.masks, np.ones((1, num_energies)))
 
 

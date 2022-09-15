@@ -1,4 +1,6 @@
 from collections import defaultdict
+from itertools import product
+
 from pathlib import Path
 
 import astropy.units as u
@@ -107,7 +109,8 @@ class SpectrogramPlotMixin:
     """
     Spectrogram plot mixin providing spectrogram plotting for pixel data.
     """
-    def plot_spectrogram(self, axes=None, time_indices=None, energy_indices=None, **plot_kwargs):
+    def plot_spectrogram(self, axes=None, time_indices=None, energy_indices=None,
+                         detector_indices='all', pixel_indices='all', **plot_kwargs):
         """
         Plot a spectrogram for the selected time and energies.
 
@@ -130,18 +133,39 @@ class SpectrogramPlotMixin:
         -------
         `matplotlib.axes`
         """
-
-        if axes is None:
-            fig, axes = plt.subplots()
-        else:
-            fig = axes.get_figure()
-
         counts_shape = self.data['counts'].shape
-        pid = None
-        did = None
-        if len(counts_shape) == 4:
-            pid = [[0, counts_shape[2]]]
-            did = [[0, counts_shape[1]]]
+        if len(counts_shape) != 4:
+            # if spectrogram can't do anything with pixel or detector indices
+            if detector_indices != 'all' or pixel_indices != 'all':
+                raise ValueError('Detector and or pixel indices have can not be used with spectrogram')
+
+            pid = None
+            did = None
+        else:
+
+            if detector_indices == 'all':
+                did = [[0, 31]]
+            else:
+                det_idx_arr = np.array(detector_indices)
+                if det_idx_arr.ndim == 1 and det_idx_arr.size != 1:
+                    raise ValueError('Spectrogram plots can only show data from a single '
+                                     'detector or summed over a number of detectors')
+                elif det_idx_arr.ndim == 2 and det_idx_arr.shape[0] != 1:
+                    raise ValueError('Spectrogram plots can only one sum '
+                                     'detector or summed over a number of detectors')
+                did = detector_indices
+
+            if pixel_indices == 'all':
+                pid = [[0, 11]]
+            else:
+                pix_idx_arr = np.array(pixel_indices)
+                if pix_idx_arr.ndim == 1 and pix_idx_arr.size != 1:
+                    raise ValueError('Spectrogram plots can only show data from a single '
+                                     'detector or summed over a number of detectors')
+                elif pix_idx_arr.ndim == 2 and pix_idx_arr.shape[0] != 1:
+                    raise ValueError('Spectrogram plots can only one sum '
+                                     'detector or summed over a number of detectors')
+                pid = pixel_indices
 
         counts, errors, times, timedeltas, energies = self.get_data(detector_indices=did,
                                                                     pixel_indices=pid,
@@ -151,6 +175,11 @@ class SpectrogramPlotMixin:
         e_edges = np.hstack([energies['e_low'], energies['e_high'][-1]])
         t_edges = Time(np.concatenate(
             [times - timedeltas.reshape(-1) / 2, times[-1] + timedeltas.reshape(-1)[-1:] / 2]))
+
+        if axes is None:
+            fig, axes = plt.subplots()
+        else:
+            fig = axes.get_figure()
 
         pcolor_kwargs = {'norm':LogNorm(), 'shading':'flat'}
         pcolor_kwargs.update(plot_kwargs)
@@ -174,7 +203,8 @@ class TimesSeriesPlotMixin:
     """
     TimesSeries plot mixin providing timeseries plotting for pixel data.
     """
-    def plot_timeseries(self, time_indices=None, energy_indices=None, axes=None, error_bar=False):
+    def plot_timeseries(self, time_indices=None, energy_indices=None, detector_indices='all',
+                        pixel_indices='all', axes=None, error_bar=False):
         """
         Plot a times series of the selected times and energies.
 
@@ -190,6 +220,14 @@ class TimesSeriesPlotMixin:
             If an 1xN array will be treated as mask if 2XN array will sum data between given
             indices. For example `energy_indices=[0, 2, 5]` would return only the first, third and
             sixth times while `energy_indices=[[0, 2],[3, 5]]` would sum the data between.
+        detector_indices : `list` or `numpy.ndarray`
+            If an 1xN array will be treated as mask if 2XN array will sum data between given
+            indices. For example `detector_indices=[0, 2, 5]` would return only the first, third and
+            sixth detectors while `detector_indices=[[0, 2],[3, 5]]` would sum the data between.
+        pixel_indices : `list` or `numpy.ndarray`
+            If an 1xN array will be treated as mask if 2XN array will sum data between given
+            indices. For example `pixel_indices=[0, 2, 5]` would return only the first, third and
+            sixth pixels while `pixel_indices=[[0, 2],[3, 5]]` would sum the data between.
         error_bar : optional `bool`
             Add error bars to plot.
 
@@ -203,18 +241,28 @@ class TimesSeriesPlotMixin:
         else:
             fig = axes.get_figure()
 
-        counts_shape = self.data['counts'].shape
+        if detector_indices == 'all':
+            detector_indices = [[0, 31]]
+
+        if pixel_indices == 'all':
+            pixel_indices = [[0, 11]]
+
         counts, errors, times, timedeltas, energies \
-            = self.get_data(detector_indices=None,
-                            pixel_indices=None,
+            = self.get_data(detector_indices=detector_indices,
+                            pixel_indices=pixel_indices,
                             time_indices=time_indices, energy_indices=energy_indices)
+
         labels = [f'{el.value} - {eh.value}' for el, eh in energies['e_low', 'e_high']]
 
-        if error_bar:
-            lines = [axes.errorbar(times.to_datetime(), counts[:, 0, 0, ech], yerr=errors[:, 0, 0, ech],
-                           fmt='.', label=labels[ech]) for ech in range(len(energies))]
-        else:
-            lines = axes.plot(times.to_datetime(), counts[:, 0, 0, :])
+        nt, nd, np, ne = counts.shape
+
+        for did, pid, eid in product(range(nd), range(np), range(ne)):
+            if error_bar:
+                axes.errorbar(times.to_datetime(), counts[:, did, pid, eid], yerr=errors[:, did, pid, eid],
+                              fmt='.', label=labels[eid])
+            else:
+                lines = axes.plot(times.to_datetime(), counts[:, did, pid, eid])
+
         axes.set_yscale('log')
         # axes.legend()
         axes.xaxis.set_major_formatter(DateFormatter("%d %H:%M"))

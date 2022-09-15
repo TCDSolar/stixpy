@@ -20,7 +20,7 @@ It is strongly advised that you use and isolated environment through python's ve
 
 .. code-block::
 
-    pip install git+https://github.com/samaloney/stixpy
+   pip install git+https://github.com/samaloney/stixpy
 
 
 License

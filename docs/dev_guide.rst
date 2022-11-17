@@ -24,7 +24,7 @@ It is also advisable to configure the upstream remote at this point
 
 .. code:: bash
 
-    git remote add upstream https://github.com/samaloney/STIXCore
+    git remote add upstream https://github.com/samaloney/stixpy
 
 
 Isolated Environment

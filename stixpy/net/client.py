@@ -2,7 +2,10 @@ from sunpy.net import attrs as a
 from sunpy.net.dataretriever import GenericClient
 from sunpy.net.dataretriever.client import QueryResponse
 from sunpy.time import TimeRange
-from sunpy.util.scraper import Scraper
+try:
+    from sunpy.net.scraper import Scraper
+except ModuleNotFoundError:
+    from sunpy.util.scraper import Scraper
 
 __all__ = ["STIXClient"]
 

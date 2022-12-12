@@ -19,7 +19,7 @@ repos:
   # E902 - IOError
   # F822: undefined name in __all__
   # F823: local variable name referenced before assignment
-  - repo: https://gitlab.com/pycqa/flake8
+  - repo: https://github.com/pycqa/flake8
     rev: 3.7.9
     hooks:
       - id: flake8

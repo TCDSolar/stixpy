@@ -31,6 +31,8 @@ trigger:
 jobs:
 - template: run-tox-env.yml@OpenAstronomy
   parameters:
+    toxverspec: <4
+    toxdeps: tox-pypi-filter
     submodules: false
     coverage: codecov
     envs:

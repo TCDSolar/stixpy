@@ -263,10 +263,11 @@ class TimesSeriesPlotMixin:
                 lines = axes.errorbar(times.to_datetime(), counts[:, did, pid, eid], yerr=errors[:, did, pid, eid],
                               marker='.', label=labels[eid], **plot_kwarg)
             else:
-                lines = axes.plot(times.to_datetime(), counts[:, did, pid, eid], **plot_kwarg)
+                lines = axes.plot(times.to_datetime(), counts[:, did, pid, eid], 
+                                  label=labels[eid], **plot_kwarg)
 
         axes.set_yscale('log')
-        axes.legend()
+        #axes.legend()
         axes.xaxis.set_major_formatter(DateFormatter("%d %H:%M"))
         fig.autofmt_xdate()
         fig.tight_layout()

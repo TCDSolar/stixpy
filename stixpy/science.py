@@ -254,9 +254,9 @@ class TimesSeriesPlotMixin:
 
         labels = [f'{el.value} - {eh.value}' for el, eh in energies['e_low', 'e_high']]
 
-        nt, nd, np, ne = counts.shape
+        n_time, n_det, n_pix, n_energy = counts.shape
 
-        for did, pid, eid in product(range(nd), range(np), range(ne)):
+        for did, pid, eid in product(range(n_det), range(n_pix), range(n_energy)):
             if error_bar:
                 axes.errorbar(times.to_datetime(), counts[:, did, pid, eid], yerr=errors[:, did, pid, eid],
                               fmt='.', label=labels[eid])

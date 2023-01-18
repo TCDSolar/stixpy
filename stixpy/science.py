@@ -258,7 +258,7 @@ class TimesSeriesPlotMixin:
 
         for did, pid, eid in product(range(n_det), range(n_pix), range(n_energy)):
             if error_bar:
-                axes.errorbar(times.to_datetime(), counts[:, did, pid, eid], yerr=errors[:, did, pid, eid],
+                lines = axes.errorbar(times.to_datetime(), counts[:, did, pid, eid], yerr=errors[:, did, pid, eid],
                               fmt='.', label=labels[eid])
             else:
                 lines = axes.plot(times.to_datetime(), counts[:, did, pid, eid])

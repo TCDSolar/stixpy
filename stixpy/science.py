@@ -204,7 +204,7 @@ class TimesSeriesPlotMixin:
     TimesSeries plot mixin providing timeseries plotting for pixel data.
     """
     def plot_timeseries(self, time_indices=None, energy_indices=None, detector_indices='all',
-                        pixel_indices='all', axes=None, error_bar=False):
+                        pixel_indices='all', axes=None, error_bar=False, **plot_kwarg):
         """
         Plot a times series of the selected times and energies.
 
@@ -230,6 +230,8 @@ class TimesSeriesPlotMixin:
             sixth pixels while `pixel_indices=[[0, 2],[3, 5]]` would sum the data between.
         error_bar : optional `bool`
             Add error bars to plot.
+        **plot_kwargs : `dict`
+            Any additional arguments are passed to :meth:`~matplotlib.axes.Axes.plot`.
 
         Returns
         -------
@@ -254,17 +256,17 @@ class TimesSeriesPlotMixin:
 
         labels = [f'{el.value} - {eh.value}' for el, eh in energies['e_low', 'e_high']]
 
-        nt, nd, np, ne = counts.shape
+        n_time, n_det, n_pix, n_energy = counts.shape
 
-        for did, pid, eid in product(range(nd), range(np), range(ne)):
+        for did, pid, eid in product(range(n_det), range(n_pix), range(n_energy)):
             if error_bar:
-                axes.errorbar(times.to_datetime(), counts[:, did, pid, eid], yerr=errors[:, did, pid, eid],
-                              fmt='.', label=labels[eid])
+                lines = axes.errorbar(times.to_datetime(), counts[:, did, pid, eid], yerr=errors[:, did, pid, eid],
+                                      label=labels[eid], **plot_kwarg)
             else:
-                lines = axes.plot(times.to_datetime(), counts[:, did, pid, eid])
+                lines = axes.plot(times.to_datetime(), counts[:, did, pid, eid],
+                                  label=labels[eid], **plot_kwarg)
 
         axes.set_yscale('log')
-        # axes.legend()
         axes.xaxis.set_major_formatter(DateFormatter("%d %H:%M"))
         fig.autofmt_xdate()
         fig.tight_layout()

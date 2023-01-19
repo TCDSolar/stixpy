@@ -261,13 +261,12 @@ class TimesSeriesPlotMixin:
         for did, pid, eid in product(range(n_det), range(n_pix), range(n_energy)):
             if error_bar:
                 lines = axes.errorbar(times.to_datetime(), counts[:, did, pid, eid], yerr=errors[:, did, pid, eid],
-                              marker='.', label=labels[eid], **plot_kwarg)
+                                      label=labels[eid], **plot_kwarg)
             else:
                 lines = axes.plot(times.to_datetime(), counts[:, did, pid, eid], 
                                   label=labels[eid], **plot_kwarg)
 
         axes.set_yscale('log')
-        #axes.legend()
         axes.xaxis.set_major_formatter(DateFormatter("%d %H:%M"))
         fig.autofmt_xdate()
         fig.tight_layout()

@@ -36,7 +36,11 @@ def test_times_to_indices_1d_times():
 def test_times_to_indices_2d_times():
     observed_times = Time.now() + np.arange(10) * 10 * u.s
     tmp = np.arange(10)*10
+    requested_times = (observed_times[0]+[0, 90]*u.s).reshape(2, 1)
+    indices = times_to_indices(requested_times, observed_times)
+    assert_equal(indices, np.array([[0, 9]]))
     requested_times = observed_times[0] + np.vstack((tmp[0:-1], tmp[1:]))*u.s
+
     indices = times_to_indices(requested_times, observed_times)
     assert_equal(indices,  np.array([[0, 1], [1, 2], [2, 3], [3, 4], [4, 5],
                                   [5, 6], [6, 7], [7, 8], [8, 9]]))

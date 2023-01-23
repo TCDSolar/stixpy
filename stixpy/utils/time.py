@@ -15,6 +15,10 @@ def times_to_indices(in_times, obs_times, unit=u.ms, decimals=3):
         A target duration e.g `5*u.s` an array of `Time` if 2d
     obs_times : `astropy.units.Quantity`
 
+    unit : `astropy.units.Unit`
+
+    decimals : int
+
     Returns
     -------
     Array of indices
@@ -34,7 +38,7 @@ def times_to_indices(in_times, obs_times, unit=u.ms, decimals=3):
         else:
             target_times = relative_times[[0,-1]]
     elif isinstance(in_times, Time):
-        ndim = in_times.squeeze().ndim
+        ndim = in_times.ndim
         target_times = np.around((in_times - obs_times[0]).to(unit), decimals=decimals)
         if ndim == 1:
             unique_only = True
@@ -50,7 +54,7 @@ def times_to_indices(in_times, obs_times, unit=u.ms, decimals=3):
         else:
             raise ValueError('Only 1d or 2d time arrays are supported')
 
-    indices = abs(target_times[:, None] - relative_times[None, :]).argmin(axis=-1)
+    indices = np.abs(target_times[:, None] - relative_times[None, :]).argmin(axis=-1)
     i1 = _closest_index_loop(target_times, relative_times)
     i2 = _closest_index_broadcast(target_times, relative_times)
     i3 = _closest_index_searchsorted(target_times, relative_times)

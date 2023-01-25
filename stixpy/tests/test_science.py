@@ -2,7 +2,8 @@ import astropy.units as u
 import numpy as np
 
 from stixpy.data import test
-from stixpy.science import *
+from stixpy.products.science import CompressedPixelData, SummedCompressedPixelData, Spectrogram, RawPixelData
+from stixpy.science import ScienceData
 
 
 def test_sciencedata_get_data():
@@ -75,7 +76,8 @@ def test_sciencedata_get_data():
 
     # Overwrite data with known values
     # 5 seconds, with dE 1/30keV across 30 channels
-    l1.data['counts'] = 146/(5*30) * u.ct
+    l1.data.remove_column('counts') # need to remove and add to avoid error regarding casting
+    l1.data['counts'] = np.full((5, 32, 12, 32), 146/(5*30))*u.ct
     l1.data.remove_column('counts_err')
     l1.data['counts_err'] = np.full_like(l1.data['counts'], np.sqrt(146*145/(5*30))*u.ct)
     l1.data['timedel'] = 1/5*u.s

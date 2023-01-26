@@ -19,6 +19,7 @@ Installation
 It is strongly advised that you use and isolated environment through python's venv, virturalenv, anaconda or similar.
 
 .. code-block::
+
     pip install git+https://github.com/samaloney/stixpy
 
 

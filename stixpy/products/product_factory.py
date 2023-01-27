@@ -7,7 +7,7 @@ import astropy.io.fits
 from astropy.io import fits
 from astropy.table import QTable
 
-from sunpy.data.data_manager import cache
+from sunpy.data import cache
 
 from sunpy.util import expand_list
 from sunpy.util.datatype_factory_base import (
@@ -23,7 +23,7 @@ from sunpy.util.metadata import MetaDict
 
 
 from stixcore import get_logger
-from stixpy.products.product import GenericProduct
+from stixpy.products.product import *
 
 
 __all__ = ['Product', 'ProductFactory']
@@ -114,6 +114,9 @@ class ProductFactory(BasicRegistrationFactory):
         # NOTE: use os.fspath so that fname can be either a str or pathlib.Path
         # This can be removed once read_file supports pathlib.Path
         logger.debug(f'Reading {fname}')
+        name = str(fname)
+        if not name.endswith('.fits'):
+            raise ValueError(f'File {fname} is not a fits file, only fits are supported')
         try:
             hdul = fits.open(fname, **kwargs)
         except Exception as e:
@@ -129,7 +132,7 @@ class ProductFactory(BasicRegistrationFactory):
                 data[name.lower()] = read_qtable(fname, hdu=name)
             except KeyError as e:
                 if name in ('IDB_VERSIONS', 'ENERGIES'):
-                    logger.debug(f"Extention '{name}' not in file '{fname}'")
+                    logger.debug(f"Extension '{name}' not in file '{fname}'")
                 else:
                     raise e
 
@@ -304,7 +307,7 @@ class ProductFactory(BasicRegistrationFactory):
         # Only one is found
         WidgetType = candidate_widget_types[0]
 
-        return WidgetType(header=meta, control=control, data=data, **kwargs)
+        return WidgetType(meta=meta, control=control, data=data, **kwargs)
 
 
 class InvalidMapInput(ValueError):

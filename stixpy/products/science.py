@@ -21,7 +21,7 @@ __all__ = ['ScienceData', 'RawPixelData', 'CompressedPixelData', 'SummedCompress
            'PixelPlotMixin', 'PPrintMixin', 'IndexMasks', 'DetectorMasks', 'PixelMasks',
            'EnergyMasks']
 
-from stixpy.products.product import GenericProduct
+from stixpy.products.product import L1Product
 
 quantity_support()
 
@@ -387,11 +387,11 @@ class PixelPlotMixin:
         stime.on_changed(update)
 
 
-class ScienceData(GenericProduct):
+class ScienceData(L1Product):
     """
     Basic science data class
     """
-    def __init__(self, *, header, control, data, energies, idb_versions=None):
+    def __init__(self, *, meta, control, data, energies, idb_versions=None):
         """
 
         Parameters
@@ -405,11 +405,8 @@ class ScienceData(GenericProduct):
         energies : `astropy.table.QTable`
             Fits file energy extension
         """
-        super().__init__(meta=header, control=control, data=data,
+        super().__init__(meta=meta, control=control, data=data,
                          energies=energies, idb_versions=idb_versions)
-
-        # TODO this isn't a great ideas should create a local variable / property and leave data untouched
-        data['time'] = Time(header['date-obs']) + data['time']
 
         self.count_type = 'rate'
         if 'detector_masks' in self.data.colnames:
@@ -498,7 +495,10 @@ class ScienceData(GenericProduct):
 
         """
         counts = self.data['counts']
-        counts_var = self.data['counts_err']**2
+        try:
+            counts_var = self.data['counts_err']**2
+        except KeyError:
+            counts_var = self.data['counts_comp_err'] ** 2
         shape = counts.shape
         if len(shape) < 4:
             counts = counts.reshape(shape[0], 1, 1, shape[-1])
@@ -641,8 +641,8 @@ class ScienceData(GenericProduct):
                 control = vstack([control, other.control])
                 data = vstack([data, other.data])
 
-            return type(self)(header=self.header, control=control, data=data,
-                              energies=self.energies)
+            return type(self)(meta=self.meta, control=control, data=data,
+                              energies=self.energies, idb_version=self.idb_versions)
 
     def __repr__(self):
         return f'{self.__class__.__name__}' \
@@ -650,43 +650,6 @@ class ScienceData(GenericProduct):
                f'    {self.detector_masks}\n' \
                f'    {self.pixel_masks}\n' \
                f'    {self.energy_masks}'
-
-    # @classmethod
-    # def from_fits(cls, file):
-    #     """
-    #     Parses STIX FITS data files to create science products.
-    #     Should only be applied to L1 fits files (not L1A)
-    #
-    #     Parameters
-    #     ----------
-    #     file : `str` or `pathlib.Path`
-    #         The path to the file to open read.
-    #     """
-    #
-    #     file = Path(file)
-    #     header = fits.getheader(file)
-    #     control = QTable.read(file, hdu=1)
-    #     data = QTable.read(file, hdu=2)
-    #     data['time'] = Time(header['date-obs']) + TimeDelta(data['time'])
-    #     energies = QTable.read(file, hdu=4)
-    #
-    #     #TODO Fix time before FSW update
-    #
-    #     filename = file.name
-    #     if 'xray-rpd' in filename:
-    #         return RawPixelData(header=header, control=control, data=data, energies=energies)
-    #     elif 'xray-cpd' in filename:
-    #         return CompressedPixelData(header=header, control=control,
-    #                                    data=data, energies=energies)
-    #     elif 'xray-scpd' in filename:
-    #         return SummedCompressedPixelData(header=header, control=control,
-    #                                          data=data, energies=energies)
-    #     elif 'xray-vis' in filename:
-    #         return Visibility(header=header, control=control, data=data, energies=energies)
-    #     elif 'xray-spec' in filename:
-    #         return Spectrogram(header=header, control=control, data=data, energies=energies)
-    #     else:
-    #         raise TypeError(f'File {file} does not contain pixel data')
 
 
 class RawPixelData(ScienceData, PixelPlotMixin, TimesSeriesPlotMixin, SpectrogramPlotMixin):
@@ -755,7 +718,6 @@ class CompressedPixelData(ScienceData, PixelPlotMixin, TimesSeriesPlotMixin, Spe
         EnergyMasks
         [0]: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31]
     """
-    pass
 
     @classmethod
     def is_datasource_for(cls, *, meta, **kwargs):
@@ -896,7 +858,7 @@ class Visibility(ScienceData):
     # <BLANKLINE>
     """
     def __init__(self, *, header, control, data, energies):
-        super().__init__(header=header, control=control, data=data, energies=energies)
+        super().__init__(meta=header, control=control, data=data, energies=energies)
         self.pixel_masks = PixelMasks(self.pixels)
 
     @property
@@ -947,7 +909,7 @@ class Spectrogram(ScienceData, TimesSeriesPlotMixin, SpectrogramPlotMixin):
         [0]: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31]
     <BLANKLINE>
     """
-    def __init__(self, *, header, control, data, energies, idb_versions):
+    def __init__(self, *, meta, control, data, energies, idb_versions):
         """
 
         Parameters
@@ -957,12 +919,9 @@ class Spectrogram(ScienceData, TimesSeriesPlotMixin, SpectrogramPlotMixin):
         data : astropy.table.QTable
         energies : astropy.table.QTable
         """
-        super().__init__(header=header, control=control, data=data, energies=energies)
+        super().__init__(meta=meta, control=control, data=data,
+                         energies=energies, idb_versions=idb_versions)
         self.count_type = 'rate'
-        self.header = header
-        self.control = control
-        self.data = data
-        self._energies = energies
         self.detector_masks = DetectorMasks(self.control['detector_masks'])
         self.pixel_masks = PixelMasks(self.data['pixel_masks'])
         self.energy_masks = EnergyMasks(self.control['energy_bin_mask'])

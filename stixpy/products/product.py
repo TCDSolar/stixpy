@@ -66,17 +66,15 @@ class LevelBinary(GenericProduct):
         if level == 'LB':
             return True
 
-class Level0(GenericProduct):
+class L1Product(GenericProduct):
     """Level Binary data"""
     def __init__(self, **kwargs):
-        raise NotImplementedError('Level 0 Data is not currently supported in stixpy')
+        super().__init__(**kwargs)
+        meta = kwargs['meta']
+        data = kwargs['data']
 
-    @classmethod
-    def is_datasource_for(cls, *, meta, **kwargs):
-        """Determines if meta data meach Raw Pixel Data"""
-        level = meta['level']
-        if level == 'L0':
-            return True
+        # TODO don't change the data add new property or similar
+        data['time'] = Time(meta['date-obs']) + data['time']
 
 
 class Level2(GenericProduct):

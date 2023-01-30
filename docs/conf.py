@@ -41,6 +41,8 @@ extensions = [
     'sphinx.ext.mathjax',
     'sphinx_automodapi.automodapi',
     'sphinx_automodapi.smart_resolver',
+    'sphinx_design',
+    'sphinx_changelog',
     'matplotlib.sphinxext.plot_directive'
 ]
 
@@ -118,7 +120,7 @@ Write the latest changelog into the documentation.
 """
 target_file = os.path.abspath("./whatsnew/latest_changelog.txt")
 try:
-    from sunpy.util.towncrier import generate_changelog_for_docs
+    from towncrier import generate_changelog_for_docs
     if is_development:
         generate_changelog_for_docs("../", target_file)
 except Exception as e:

@@ -12,3 +12,4 @@ Code Reference
    science
    vis
    frames
+   products

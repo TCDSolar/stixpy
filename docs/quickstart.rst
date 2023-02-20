@@ -131,6 +131,8 @@ This should return a list of data files similar to this.
 
 Lets download a spectrogram (spec) and some compressed pixel data (cpd) that cover a similar time range.
 
+.. note::  The order the downloaded files are returned may vary so bear this in mind, hence the use of `sort`.
+
 .. plot::
    :context: close-figs
    :include-source: true
@@ -139,18 +141,15 @@ Lets download a spectrogram (spec) and some compressed pixel data (cpd) that cov
    sci_files = Fido.fetch(sci_query[0][[4,-1]])
    sci_files = sorted(sci_files)
 
-.. note::  The order the downloaded files are returned may vary so bear this in mind.
-
-
- Now lets create a spectrogram, similar ot Sunpy Map and TimeSeries stixpy Procduct can take a number of input types and
- will return the correct product type. In this case we are providing the path to to spectrogram fits file.
+Now lets create a spectrogram, similar ot Sunpy Map and TimeSeries stixpy Procduct can take a number of input types and
+will return the correct product type. In this case we are providing the path to to spectrogram fits file.
 
 .. plot::
    :context: close-figs
    :include-source: true
    :nofigs:
 
-   from stixpy.products import Product
+   from stixpy.product import Product
    spec = Product(sci_files[1])
    spec
 
@@ -185,7 +184,7 @@ A spectrogram plot can be obtained by call the `plot_spectrogram` method.
 A timeseires can also be created by calling `plot_timeseries`, by default this will sum all pixel and detectors present
 in the data.
 
- . plot::
+.. plot::
    :context: close-figs
    :include-source: true
 

@@ -1,5 +1,7 @@
-STIXpy frames
-**************
+.. _frames:
+
+Frames ('stixpy.frames')
+************************
 
 The ``frames`` submodule contains STIX specific coordinate frames and transforms.
 

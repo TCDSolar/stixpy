@@ -1,7 +1,10 @@
-STIXpy timeseries
-*****************
+.. _timeseries:
 
-The ``timeseries`` submodule
+Timeseries ('stixpy.timeseries')
+*********************************
+
+The ``timeseries`` submodule provides classes to load and interact with certain data using
+sunpy `~sunpy.timeseries.TimeSeries`.
 
 .. automodapi:: stixpy.timeseries
 

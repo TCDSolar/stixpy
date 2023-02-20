@@ -10,6 +10,6 @@ Code Reference
    data
    timeseries
    science
-   vis
+   visualisation
    frames
    products

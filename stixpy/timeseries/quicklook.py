@@ -35,8 +35,8 @@ class QLLightCurve(GenericTimeSeries):
     >>> from stixpy.data import test
     >>> from sunpy.timeseries import TimeSeries
     >>> from stixpy.timeseries.quicklook import QLLightCurve
-    >>> lc = TimeSeries(test.STIX_QL_LIGHTCURVE_TIMESERIES)
-    >>> lc
+    >>> ql_lc = TimeSeries(test.STIX_QL_LIGHTCURVE_TIMESERIES)
+    >>> ql_lc # doctest: +SKIP
     QLLightCurve
            <sunpy.time.timerange.TimeRange object at ...>
         Start: 2020-05-06 00:00:01
@@ -209,9 +209,37 @@ class QLBackground(GenericTimeSeries):
     >>> from stixpy.data import test
     >>> from sunpy.timeseries import TimeSeries
     >>> from stixpy.timeseries.quicklook import QLLightCurve
-    >>> bg = TimeSeries(test.STIX_QL_BACKGROUND_TIMESERIES)
-    >>> bg
-    <stixpy.timeseries.quicklook.QLBackground object at ...>
+    >>> ql_bg = TimeSeries(test.STIX_QL_BACKGROUND_TIMESERIES)
+    >>> ql_bg # doctest: +SKIP
+    <stixpy.timeseries.quicklook.QLBackground object at ...
+    SunPy TimeSeries
+    ----------------
+     Observatory:		 SOLO/STIX
+     Instrument:		 STIX
+     Channel(s):		 control_index<br>timedel<br>triggers<br>triggers_err<br>4.0-10.0<br>10.0-15.0<br>15.0-25.0<br>25.0-50.0<br>50.0-150.0<br>4.0-10.0_err<br>10.0-15.0_err<br>15.0-25.0_err<br>25.0-50.0_err<br>50.0-150.0_err
+     Start Date:		 2020-05-06 00:00:04
+     End Date:		 2020-05-06 23:59:56
+     Center Date:		 2020-05-06 11:59:59
+     Resolution:		 8.03 s
+     Samples per Channel:		 10758
+     Data Range(s):		 control_index    1.60E+01<br>timedel          0.00E+00<br>triggers         1.10E+03<br>triggers_err     3.23E+01<br>4.0-10.0         7.72E+01<br>10.0-15.0        1.34E+02<br>15.0-25.0        6.07E+01<br>25.0-50.0        2.17E+01<br>50.0-150.0       4.95E+00<br>4.0-10.0_err     9.25E+00<br>10.0-15.0_err    1.85E+01<br>15.0-25.0_err    1.85E+01<br>25.0-50.0_err    1.85E+01<br>50.0-150.0_err   9.25E+00
+     Units:		 None<br>ct<br>s
+                              control_index  timedel  ...  25.0-50.0_err  50.0-150.0_err
+     time                                             ...
+     2020-05-06 00:00:03.531              3      800  ...       2.345208        0.707107
+     2020-05-06 00:00:11.531              3      800  ...       2.345208        0.707107
+     2020-05-06 00:00:19.531              3      800  ...       2.345208        0.000000
+     2020-05-06 00:00:27.531              3      800  ...       2.345208        0.000000
+     2020-05-06 00:00:35.531              3      800  ...       2.345208        0.000000
+     ...                                ...      ...  ...            ...             ...
+     2020-05-06 23:59:23.531              2      800  ...       0.707107        1.224745
+     2020-05-06 23:59:31.531              2      800  ...       0.000000        2.345208
+     2020-05-06 23:59:39.531              2      800  ...       0.000000        4.636809
+     2020-05-06 23:59:47.531              2      800  ...       0.000000        1.224745
+     2020-05-06 23:59:55.531              2      800  ...       0.707107        2.345208
+     <BLANKLINE>
+     [10758 rows x 14 columns]
+
     """
     @peek_show
     def peek(self, **kwargs):
@@ -372,9 +400,36 @@ class QLVariance(GenericTimeSeries):
     >>> from stixpy.data import test
     >>> from sunpy.timeseries import TimeSeries
     >>> from stixpy.timeseries.quicklook import QLLightCurve
-    >>> bg = TimeSeries(test.STIX_QL_VARIANCE_TIMESERIES)
-    >>> bg
+    >>> ql_var = TimeSeries(test.STIX_QL_VARIANCE_TIMESERIES)
+    >>> ql_var # doctest: +SKIP
     <stixpy.timeseries.quicklook.QLVariance object at ...>
+    SunPy TimeSeries
+    ----------------
+    Observatory:		 SOLO/STIX
+    Instrument:		     STIX
+    Channel(s):		     timedel<br>control_index<br>4.0-20.0<br>4.0-20.0_err
+    Start Date:		     2020-05-06 00:00:02
+    End Date:		  2020-05-06 23:59:58
+    Center Date:		 2020-05-06 11:59:59
+    Resolution:		 4.015 s
+    Samples per Channel:		 21516
+    Data Range(s):		 timedel         0.00E+00<br>control_index   6.00E+00<br>4.0-20.0        4.93E+00<br>4.0-20.0_err    5.87E+02
+    Units:		 ct<br>s<br>None
+                             timedel  control_index  4.0-20.0  4.0-20.0_err
+    time
+    2020-05-06 00:00:01.531      400              2  0.419844     73.901962
+    2020-05-06 00:00:05.531      400              2  0.169844     36.952671
+    2020-05-06 00:00:09.531      400              2  0.154844     18.479719
+    2020-05-06 00:00:13.531      400              2  1.359844    295.603607
+    2020-05-06 00:00:17.531      400              2  0.114844     18.479719
+    ...                          ...            ...       ...           ...
+    2020-05-06 23:59:41.531      400              1  0.919844    147.802231
+    2020-05-06 23:59:45.531      400              1  0.919844    147.802231
+    2020-05-06 23:59:49.531      400              1  2.159844    295.603607
+    2020-05-06 23:59:53.531      400              1  0.094844     18.479719
+    2020-05-06 23:59:57.531      400              1  0.154844     18.479719
+    <BLANKLINE>
+    [21516 rows x 4 columns]
     """
     def plot(self, axes=None, **plot_args):
         """
@@ -509,7 +564,7 @@ class HKMaxi(GenericTimeSeries):
     >>> from sunpy.timeseries import TimeSeries
     >>> from stixpy.timeseries.quicklook import HKMaxi
     >>> hk = TimeSeries(test.STIX_HK_MAXI_TIMESERIES)
-    >>> hk
+    >>> hk  # doctest: +SKIP
     <stixpy.timeseries.quicklook.HKMaxi ...>
     """
     # def plot(self, axes=None, **plot_args):

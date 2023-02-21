@@ -20,7 +20,7 @@ from sunpy.coordinates.transformations import _check_observer_defined
 from sunpy.net import Fido, attrs as a
 from sunpy.util.exceptions import warn_user
 
-from stixcore.util.logging import get_logger
+from stixpy.utils.logging import get_logger
 from stixpy.net.client import STIXClient  # noqa
 
 logger = get_logger(__name__, 'DEBUG')

@@ -21,9 +21,9 @@ from sunpy.util.functools import seconddispatch
 from sunpy.util.io import is_url, parse_path, possibly_a_path
 from sunpy.util.metadata import MetaDict
 
-
-from stixcore import get_logger
-from stixpy.products.product import *
+from stixpy.product.product import GenericProduct
+from stixpy.utils.logging import get_logger
+from stixpy.product.sources import *
 
 
 __all__ = ['Product', 'ProductFactory']

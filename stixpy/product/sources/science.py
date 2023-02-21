@@ -21,7 +21,7 @@ __all__ = ['ScienceData', 'RawPixelData', 'CompressedPixelData', 'SummedCompress
            'PixelPlotMixin', 'PPrintMixin', 'IndexMasks', 'DetectorMasks', 'PixelMasks',
            'EnergyMasks']
 
-from stixpy.products.product import L1Product
+from stixpy.product.product import L1Product
 
 quantity_support()
 

@@ -1,13 +1,13 @@
+import pytest
 from unittest.mock import patch
 
-import pytest
 import astropy.units as u
 import numpy as np
 from astropy.time.core import Time
 from sunpy.data import sample
 from sunpy.map import Map
 
-from stixpy.vis.map_reprojection import get_solo_position, reproject_map
+from stixpy.visualisation.map_reprojection import get_solo_position, reproject_map
 
 @pytest.mark.skip
 @patch('sunpy.map.GenericMap')

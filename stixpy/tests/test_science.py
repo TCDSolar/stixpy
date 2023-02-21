@@ -2,7 +2,7 @@ import astropy.units as u
 import numpy as np
 
 from stixpy.data import test
-from stixpy.products.science import CompressedPixelData, SummedCompressedPixelData, Spectrogram, RawPixelData
+from stixpy.product.sources import CompressedPixelData, SummedCompressedPixelData, Spectrogram, RawPixelData
 from stixpy.science import ScienceData
 
 

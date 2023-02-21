@@ -1,6 +1,6 @@
 from astropy.utils import deprecated
 
-from stixpy.products import Product
+from stixpy.product import Product
 
 
 class StixpyDepreciationWarning(Warning):
@@ -9,10 +9,10 @@ class StixpyDepreciationWarning(Warning):
     """
 
 
-@deprecated(since='0.1.0', alternative='stixpy.products.Product',
+@deprecated(since='0.1.0', alternative='stixpy.product.Product',
             warning_type=StixpyDepreciationWarning)
 class ScienceData:
-    @deprecated(since='0.1.0', alternative='stixpy.products.Product',
+    @deprecated(since='0.1.0', alternative='stixpy.product.Product',
                 warning_type=StixpyDepreciationWarning)
     @classmethod
     def from_fits(cls, file):

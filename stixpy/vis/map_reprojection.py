@@ -72,21 +72,25 @@ A HMI map
 
 
 """
-
-
-from pathlib import Path
-
 import astropy.units as u
 import matplotlib.pyplot as plt
-import stixcore.data.test
+
 import sunpy
 from astropy.coordinates import SkyCoord
 from astropy.wcs import WCS
 from reproject import reproject_interp
-from stixcore.ephemeris.manager import Spice
-from stixcore.data.test import test_data
+
+from stixpy.utils.logging import get_logger
+
+try:
+    from stixcore.ephemeris.manager import Spice
+except (ImportError, ModuleNotFoundError):
+    Spice = None
+
 from sunpy.coordinates import frames
-from sunpy.coordinates import get_body_heliographic_stonyhurst
+from sunpy.coordinates import get_body_heliographic_stonyhurst, get_horizons_coord
+
+logger = get_logger(__name__)
 
 __all__ = ['get_solo_position', 'reproject_map', 'create_headers', 'plot_map_reproj']
 
@@ -105,12 +109,18 @@ def get_solo_position(map):
     solo_hgs : `astropy.coordinates.SkyCoord`
         The position of SOLO in HeliographicStonyhurst frame
     """
-    p = Spice.instance.get_position(date=map.date.datetime, frame='SOLO_HEE')
-    solo_hee = SkyCoord(*p, frame=frames.HeliocentricEarthEcliptic, representation_type='cartesian',
-                        obstime=map.date.datetime)
-    # Converting HeliocentricEarthEcliptic coords of SOLAR ORBITER position to
-    # HeliographicStonyhurst frame
-    solo_hgs = solo_hee.transform_to(frames.HeliographicStonyhurst)
+    if Spice is not None:
+        logger.info('Using Spice')
+        p = Spice.instance.get_position(date=map.date.datetime, frame='SOLO_HEE')
+        solo_hee = SkyCoord(*p, frame=frames.HeliocentricEarthEcliptic, representation_type='cartesian',
+                            obstime=map.date.datetime)
+        # Converting HeliocentricEarthEcliptic coords of SOLAR ORBITER position to
+        # HeliographicStonyhurst frame
+        solo_hgs = solo_hee.transform_to(frames.HeliographicStonyhurst)
+    else:
+        logger.info('Spice not configured falling back to JPL ')
+        solo_hgs = get_horizons_coord('solo', time=map.date)
+
     return solo_hgs
 
 

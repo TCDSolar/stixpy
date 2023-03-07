@@ -65,8 +65,10 @@ One we have the data downloaded we can create timeseries from the fits files, fo
    :context: close-figs
    :include-source: true
 
+   from datetime import datetime
+
    from sunpy.timeseries import TimeSeries
-   from stixpy.timeseries import quicklook # This registers the STIX timessiers with sunpy
+   from stixpy.timeseries import quicklook # This registers the STIX timeseries with sunpy
 
    ql_lightcurves = TimeSeries(ql_files)
    ql_lightcurves[0].peek()
@@ -92,7 +94,7 @@ There is a larger flare toward the end of the time range lets zoom in on this re
    :include-source:
 
    combined_ts.plot()
-   plt.xlim('2020-06-07T21:30', '2020-06-07T22:00')
+   plt.xlim(datetime(2020, 6, 7, 21, 30), datetime(2020, 6, 7, 22, 0))
 
 
 Science Data Search and Download

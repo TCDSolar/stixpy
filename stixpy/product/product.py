@@ -74,8 +74,10 @@ class L1Product(GenericProduct):
         data = kwargs['data']
 
         # TODO don't change the data add new property or similar
-        data['time'] = Time(meta['date-obs']) + data['time']
-
+        try:
+            data['time'] = Time(meta['date-obs']) + data['time']
+        except KeyError:
+            data['time'] = Time(meta['date_obs']) + data['time']
 
 class Level2(GenericProduct):
     """Level Binary data"""

@@ -4,8 +4,6 @@ from stixpy.product import Product
 
 
 class StixpyDepreciationWarning(Warning):
-<<<<<<< HEAD
-=======
     """
     A warning class to indicate a deprecated feature.
     """
@@ -16,7 +14,6 @@ class StixpyDepreciationWarning(Warning):
 class ScienceData:
     @deprecated(since='0.1.0', alternative='stixpy.product.Product',
                 warning_type=StixpyDepreciationWarning)
->>>>>>> 40540fc (Refactor docs)
     @classmethod
     def from_fits(cls, file):
         return Product(file)

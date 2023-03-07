@@ -21,6 +21,8 @@ __all__ = ['ScienceData', 'RawPixelData', 'CompressedPixelData', 'SummedCompress
            'PixelPlotMixin', 'PPrintMixin', 'IndexMasks', 'DetectorMasks', 'PixelMasks',
            'EnergyMasks']
 
+from stixpy.utils.time import times_to_indices
+
 quantity_support()
 
 
@@ -109,15 +111,17 @@ class SpectrogramPlotMixin:
     """
     Spectrogram plot mixin providing spectrogram plotting for pixel data.
     """
-    def plot_spectrogram(self, axes=None, time_indices=None, energy_indices=None,
+    def plot_spectrogram(self, axes=None, times=None, time_indices=None, energy_indices=None,
                          detector_indices='all', pixel_indices='all', **plot_kwargs):
         """
         Plot a spectrogram for the selected time and energies.
 
         Parameters
         ----------
-        axes : optional `matplotlib.axes`
-            The axes the plot the spectrogram.
+        times : `astropy.units.Quantity` or `astropy.time.Times`
+            Time intervals to extract. If a scalar Quantity is given will calculate the nearest
+            times e.g `20*u.s` if an array of times behaves similar to `time_indices` but biased
+            on the closest matching times.
         time_indices : `list` or `numpy.ndarray`
             If an 1xN array will be treated as mask if 2XN array will sum data between given
             indices. For example `time_indices=[0, 2, 5]` would return only the first, third and
@@ -126,6 +130,8 @@ class SpectrogramPlotMixin:
             If an 1xN array will be treated as mask if 2XN array will sum data between given
             indices. For example `energy_indices=[0, 2, 5]` would return only the first, third and
             sixth times while `energy_indices=[[0, 2],[3, 5]]` would sum the data between.
+        axes : optional `matplotlib.axes`
+            The axes the plot the spectrogram.
         **plot_kwargs : `dict`
             Any additional arguments are passed to :meth:`~matplotlib.axes.Axes.pcolormesh`.
 
@@ -137,7 +143,7 @@ class SpectrogramPlotMixin:
         if len(counts_shape) != 4:
             # if spectrogram can't do anything with pixel or detector indices
             if detector_indices != 'all' or pixel_indices != 'all':
-                raise ValueError('Detector and or pixel indices have can not be used with spectrogram')
+                raise ValueError('Detector and or pixel indices can not be used with spectrogram')
 
             pid = None
             did = None
@@ -169,6 +175,7 @@ class SpectrogramPlotMixin:
 
         counts, errors, times, timedeltas, energies = self.get_data(detector_indices=did,
                                                                     pixel_indices=pid,
+                                                                    times=times,
                                                                     time_indices=time_indices,
                                                                     energy_indices=energy_indices)
 
@@ -203,15 +210,18 @@ class TimesSeriesPlotMixin:
     """
     TimesSeries plot mixin providing timeseries plotting for pixel data.
     """
-    def plot_timeseries(self, time_indices=None, energy_indices=None, detector_indices='all',
-                        pixel_indices='all', axes=None, error_bar=False, **plot_kwarg):
+    def plot_timeseries(self, times=None, time_indices=None, energy_indices=None,
+                        detector_indices='all', pixel_indices='all', axes=None, error_bar=False,
+                        **plot_kwarg):
         """
         Plot a times series of the selected times and energies.
 
         Parameters
         ----------
-        axes : optional `matplotlib.axes`
-            The axes the plot the spectrogram.
+        times : `astropy.units.Quantity` or `astropy.time.Times`
+            Time intervals to extract. If a scalar Quantity is given will calculate the nearest
+            times e.g `20*u.s` if an array of times behaves similar to `time_indices` but biased
+            on the closest matching times.
         time_indices : `list` or `numpy.ndarray`
             If an 1xN array will be treated as mask if 2XN array will sum data between given
             indices. For example `time_indices=[0, 2, 5]` would return only the first, third and
@@ -228,6 +238,8 @@ class TimesSeriesPlotMixin:
             If an 1xN array will be treated as mask if 2XN array will sum data between given
             indices. For example `pixel_indices=[0, 2, 5]` would return only the first, third and
             sixth pixels while `pixel_indices=[[0, 2],[3, 5]]` would sum the data between.
+        axes : optional `matplotlib.axes`
+            The axes the plot the spectrogram.
         error_bar : optional `bool`
             Add error bars to plot.
         **plot_kwargs : `dict`
@@ -250,9 +262,8 @@ class TimesSeriesPlotMixin:
             pixel_indices = [[0, 11]]
 
         counts, errors, times, timedeltas, energies \
-            = self.get_data(detector_indices=detector_indices,
-                            pixel_indices=pixel_indices,
-                            time_indices=time_indices, energy_indices=energy_indices)
+            = self.get_data(detector_indices=detector_indices, pixel_indices=pixel_indices,
+                            times=times, time_indices=time_indices, energy_indices=energy_indices)
 
         labels = [f'{el.value} - {eh.value}' for el, eh in energies['e_low', 'e_high']]
 
@@ -278,12 +289,16 @@ class PixelPlotMixin:
     """
     Pixel plot mixin providing pixel plotting for pixel data.
     """
-    def plot_pixels(self, time_indices=None, energy_indices=None, fig=None):
+    def plot_pixels(self, times=None, time_indices=None, energy_indices=None, fig=None):
         """
         Plot individual pixel data for each detector.
 
         Parameters
         ----------
+        times : `astropy.units.Quantity` or `astropy.time.Times`
+            Time intervals to extract. If a scalar Quantity is given will calculate the nearest
+            times e.g `20*u.s` if an array of times behaves similar to `time_indices` but biased
+            on the closest matching times.
         time_indices : `list` or `numpy.ndarray`
             If an 1xN array will be treated as mask if 2XN array will sum data between given
             indices. For example `time_indices=[0, 2, 5]` would return only the first, third and
@@ -306,7 +321,7 @@ class PixelPlotMixin:
         else:
             fig, axes = plt.subplots(nrows=4, ncols=8, sharex=True, sharey=True, figsize=(10, 5))
 
-        counts, count_err, times, dt, energies = self.get_data(time_indices=time_indices,
+        counts, count_err, times, dt, energies = self.get_data(times=times, time_indices=time_indices,
                                                                energy_indices=energy_indices)
 
         def timeval(val):
@@ -453,7 +468,7 @@ class ScienceData:
         """
         return self.data['time']
 
-    def get_data(self, time_indices=None, energy_indices=None, detector_indices=None,
+    def get_data(self, times=None, time_indices=None, energy_indices=None, detector_indices=None,
                  pixel_indices=None, sum_all_times=False):
         """
         Return the counts, errors, times, durations and energies for selected data.
@@ -462,6 +477,10 @@ class ScienceData:
 
         Parameters
         ----------
+        times : `astropy.units.Quantity` or `astropy.time.Times`
+            Time intervals to extract. If a scalar Quantity is given will calculate the nearest
+            times e.g `20*u.s` if an array of times behave similear to time_indices biased on the
+            closest matching times.
         time_indices : `list` or `numpy.ndarray`
             If an 1xN array will be treated as mask if 2XN array will sum data between given
             indices. For example `time_indices=[0, 2, 5]` would return only the first, third and
@@ -495,7 +514,7 @@ class ScienceData:
             counts_var = counts_var.reshape(shape[0], 1, 1, shape[-1])
 
         energies = self.energies[:]
-        times = self.times
+        obs_times = self.times
 
         if detector_indices is not None:
             detecor_indices = np.asarray(detector_indices)
@@ -554,28 +573,33 @@ class ScienceData:
                 energies = QTable(energies*u.keV, names=['e_low', 'e_high'])
 
         t_norm = self.data['timedel']
+
+        if isinstance(times, (u.Quantity, Time)):
+            time_indices = times_to_indices(times, obs_times)
+
         if time_indices is not None:
             time_indices = np.asarray(time_indices)
+
             if time_indices.ndim == 1:
-                time_mask = np.full(times.shape, False)
+                time_mask = np.full(obs_times.shape, False)
                 time_mask[time_indices] = True
                 counts = counts[time_mask, ...]
                 counts_var = counts_var[time_mask, ...]
                 t_norm = self.data['timedel'][time_mask]
-                times = times[time_mask]
+                obs_times = obs_times[time_mask]
                 # dT = self.data['timedel'][time_mask]
             elif time_indices.ndim == 2:
                 new_times = []
                 dt = []
                 for tl, th in time_indices:
-                    ts = times[tl] - self.data['timedel'][tl] * 0.5
-                    te = times[th] + self.data['timedel'][th] * 0.5
+                    ts = obs_times[tl] - self.data['timedel'][tl] * 0.5
+                    te = obs_times[th] + self.data['timedel'][th] * 0.5
                     td = te - ts
                     tc = ts + (td * 0.5)
                     dt.append(td.to('s'))
                     new_times.append(tc)
                 dt = np.hstack(dt)
-                times = Time(new_times)
+                obs_times = Time(new_times)
                 counts = np.vstack([np.sum(counts[tl:th+1, ...], axis=0, keepdims=True) for tl, th
                                     in time_indices])
 
@@ -589,15 +613,15 @@ class ScienceData:
                     t_norm = np.sum(dt)
 
         if e_norm.size != 1:
-            e_norm = e_norm.reshape(1, 1, 1, -1)
+            e_norm = e_norm.reshape((1, 1, 1, -1))
 
         if t_norm.size != 1:
-            t_norm = t_norm.reshape(-1, 1, 1, 1)
+            t_norm = t_norm.reshape((-1, 1, 1, 1))
 
         counts_err = np.sqrt(counts*u.ct + counts_var)/(e_norm * t_norm)
         counts = counts / (e_norm * t_norm)
 
-        return counts, counts_err, times, t_norm, energies
+        return counts, counts_err, obs_times, t_norm, energies
 
     def concatenate(self, others):
         """

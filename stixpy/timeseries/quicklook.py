@@ -556,7 +556,7 @@ class QLVariance(GenericTimeSeries):
 
 class HKMaxi(GenericTimeSeries):
     """
-    House Keeping Maxi Report.
+    Housekeeping Maxi Report.
 
     Examples
     --------

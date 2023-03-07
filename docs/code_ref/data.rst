@@ -1,5 +1,7 @@
-STIXpy data
-***********
+.. _data:
+
+Data ('stixpy.data')
+********************
 
 The ``data`` submodule contains test and sample data
 

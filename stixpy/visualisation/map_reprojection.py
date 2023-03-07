@@ -12,7 +12,7 @@ An AIA map
    from sunpy.net import Fido, attrs as a
    from sunpy.map import Map
    from sunpy.coordinates.frames import HeliographicStonyhurst
-   from stixpy.vis.map_reprojection import reproject_map, plot_map_reproj, get_solo_position
+   from stixpy.visualisation.map_reprojection import reproject_map, plot_map_reproj, get_solo_position
 
    # Search and download map using FIDO
    aia = (a.Instrument.aia &
@@ -48,7 +48,7 @@ A HMI map
    from sunpy.net import Fido, attrs as a
    from sunpy.map import Map
    from sunpy.coordinates.frames import HeliographicStonyhurst
-   from stixpy.vis.map_reprojection import reproject_map, plot_map_reproj, get_solo_position
+   from stixpy.visualisation.map_reprojection import reproject_map, plot_map_reproj, get_solo_position
 
    # Search and download map using FIDO
    query = Fido.search(a.Time('2020/06/12 13:20:00', '2020/06/12 13:40:00'),
@@ -72,6 +72,7 @@ A HMI map
 
 
 """
+
 import astropy.units as u
 import matplotlib.pyplot as plt
 
@@ -79,16 +80,14 @@ import sunpy
 from astropy.coordinates import SkyCoord
 from astropy.wcs import WCS
 from reproject import reproject_interp
-
-from stixpy.utils.logging import get_logger
-
 try:
     from stixcore.ephemeris.manager import Spice
 except (ImportError, ModuleNotFoundError):
     Spice = None
-
 from sunpy.coordinates import frames
-from sunpy.coordinates import get_body_heliographic_stonyhurst, get_horizons_coord
+from sunpy.coordinates import get_body_heliographic_stonyhurst
+
+from stixpy.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
@@ -120,8 +119,6 @@ def get_solo_position(map):
     else:
         logger.info('Spice not configured falling back to JPL ')
         solo_hgs = get_horizons_coord('solo', time=map.date)
-
-    return solo_hgs
 
 
 def create_headers(obs_ref_coord, map, out_shape=None, out_scale=None):

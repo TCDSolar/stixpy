@@ -161,7 +161,11 @@ class QLLightCurve(GenericTimeSeries):
         data.remove_column('counts')
         [data.add_column(data['counts_err'][:, i], name=f'{names[i]}_err') for i in range(5)]
         data.remove_column('counts_err')
-        data['time'] = Time(header['date-obs']) + data['time'] * u.cs
+
+        try:
+            data['time'] = Time(header['date_obs']) + data['time'] * u.s
+        except KeyError:
+            data['time'] = Time(header['date-obs']) + TimeDelta(data['time'] * u.s)
 
         units = OrderedDict([('control_index', None),
                              ('timedel', u.s),
@@ -354,7 +358,10 @@ class QLBackground(GenericTimeSeries):
         [data.add_column(data['counts_err'][:, i], name=f'{names[i]}_err') for i in range(5)]
         data.remove_column('counts_err')
 
-        data['time'] = Time(header['date-obs']) + TimeDelta(data['time'] * u.cs)
+        try:
+            data['time'] = Time(header['date_obs']) + TimeDelta(data['time'] * u.s)
+        except KeyError:
+            data['time'] = Time(header['date-obs']) + TimeDelta(data['time'] * u.s)
 
         # [f'{energies[i]["e_low"]} - {energies[i]["e_high"]} keV' for i in range(5)]
 
@@ -515,7 +522,11 @@ class QLVariance(GenericTimeSeries):
              - energies[control['energy_bin_mask'][0]]['e_low'][0] << u.keV
         name = f'{energies[control["energy_bin_mask"][0]]["e_low"][0]}' \
                f'-{energies[control["energy_bin_mask"][0]]["e_high"][-1]}'
-        data['time'] = Time(header['date-obs']) + TimeDelta(data['time'] * u.cs)
+
+        try:
+            data['time'] = Time(header['date_obs']) + TimeDelta(data['time'] * u.s)
+        except KeyError:
+            data['time'] = Time(header['date-obs']) + TimeDelta(data['time'] * u.s)
 
         data['variance'] = data['variance'].reshape(-1)/(dE * data['timedel'])
 
@@ -647,7 +658,10 @@ class HKMaxi(GenericTimeSeries):
         header['control'] = control
         data = Table(hdulist[2].data)
 
-        data['time'] = Time(header['date-obs']) + TimeDelta(data['time'] * u.cs)
+        try:
+            data['time'] = Time(header['date_obs']) + TimeDelta(data['time'] * u.s)
+        except KeyError:
+            data['time'] = Time(header['date-obs']) + TimeDelta(data['time'] * u.s)
 
         data_df = data.to_pandas()
         data_df.index = data_df['time']

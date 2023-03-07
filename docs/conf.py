@@ -41,6 +41,8 @@ extensions = [
     'sphinx.ext.mathjax',
     'sphinx_automodapi.automodapi',
     'sphinx_automodapi.smart_resolver',
+    'sphinx_design',
+    'sphinx_changelog',
     'matplotlib.sphinxext.plot_directive'
 ]
 
@@ -111,17 +113,3 @@ graphviz_dot_args = [
     '-Gfontsize=10',
     '-Gfontname=Helvetica Neue, Helvetica, Arial, sans-serif'
 ]
-
-
-"""
-Write the latest changelog into the documentation.
-"""
-target_file = os.path.abspath("./whatsnew/latest_changelog.txt")
-try:
-    from sunpy.util.towncrier import generate_changelog_for_docs
-    if is_development:
-        generate_changelog_for_docs("../", target_file)
-except Exception as e:
-    print(f"Failed to add changelog to docs with error {e}.")
-# Make sure the file exists or else sphinx will complain.
-open(target_file, 'a').close()

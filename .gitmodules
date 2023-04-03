@@ -1,0 +1,3 @@
+[submodule "stixpy/config/data"]
+	path = stixpy/config/data
+	url = https://github.com/i4Ds/STIX-CONF.git

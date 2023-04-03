@@ -159,11 +159,13 @@ def _get_rotation_matrix_and_position(obstime):
         sas_y = pitch
 
     # Generate the rotation matrix using the x-convention (see Goldstein)
+    # Rotate +90 clockwise around the first axis
     axes_matrix = np.array([[1, 0, 0],
-                            [0, 0, 1],
+                            [0, 0, -1],
                             [0, 1, 0]])
+    logger.debug('Pointing: %s, %s', sas_x + STIX_X_OFFSET, -1*sas_y + STIX_Y_OFFSET)
     C = rotation_matrix(sas_x + STIX_X_OFFSET, "z")
-    B = rotation_matrix(-1*sas_y + STIX_Y_OFFSET, "y")
+    B = rotation_matrix(-1*(-1*sas_y + STIX_Y_OFFSET), "y")
     A = rotation_matrix(-1*roll, 'x')
     rmatrix = matrix_product(A, B, C, axes_matrix)
 

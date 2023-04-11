@@ -159,24 +159,24 @@ class QLLightCurve(GenericTimeSeries):
 
         [data.add_column(data['counts'][:, i], name=names[i]) for i in range(5)]
         data.remove_column('counts')
-        [data.add_column(data['counts_err'][:, i], name=f'{names[i]}_err') for i in range(5)]
-        data.remove_column('counts_err')
+        [data.add_column(data['counts_comp_err'][:, i], name=f'{names[i]}_comp_err') for i in range(5)]
+        data.remove_column('counts_comp_err')
 
         try:
-            data['time'] = Time(header['date_obs']) + data['time'] * u.s
+            data['time'] = Time(header['date_obs']) + data['time'] * u.cs
         except KeyError:
-            data['time'] = Time(header['date-obs']) + TimeDelta(data['time'] * u.s)
+            data['time'] = Time(header['date-obs']) + TimeDelta(data['time'] * u.cs)
 
         units = OrderedDict([('control_index', None),
                              ('timedel', u.s),
                              ('triggers', None),
-                             ('triggers_err', None),
+                             ('triggers_comp_err', None),
                              ('rcr', None)])
         units.update([(name, u.ct) for name in names])
-        units.update([(f'{name}_err', u.ct) for name in names])
+        units.update([(f'{name}_comp_err', u.ct) for name in names])
 
         data['triggers'] = data['triggers'].reshape(-1)
-        data['triggers_err'] = data['triggers_err'].reshape(-1)
+        data['triggers_comp_err'] = data['triggers_comp_err'].reshape(-1)
 
         data_df = data.to_pandas()
         data_df.index = data_df['time']
@@ -355,8 +355,8 @@ class QLBackground(GenericTimeSeries):
         [data.add_column(data['counts'][:, i], name=names[i]) for i in range(5)]
         data.remove_column('counts')
 
-        [data.add_column(data['counts_err'][:, i], name=f'{names[i]}_err') for i in range(5)]
-        data.remove_column('counts_err')
+        [data.add_column(data['counts_comp_err'][:, i], name=f'{names[i]}_comp_err') for i in range(5)]
+        data.remove_column('counts_comp_err')
 
         try:
             data['time'] = Time(header['date_obs']) + TimeDelta(data['time'] * u.s)
@@ -368,13 +368,13 @@ class QLBackground(GenericTimeSeries):
         units = OrderedDict([('control_index', None),
                              ('timedel', u.s),
                              ('triggers', None),
-                             ('triggers_err', None),
+                             ('triggers_comp_err', None),
                              ('rcr', None)])
         units.update([(name, u.ct) for name in names])
-        units.update([(f'{name}_err', u.ct) for name in names])
+        units.update([(f'{name}_comp_err', u.ct) for name in names])
 
         data['triggers'] = data['triggers'].reshape(-1)
-        data['triggers_err'] = data['triggers_err'].reshape(-1)
+        data['triggers_comp_err'] = data['triggers_comp_err'].reshape(-1)
 
         data_df = data.to_pandas()
         data_df.index = data_df['time']
@@ -532,16 +532,16 @@ class QLVariance(GenericTimeSeries):
 
         data.add_column(data['variance'], name=name)
         data.remove_column('variance')
-        data.add_column(data['variance_err'], name=f'{name}_err')
-        data.remove_column('variance_err')
+        data.add_column(data['variance_comp_err'], name=f'{name}_comp_err')
+        data.remove_column('variance_comp_err')
 
         units = OrderedDict([('control_index', None),
                              ('timedel', u.s),
                              (name, u.count),
-                             (f'{name}_err', u.count)])
+                             (f'{name}_comp_err', u.count)])
 
         data[name] = data[name].reshape(-1)
-        data[f'{name}_err'] = data[f'{name}_err'].reshape(-1)
+        data[f'{name}_comp_err'] = data[f'{name}_comp_err'].reshape(-1)
 
         data_df = data.to_pandas()
         data_df.index = data_df['time']

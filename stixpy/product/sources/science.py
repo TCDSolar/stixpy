@@ -413,9 +413,9 @@ class ScienceData(L1Product):
             self.detector_masks = DetectorMasks(self.data['detector_masks'])
         if 'pixel_masks' in self.data.colnames:
             self.pixel_masks = PixelMasks(self.data['pixel_masks'])
-        if 'energy_bin_mask' in self.control.colnames:
-            self.energy_masks = EnergyMasks(self.control['energy_bin_mask'])
-            self.dE = (energies['e_high'] - energies['e_low'])[self.energy_masks.masks[0] == 1]
+        if 'energy_bin_edge_mask' in self.control.colnames:
+            self.energy_masks = EnergyMasks(self.control['energy_bin_edge_mask'])
+            self.dE = energies['e_high'] - energies['e_low']
 
     @property
     def time_range(self):
@@ -444,7 +444,7 @@ class ScienceData(L1Product):
         """
         A `astropy.table.Table` object representing the energies contained in the data.
         """
-        return self._energies[self.energy_masks.masks[0] == 1]
+        return self._energies
 
     @property
     def times(self):
@@ -496,9 +496,9 @@ class ScienceData(L1Product):
         """
         counts = self.data['counts']
         try:
-            counts_var = self.data['counts_err']**2
+            counts_var = self.data['counts_comp_err']**2
         except KeyError:
-            counts_var = self.data['counts_comp_err'] ** 2
+            counts_var = self.data['counts_comp_comp_err'] ** 2
         shape = counts.shape
         if len(shape) < 4:
             counts = counts.reshape(shape[0], 1, 1, shape[-1])

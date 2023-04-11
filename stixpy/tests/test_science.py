@@ -11,7 +11,7 @@ def test_sciencedata_get_data():
     tot = l1.data['counts']
     norm = (l1.data['timedel'].reshape(5, 1, 1, 1) * l1.dE)
     rate = tot / norm
-    error = np.sqrt(tot*u.ct+l1.data['counts_err']**2) / norm
+    error = np.sqrt(tot*u.ct+l1.data['counts_comp_err']**2) / norm
     r, re, t, dt, e = l1.get_data()
     assert np.allclose(rate, r)
     assert np.allclose(error, re)
@@ -20,7 +20,7 @@ def test_sciencedata_get_data():
     tot = l1.data['counts'][:, 0:32, ...].sum(axis=1, keepdims=True)
     norm = (l1.data['timedel'].reshape(5, 1, 1, 1) * l1.dE)
     rate = tot / norm
-    error = np.sqrt(tot*u.ct+l1.data['counts_err'][:, 0:32, ...].sum(axis=1, keepdims=True)**2)/norm
+    error = np.sqrt(tot*u.ct+l1.data['counts_comp_err'][:, 0:32, ...].sum(axis=1, keepdims=True)**2)/norm
     r, re, t, dt, e = l1.get_data(detector_indices=[[0, 31]])
     assert np.allclose(rate, r)
     assert np.allclose(error, re, atol=1e-3)
@@ -30,7 +30,7 @@ def test_sciencedata_get_data():
     norm = (l1.data['timedel'].reshape(5, 1, 1, 1) * l1.dE)
     rate = tot / norm
     error = np.sqrt(tot * u.ct
-                    + l1.data['counts_err'][..., 0:12, :].sum(axis=2, keepdims=True)**2) / norm
+                    + l1.data['counts_comp_err'][..., 0:12, :].sum(axis=2, keepdims=True)**2) / norm
     r, re, t, dt, e = l1.get_data(pixel_indices=[[0, 11]])
     assert np.allclose(rate, r)
     assert np.allclose(error, re)
@@ -39,7 +39,7 @@ def test_sciencedata_get_data():
     tot = l1.data['counts'][:, 0:32, 0:12, :].sum(axis=(1, 2), keepdims=True)
     norm = (l1.data['timedel'].reshape(5, 1, 1, 1) * l1.dE)
     rate = tot / norm
-    error = np.sqrt(tot*u.ct + l1.data['counts_err'][:, 0:32, 0:12, :].sum(axis=(1, 2),
+    error = np.sqrt(tot*u.ct + l1.data['counts_comp_err'][:, 0:32, 0:12, :].sum(axis=(1, 2),
                                                                            keepdims=True)**2) / norm
     r, re, t, dt, e = l1.get_data(pixel_indices=[[0, 11]], detector_indices=[[0, 31]])
     assert np.allclose(rate, r)
@@ -50,7 +50,7 @@ def test_sciencedata_get_data():
     norm = (l1.data['timedel'].reshape(5, 1, 1, 1)
             * (l1.energies[30]['e_high']-l1.energies[1]['e_low']))
     rate = tot / norm
-    error = np.sqrt(tot*u.ct + l1.data['counts_err'][..., 1:31].sum(axis=3, keepdims=True)**2)/norm
+    error = np.sqrt(tot*u.ct + l1.data['counts_comp_err'][..., 1:31].sum(axis=3, keepdims=True)**2)/norm
     r, re, t, dt, e = l1.get_data(energy_indices=[[1, 30]])
     assert np.allclose(rate, r)
     assert np.allclose(error, re, atol=1e-3)
@@ -59,7 +59,7 @@ def test_sciencedata_get_data():
     tot = l1.data['counts'][:, ...].sum(axis=0, keepdims=True)
     norm = (l1.data['timedel'].sum() * l1.dE)
     rate = tot / norm
-    error = np.sqrt(tot * u.ct + l1.data['counts_err'][:, ...].sum(axis=0, keepdims=True) ** 2)/norm
+    error = np.sqrt(tot * u.ct + l1.data['counts_comp_err'][:, ...].sum(axis=0, keepdims=True) ** 2)/norm
     r, re, t, dt, e = l1.get_data(time_indices=[[0, 4]])
     assert np.allclose(rate, r)
     assert np.allclose(error, re)
@@ -68,7 +68,7 @@ def test_sciencedata_get_data():
     tot = l1.data['counts'][..., 1:31].sum(keepdims=True)
     norm = (l1.data['timedel'].sum() * (l1.energies[30]['e_high'] - l1.energies[1]['e_low']))
     rate = tot/norm
-    error = np.sqrt(tot * u.ct + l1.data['counts_err'][..., 1:31].sum(keepdims=True) ** 2) / norm
+    error = np.sqrt(tot * u.ct + l1.data['counts_comp_err'][..., 1:31].sum(keepdims=True) ** 2) / norm
     r, re, t, dt, e = l1.get_data(time_indices=[[0, 4]], energy_indices=[[1, 30]],
                                   pixel_indices=[[0, 11]], detector_indices=[[0, 31]])
     assert np.allclose(rate, r)
@@ -78,8 +78,8 @@ def test_sciencedata_get_data():
     # 5 seconds, with dE 1/30keV across 30 channels
     l1.data.remove_column('counts') # need to remove and add to avoid error regarding casting
     l1.data['counts'] = np.full((5, 32, 12, 32), 146/(5*30))*u.ct
-    l1.data.remove_column('counts_err')
-    l1.data['counts_err'] = np.full_like(l1.data['counts'], np.sqrt(146*145/(5*30))*u.ct)
+    l1.data.remove_column('counts_comp_err')
+    l1.data['counts_comp_err'] = np.full_like(l1.data['counts'], np.sqrt(146*145/(5*30))*u.ct)
     l1.data['timedel'] = 1/5*u.s
     l1.dE[:] = ((1/30)*u.keV).astype(np.float32)
     l1.energies['e_high'][1:-1] = ((np.arange(31) / 30)[1:] * u.keV).astype(np.float32)

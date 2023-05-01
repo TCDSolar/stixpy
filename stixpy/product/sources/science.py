@@ -925,7 +925,7 @@ class Spectrogram(ScienceData, TimesSeriesPlotMixin, SpectrogramPlotMixin):
         self.detector_masks = DetectorMasks(self.control['detector_masks'])
         self.pixel_masks = PixelMasks(self.data['pixel_masks'])
         self.energy_masks = EnergyMasks(self.control['energy_bin_edge_mask'])
-        self.dE = (energies['e_high'] - energies['e_low'])[self.energy_masks.masks[0] == 1]
+        self.dE = energies['e_high'] - energies['e_low']
         # self.dE = np.hstack([[1], np.diff(energies['e_low'][1:]).value, [1]]) * u.keV
 
     @classmethod

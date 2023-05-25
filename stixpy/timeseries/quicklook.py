@@ -35,7 +35,7 @@ class QLLightCurve(GenericTimeSeries):
     >>> from stixpy.data import test
     >>> from sunpy.timeseries import TimeSeries
     >>> from stixpy.timeseries.quicklook import QLLightCurve
-    >>> ql_lc = TimeSeries(test.STIX_QL_LIGHTCURVE_TIMESERIES)
+    >>> ql_lc = TimeSeries("http://dataarchive.stix.i4ds.net/fits/L1/2020/05/06/QL/solo_L1_stix-ql-lightcurve_20200506_V01.fits") # doctest: +REMOTE_DATA
     >>> ql_lc # doctest: +SKIP
     QLLightCurve
            <sunpy.time.timerange.TimeRange object at ...>
@@ -213,7 +213,8 @@ class QLBackground(GenericTimeSeries):
     >>> from stixpy.data import test
     >>> from sunpy.timeseries import TimeSeries
     >>> from stixpy.timeseries.quicklook import QLLightCurve
-    >>> ql_bg = TimeSeries(test.STIX_QL_BACKGROUND_TIMESERIES)
+    >>> ql_bg = TimeSeries("http://dataarchive.stix.i4ds.net/fits/L1/2020/05/06/QL/"
+    ...                    "solo_L1_stix-ql-background_20200506_V01.fits") # doctest: +REMOTE_DATA
     >>> ql_bg # doctest: +SKIP
     <stixpy.timeseries.quicklook.QLBackground object at ...
     SunPy TimeSeries
@@ -407,7 +408,8 @@ class QLVariance(GenericTimeSeries):
     >>> from stixpy.data import test
     >>> from sunpy.timeseries import TimeSeries
     >>> from stixpy.timeseries.quicklook import QLLightCurve
-    >>> ql_var = TimeSeries(test.STIX_QL_VARIANCE_TIMESERIES)
+    >>> ql_var = TimeSeries("http://dataarchive.stix.i4ds.net/fits/L1/2020/05/06/HK/"
+    ...                     "solo_L1_stix-hk-maxi_20200506_V01.fits") # doctest: +REMOTE_DATA
     >>> ql_var # doctest: +SKIP
     <stixpy.timeseries.quicklook.QLVariance object at ...>
     SunPy TimeSeries
@@ -574,7 +576,8 @@ class HKMaxi(GenericTimeSeries):
     >>> from stixpy.data import test
     >>> from sunpy.timeseries import TimeSeries
     >>> from stixpy.timeseries.quicklook import HKMaxi
-    >>> hk = TimeSeries(test.STIX_HK_MAXI_TIMESERIES)
+    >>> hk = TimeSeries("http://dataarchive.stix.i4ds.net/fits/L1/2020/05/06/HK/"
+    ...                 "solo_L1_stix-hk-maxi_20200506_V01.fits") # doctest: +REMOTE_DATA
     >>> hk  # doctest: +SKIP
     <stixpy.timeseries.quicklook.HKMaxi ...>
     """

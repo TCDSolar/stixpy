@@ -1,3 +1,5 @@
+from sunpy.time import TimeRange
+
 from stixpy.product.product import L1Product
 
 
@@ -5,7 +7,13 @@ class HouseKeepingProduct(L1Product):
     """
     Basic HouseKeeping
     """
-
+    @property
+    def time_range(self):
+        """
+        A `sunpy.time.TimeRange` for the data.
+        """
+        return TimeRange(self.data['time'][0] - self.data['timedel'][0]/2,
+                         self.data['time'][-1] + self.data['timedel'][-1]/2)
 
 class HKMini(HouseKeepingProduct):
     """

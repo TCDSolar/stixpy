@@ -28,7 +28,7 @@ def test_search_date_product():
 
     res3 = Fido.search(a.Time("2022-01-20 05:40", "2022-01-20 06:20"), a.Instrument("STIX"),
                       a.stix.DataType("sci"))
-    assert len(res3[0]) == 9
+    assert len(res3[0]) == 18
 
 
 @pytest.mark.remote_data

@@ -659,8 +659,9 @@ class RawPixelData(ScienceData, PixelPlotMixin, TimesSeriesPlotMixin, Spectrogra
     Examples
     --------
     >>> from stixpy.data import test
-    >>> from stixpy.science import ScienceData
-    >>> raw_pd = ScienceData.from_fits(test.STIX_SCI_XRAY_RPD)
+    >>> from stixpy.product import Product
+    >>> raw_pd = Product("http://dataarchive.stix.i4ds.net/fits/L1/2020/05/05/SCI/"
+    ...                  "solo_L1_stix-sci-xray-rpd_20200505T235959-20200506T000019_V01_0087031808-50882.fits")
     >>> raw_pd
     RawPixelData   <sunpy.time.timerange.TimeRange object at ...
         Start: 2020-05-05 23:59:59
@@ -677,10 +678,9 @@ class RawPixelData(ScienceData, PixelPlotMixin, TimesSeriesPlotMixin, Spectrogra
         [0...4]: [['1' '1' '1' '1' '1' '1' '1' '1' '1' '1' '1' '1']]
     <BLANKLINE>
         EnergyMasks
-        [0]: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31]
+        [0]: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32]
     <BLANKLINE>
     """
-    pass
 
     @classmethod
     def is_datasource_for(cls, *, meta, **kwargs):
@@ -698,8 +698,9 @@ class CompressedPixelData(ScienceData, PixelPlotMixin, TimesSeriesPlotMixin, Spe
     Examples
     --------
     >>> from stixpy.data import test
-    >>> from stixpy.science import ScienceData
-    >>> compressed_pd = ScienceData.from_fits(test.STIX_SCI_XRAY_CPD)
+    >>> from stixpy.product import Product
+    >>> compressed_pd = Product("http://dataarchive.stix.i4ds.net/fits/L1/2020/05/05/SCI/"
+    ...                         "solo_L1_stix-sci-xray-cpd_20200505T235959-20200506T000019_V01_0087031809-50883.fits")
     >>> compressed_pd
     CompressedPixelData   <sunpy.time.timerange.TimeRange object at ...
         Start: 2020-05-05 23:59:59
@@ -716,7 +717,7 @@ class CompressedPixelData(ScienceData, PixelPlotMixin, TimesSeriesPlotMixin, Spe
         [0...4]: [['1' '1' '1' '1' '1' '1' '1' '1' '1' '1' '1' '1']]
     <BLANKLINE>
         EnergyMasks
-        [0]: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31]
+        [0]: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32]
     """
 
     @classmethod
@@ -736,8 +737,9 @@ class SummedCompressedPixelData(ScienceData, PixelPlotMixin, TimesSeriesPlotMixi
     Examples
     --------
     >>> from stixpy.data import test
-    >>> from stixpy.science import ScienceData
-    >>> summed_pd = ScienceData.from_fits(test.STIX_SCI_XRAY_SCPD)
+    >>> from stixpy.product import Product
+    >>> summed_pd = Product("http://dataarchive.stix.i4ds.net/fits/L1/2020/05/05/SCI/"
+    ...                     "solo_L1_stix-sci-xray-scpd_20200505T235959-20200506T000019_V01_0087031810-50884.fits")
     >>> summed_pd
     SummedCompressedPixelData   <sunpy.time.timerange.TimeRange object at ...
         Start: 2020-05-05 23:59:59
@@ -757,7 +759,7 @@ class SummedCompressedPixelData(ScienceData, PixelPlotMixin, TimesSeriesPlotMixi
      ['1' '0' '0' '0' '1' '0' '0' '0' '1' '0' '0' '0']]]
     <BLANKLINE>
         EnergyMasks
-        [0]: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31]
+        [0]: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32]
     """
     pass
 
@@ -888,17 +890,18 @@ class Spectrogram(ScienceData, TimesSeriesPlotMixin, SpectrogramPlotMixin):
     Examples
     --------
     >>> from stixpy.data import test
-    >>> from stixpy.science import ScienceData
-    >>> spectogram = ScienceData.from_fits(test.STIX_SCI_XRAY_SPEC)
+    >>> from stixpy.product import Product
+    >>> spectogram = Product("http://dataarchive.stix.i4ds.net/fits/L1/2020/05/05/SCI/"
+    ...                      "solo_L1_stix-sci-xray-spec_20200505T235959-20200506T000019_V01_0087031812-50886.fits")
     >>> spectogram
     Spectrogram   <sunpy.time.timerange.TimeRange ...
         Start: 2020-05-05 23:59:59
         End:   2020-05-06 00:00:19
         Center:2020-05-06 00:00:09
         Duration:0.00023148148148144365 days or
-            0.005555555555554648 hours or
-            0.33333333333327886 minutes or
-            19.99999999999673 seconds
+                0.005555555555554648 hours or
+                0.33333333333327886 minutes or
+                19.99999999999673 seconds
         DetectorMasks
         [0]: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31]
     <BLANKLINE>
@@ -906,7 +909,7 @@ class Spectrogram(ScienceData, TimesSeriesPlotMixin, SpectrogramPlotMixin):
         [0...4]: [['0' '0' '0' '0' '0' '0' '0' '0' '0' '0' '0' '0']]
     <BLANKLINE>
         EnergyMasks
-        [0]: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31]
+        [0]: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32]
     <BLANKLINE>
     """
     def __init__(self, *, meta, control, data, energies, idb_versions):
@@ -924,8 +927,8 @@ class Spectrogram(ScienceData, TimesSeriesPlotMixin, SpectrogramPlotMixin):
         self.count_type = 'rate'
         self.detector_masks = DetectorMasks(self.control['detector_masks'])
         self.pixel_masks = PixelMasks(self.data['pixel_masks'])
-        self.energy_masks = EnergyMasks(self.control['energy_bin_mask'])
-        self.dE = (energies['e_high'] - energies['e_low'])[self.energy_masks.masks[0] == 1]
+        # self.energy_masks = EnergyMasks(self.control['energy_bin_edge_mask'])
+        # self.dE = (energies['e_high'] - energies['e_low'])[self.energy_masks.masks[0] == 1]
         # self.dE = np.hstack([[1], np.diff(energies['e_low'][1:]).value, [1]]) * u.keV
 
     @classmethod

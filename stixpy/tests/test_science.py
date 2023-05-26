@@ -1,15 +1,16 @@
 import astropy.units as u
 import numpy as np
+import pytest
 from numpy.testing import assert_allclose
 
 from stixpy.data import test
 from stixpy.product.sources import CompressedPixelData, SummedCompressedPixelData, Spectrogram, RawPixelData
-from stixpy.science import ScienceData
+from stixpy.product import Product
 
 
+@pytest.mark.remote_data
 def test_sciencedata_get_data():
-    l1 = ScienceData.from_fits("http://dataarchive.stix.i4ds.net/fits/L1/2020/05/05/SCI/"
-        "solo_L1_stix-sci-xray-cpd_20200505T235959-20200506T000019_V01_0087031809-50883.fits")
+    l1 = Product("http://dataarchive.stix.i4ds.net/fits/L1/2020/05/05/SCI/solo_L1_stix-sci-xray-cpd_20200505T235959-20200506T000019_V01_0087031809-50883.fits")
     tot = l1.data['counts']
     norm = (l1.data['timedel'].reshape(5, 1, 1, 1) * l1.dE)
     rate = tot / norm
@@ -93,10 +94,10 @@ def test_sciencedata_get_data():
     assert_allclose(count_err, np.sqrt(2) * u.ct / (u.s * u.keV))  # 1 + 1
 
 
+@pytest.mark.remote_data
 def test_science_l0():
     type_, num_times, num_detectors, num_pixels, num_energies = RawPixelData, 5, 32, 12, 33
-    res = ScienceData.from_fits("http://dataarchive.stix.i4ds.net/fits/L1/2020/05/05/SCI/"
-        "solo_L1_stix-sci-xray-rpd_20200505T235959-20200506T000019_V01_0087031808-50882.fits")
+    res = Product("http://dataarchive.stix.i4ds.net/fits/L1/2020/05/05/SCI/solo_L1_stix-sci-xray-rpd_20200505T235959-20200506T000019_V01_0087031808-50882.fits")
     assert isinstance(res, type_)
     assert len(res.times) == num_times
     assert np.array_equal(res.detectors.masks, np.ones((1, num_detectors)))
@@ -104,10 +105,10 @@ def test_science_l0():
     assert np.array_equal(res.energy_masks.masks, np.ones((1, num_energies)))
 
 
+@pytest.mark.remote_data
 def test_science_l1():
     type_, num_times, num_detectors, num_pixels, num_energies = CompressedPixelData, 5, 32, 12, 33
-    res = ScienceData.from_fits("http://dataarchive.stix.i4ds.net/fits/L1/2020/05/05/SCI/"
-        "solo_L1_stix-sci-xray-cpd_20200505T235959-20200506T000019_V01_0087031809-50883.fits")
+    res = Product("http://dataarchive.stix.i4ds.net/fits/L1/2020/05/05/SCI/solo_L1_stix-sci-xray-cpd_20200505T235959-20200506T000019_V01_0087031809-50883.fits")
     assert isinstance(res, type_)
     assert len(res.times) == num_times
     assert np.array_equal(res.detectors.masks, np.ones((1, num_detectors)))
@@ -115,10 +116,10 @@ def test_science_l1():
     assert np.array_equal(res.energy_masks.masks, np.ones((1, num_energies)))
 
 
+@pytest.mark.remote_data
 def test_science_l2():
     type_, num_times, num_detectors, num_pixels, num_energies = SummedCompressedPixelData, 5, 32, 4, 33
-    res = ScienceData.from_fits("http://dataarchive.stix.i4ds.net/fits/L1/2020/05/05/SCI/"
-        "solo_L1_stix-sci-xray-scpd_20200505T235959-20200506T000019_V01_0087031810-50884.fits")
+    res = Product("http://dataarchive.stix.i4ds.net/fits/L1/2020/05/05/SCI/solo_L1_stix-sci-xray-scpd_20200505T235959-20200506T000019_V01_0087031810-50884.fits")
     assert isinstance(res, type_)
     assert len(res.times) == num_times
     assert np.array_equal(res.detectors.masks, np.ones((1, num_detectors)))
@@ -135,11 +136,10 @@ def test_science_l2():
 #     # assert np.array_equal(res.pixels.masks, np.ones((1, num_pixels)))
 #     assert np.array_equal(res.energy_masks.masks, np.ones((1, num_energies)))
 
-
+@pytest.mark.remote_data
 def test_spectrogram():
     type_, num_times, num_detectors, num_pixels, num_energies = Spectrogram, 5, 32, 12, 33
-    res = ScienceData.from_fits("http://dataarchive.stix.i4ds.net/fits/L1/2020/05/05/SCI/"
-        "solo_L1_stix-sci-xray-spec_20200505T235959-20200506T000019_V01_0087031812-50886.fits")
+    res = Product("http://dataarchive.stix.i4ds.net/fits/L1/2020/05/05/SCI/solo_L1_stix-sci-xray-spec_20200505T235959-20200506T000019_V01_0087031812-50886.fits")
     assert isinstance(res, type_)
     assert len(res.times) == num_times
     assert np.array_equal(res.detectors.masks, np.ones((1, num_detectors)))

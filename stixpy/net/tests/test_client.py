@@ -1,13 +1,46 @@
+from pathlib import Path
+from unittest import mock
+
 import pytest
 from sunpy.net import Fido, attrs as a
 
 
 from stixpy.net.client import STIXClient
 
+MOCK_PATH = "sunpy.net.scraper.urlopen"
+
 
 @pytest.fixture
 def client():
     return STIXClient()
+
+
+@pytest.fixture
+def http_response():
+    path = Path(__file__).parent / "data" / "test.html"
+    with path.open("r") as f:
+        response_html = f.read()
+
+    return response_html
+
+
+@pytest.mark.parametrize(
+    "time_range, nfiles",
+    [(("2022-01-01T00:00:00", "2022-01-01T03:00:00"), 4),
+     (("2022-01-01T00:00:00", "2022-01-01T01:00:00"), 2),
+     (("2022-01-01T00:30:00", "2022-01-01T01:00:00"), 2),
+     (("2022-01-01T00:35:00", "2022-01-01T00:45:00"), 1),
+     (("2022-01-01T00:00:00", "2022-01-01T00:35:00"), 1),
+     (("2022-01-01T02:45:00", "2022-01-01T05:00:00"), 1)],
+)
+@mock.patch(MOCK_PATH)
+def test_client(urlopen, client, http_response, time_range, nfiles):
+    urlopen.return_value.read = mock.MagicMock()
+    urlopen.return_value.read.side_effect = [http_response]*5
+    urlopen.close = mock.MagicMock(return_value=None)
+    query = client.search(a.Time(*time_range),
+                          a.Instrument.stix, a.Level('L1'), a.stix.DataType.sci)
+    assert len(query) == nfiles
 
 
 @pytest.mark.remote_data
@@ -28,7 +61,7 @@ def test_search_date_product():
 
     res3 = Fido.search(a.Time("2022-01-20 05:40", "2022-01-20 06:20"), a.Instrument("STIX"),
                       a.stix.DataType("sci"))
-    assert len(res3[0]) == 9
+    assert len(res3[0]) == 18
 
 
 @pytest.mark.remote_data

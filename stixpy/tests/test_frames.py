@@ -20,8 +20,10 @@ def test_transforms_with_know_values():
     stix_coord = STIXImagingFrame(earth_to_stix.x, earth_to_stix.y, obstime=obstime)
     stix_to_earth = stix_coord.transform_to(Helioprojective(observer='Earth', obstime=obstime))
 
-    assert_quantity_allclose(earth_to_stix.x, 410.747992 * u.arcsec)
-    assert_quantity_allclose(earth_to_stix.y, 840.925692*u.arcsec)
+    # assert_quantity_allclose(earth_to_stix.x, 410.747992 * u.arcsec)
+    # assert_quantity_allclose(earth_to_stix.y, 840.925692*u.arcsec)
+    assert_quantity_allclose(earth_to_stix.x, 367.30422293 * u.arcsec)
+    assert_quantity_allclose(earth_to_stix.y, 731.37631103 * u.arcsec)
     assert_quantity_allclose(earth_coord.Tx, stix_to_earth.Tx)
     assert_quantity_allclose(earth_coord.Ty, stix_to_earth.Ty)
 

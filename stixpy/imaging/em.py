@@ -6,7 +6,7 @@ from xrayvision.transform import generate_xy
 import astropy.units as apu
 from astropy.table.table import Table
 
-from stixpy.calibration.grid import get_grid_internal_shadowing
+from stixpy.calibration.grid import get_grid_transmission
 from stixpy.calibration.visibility import get_visibility_info_giordano
 from stixpy.utils.logging import get_logger
 
@@ -94,7 +94,7 @@ def get_transmission_matrix(vis, shape=[64, 64]*apu.pix,
 
 def em(countrates, vis, shape, pixel_size, maxiter=5000, tolerance=0.001, *, flare_xy, idx):
     # what is this doing
-    grid_shadowing = get_grid_internal_shadowing(flare_xy)
+    grid_shadowing = get_grid_transmission(flare_xy)
     countrates = countrates * grid_shadowing.reshape(-1, 1) * 4
 
     # temp

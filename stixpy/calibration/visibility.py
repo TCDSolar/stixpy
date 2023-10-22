@@ -8,14 +8,14 @@ from astropy.table import Table
 from astropy.time import Time
 
 from stixpy.calibration.energy import get_elut
-from stixpy.calibration.grid import get_grid_internal_shadowing
+from stixpy.calibration.grid import get_grid_transmission
 from stixpy.calibration.livetime import get_livetime_fraction
 from stixpy.io.readers import read_subc_params
 
 
 def get_subcollimator_info():
     r"""
-    Return resolutions, orientations and labels for sub-collimators.
+    Return resolutions, orientations, and labels for sub-collimators.
 
     Returns
     -------
@@ -63,7 +63,7 @@ def get_subcollimator_info():
     return res
 
 
-def create_visibility(pixel_data, time_range, energy_range, phase_center, no_shadowing=False):
+def create_meta_pixels(pixel_data, time_range, energy_range, phase_center, no_shadowing=False):
     r"""
     Return visibility created from pixel data with in given time and energy range.
 
@@ -85,12 +85,12 @@ def create_visibility(pixel_data, time_range, energy_range, phase_center, no_sha
     `dict`
         Visibility data and sub-collimator information
     """
-    t_ind = (pixel_data.times >= Time(time_range[0])) & (pixel_data.times <= Time(time_range[1]))
-    e_ind = ((pixel_data.energies['e_low'] >= energy_range[0] * u.keV)
+    t_mask = (pixel_data.times >= Time(time_range[0])) & (pixel_data.times <= Time(time_range[1]))
+    e_mask = ((pixel_data.energies['e_low'] >= energy_range[0] * u.keV)
              & (pixel_data.energies['e_high'] <= energy_range[1] * u.keV))
 
-    counts, counts_err, times, t_norm, energies = pixel_data.get_data(time_indices=t_ind,
-                                                                      energy_indices=e_ind)
+    t_ind = np.argwhere(t_mask).ravel()
+    e_ind = np.argwhere(e_mask).ravel()
 
     # For the moment copied from idl
     trigger_to_detector = [0, 0, 7, 7, 2, 1, 1, 6, 6, 5, 2, 3, 3, 4, 4, 5, 13,
@@ -99,72 +99,90 @@ def create_visibility(pixel_data, time_range, energy_range, phase_center, no_sha
     # Map the triggers to all 32 detectors
     triggers = pixel_data.data['triggers'][:, trigger_to_detector].astype(float)[...]
 
-    # Update the triggers for the CFL and BK groups as the exposed area are very different
-    # Sam / Ewan ??
-    # bkg_ratio = 1.1
-    # cfl_ratio = 1.33
-    # triggers[:, 8] = triggers[:, 8] / (1 + cfl_ratio) * cfl_ratio  # CFL
-    # triggers[:, 7] = triggers[:, 7] / (1 + cfl_ratio)  # Detector share with CFL
-    #
-    # triggers[:, 9] = triggers[:, 9] / (1 + bkg_ratio) * bkg_ratio  # BKG
-    # triggers[:, 15] = triggers[:, 15] / (1 + bkg_ratio)  # Detector shared with BKG
-
     _, livefrac, _ = get_livetime_fraction(
         triggers / pixel_data.data['timedel'].to('s').reshape(-1, 1))
 
     pixel_data.data['livefrac'] = livefrac
 
     elut = get_elut(pixel_data.time_range.center)
-    real_dE = elut.e_width_actual[..., (pixel_data.energy_masks.masks[0] == 1)[1:-1]] * u.keV
+    ebin_edges_low = elut.e_actual[..., 0:-1]
+    ebin_edges_high = elut.e_actual[..., 1:]
+    ebin_widths = ebin_edges_high - ebin_edges_low
+
+    e_cor_low = (ebin_edges_high[..., e_ind[0]] - elut.e[...,e_ind[0]+1].value) / ebin_widths[..., e_ind[0]]
+    e_cor_high = (elut.e[..., e_ind[-1]+2].value - ebin_edges_high[..., e_ind[-1]-1]) / ebin_widths[..., e_ind[-1]]
+
+    e_cor = (ebin_edges_high[..., e_ind[-1]] - ebin_edges_low[..., e_ind[0]]) * u.keV / (elut.e[e_ind[-1]+1] - elut.e[e_ind[0]])
 
     counts = pixel_data.data['counts']
-    rate = (counts / (real_dE * u.keV * livefrac.reshape(45, 32, 1, 1)
-                      * pixel_data.data['timedel'].to('s').reshape(-1, 1, 1, 1)))
+    ct = counts[t_ind][..., e_ind].astype(float)
+    ct[..., 0] = ct[..., 0] * e_cor_low[..., 0:8]
+    ct[..., -1] = ct[..., -1] * e_cor_high[..., 0:8]
 
-    ct = counts[t_ind][..., e_ind]
-    rate[t_ind][..., e_ind]
-
-    # er = real_dE[..., e_ind].sum(-1)
-    er = elut.e_width_actual[:, :, 3:7].sum(axis=-1) * u.keV
     lt = (livefrac * pixel_data.data['timedel'].reshape(-1, 1).to('s'))[t_ind].sum(axis=0)
 
-    ct_sumed = ct.sum(axis=(0, 3)) / (er * lt.to('s').reshape(-1, 1))
-    err_sumed = np.sqrt(ct.sum(axis=(0, 3))) / (er * lt.to('s').reshape(-1, 1))
+    ct_sumed = (ct.sum(axis=(0, 3)).astype(float))
 
-    grid_shadowing = get_grid_internal_shadowing(phase_center)
+    err_sumed = (np.sqrt(ct.sum(axis=(0, 3)).value))*u.ct
 
     if not no_shadowing:
+        grid_shadowing = get_grid_transmission(phase_center)
         ct_sumed = ct_sumed / grid_shadowing.reshape(-1, 1) / 4  # transmission grid ~ 0.5*0.5 = .25
         err_sumed = err_sumed / grid_shadowing.reshape(-1, 1) / 4
 
-    abcd_rate = ct_sumed.reshape(-1, 3, 4)[:, [0, 1], :].sum(axis=1)
+    abcd_counts = ct_sumed.reshape(-1, 2, 4)[:, [0, 1], :].sum(axis=1)
+    abcd_count_errors = np.sqrt((err_sumed.reshape(-1, 2, 4)[:, [0, 1], :]**2).sum(axis=1))
+
+    abcd_rate = abcd_counts / lt.reshape(-1, 1)
+    abcd_rate_error = abcd_count_errors / lt.reshape(-1, 1)
+
+    abcd_rate_kev = abcd_rate / 4 *u.keV
+    abcd_rate_error_kev = abcd_rate_error / 4 * u.keV
 
     # Taken from IDL
     pixel_areas = [0.096194997, 0.096194997, 0.096194997, 0.096194997, 0.096194997, 0.096194997,
                    0.096194997, 0.096194997, 0.010009999, 0.010009999, 0.010009999, 0.010009999]
 
-    areas = np.tile(np.array(pixel_areas).reshape(1, -1), (32, 1)) * u.cm
+    areas = np.array(pixel_areas).reshape(-1, 4)[0:2].sum(axis=0)
 
-    areas_summed = areas.reshape(-1, 3, 4)[:, [0, 1], :].sum(axis=1)
+    meta_pixels = {'abcd_rate_kev_cm': abcd_rate_kev / areas,
+                   'abcd_rate_error_kev_cm': abcd_rate_error_kev / areas}
 
-    aaaa = abcd_rate / areas_summed
+    return meta_pixels
 
-    aaaa_err = np.sqrt(np.sum(err_sumed.reshape(-1, 3, 4)[:, [0, 1], :] ** 2, axis=1))
-    aaaa_err = aaaa_err / areas_summed
 
-    real = aaaa[:, 2] - aaaa[:, 0]
-    imag = aaaa[:, 3] - aaaa[:, 1]
+def create_visibility(meta_pixels):
+    abcd_rate_kev_cm, abcd_rate_error_kev_cm = meta_pixels.values()
+    real = abcd_rate_kev_cm[:, 2] - abcd_rate_kev_cm[:, 0]
+    imag = abcd_rate_kev_cm[:, 3] - abcd_rate_kev_cm[:, 1]
 
-    real_err = np.sqrt(aaaa_err[:, 2] ** 2 + aaaa_err[:, 0] ** 2).value * real.unit
-    imag_err = np.sqrt(aaaa_err[:, 3] ** 2 + aaaa_err[:, 1] ** 2).value * real.unit
+    real_err = np.sqrt(abcd_rate_error_kev_cm[:, 2] ** 2 + abcd_rate_error_kev_cm[:, 0] ** 2).value * real.unit
+    imag_err = np.sqrt(abcd_rate_error_kev_cm[:, 3] ** 2 + abcd_rate_error_kev_cm[:, 1] ** 2).value * real.unit
 
     vis = get_visibility_info()
-    vis['real'] = real
-    vis['imag'] = imag
-    vis['real_err'] = real_err
-    vis['imag_err'] = imag_err
-    vis['rate'] = aaaa
-    vis['reate_err'] = aaaa_err
+
+    # Compute raw phases
+    phase = np.arctan2(imag, real)
+
+    # Compute amplitudes
+    observed_amplitude = np.sqrt(real ** 2 + imag ** 2)
+
+    # Compute error on amplitudes
+    amplitude_error = ((np.sqrt((real / observed_amplitude * real_err) ** 2
+                        + (imag / observed_amplitude * imag_err) ** 2)))
+
+    # Apply pixel correction
+    phase += 46.1 * u.deg  # Center of large pixel in terms morie pattern phase
+    # TODO add correction for small pixel
+
+    obsvis = (np.cos(phase) + np.sin(phase)*1j)*observed_amplitude
+
+    imaging_detector_indices = vis['isc'] - 1
+
+    vis = SimpleNamespace(obsvis=obsvis[imaging_detector_indices],
+                          amplitude=observed_amplitude[imaging_detector_indices],
+                          amplitude_error=amplitude_error[imaging_detector_indices],
+                          phase=phase[imaging_detector_indices], **vis)
 
     return vis
 
@@ -232,11 +250,12 @@ def get_visibility_info(grid_separation=550 * u.mm):
 
 
 def get_visibility_info_giordano():
-    L1 = 550 * u.mm
-    L2 = 47 * u.mm
+    L1 = 545.30 * u.mm
+    L2 = 47.78 * u.mm
 
     subc = read_subc_params()
-    imaging_ind = np.arange(32)
+    imaging_ind = np.where((subc['Grid Label'] != 'cfl') & (subc['Grid Label'] != 'bkg'))
+
     # np.where((subc['Grid Label'] != 'cfl') & (subc['Grid Label'] != 'bkg'))
 
     # filter out background monitor and flare locator
@@ -280,7 +299,7 @@ def get_visibility_info_giordano():
 
 def calibrate_visibility(vis, flare_location=(0, 0) * u.arcsec):
     """
-    Return phase and amplitude calibrated visibilities.
+    Calibrate visibility phase and amplitudes.
 
     Parameters
     ----------
@@ -291,60 +310,49 @@ def calibrate_visibility(vis, flare_location=(0, 0) * u.arcsec):
     -------
 
     """
-    real_component = vis.pop('real')
-    imag_component = vis.pop('imag')
-    real_component_err = vis.pop('real_err')
-    imag_component_err = vis.pop('imag_err')
-
-    # Compute raw phases
-    phase = np.arctan2(imag_component, real_component)
-
-    # Compute amplitudes
-    modulation_efficiency = np.pi ** 3 / (8 * np.sqrt(2))  # Modulation efficiency
-    observed_amplitude = np.sqrt(real_component ** 2 + imag_component ** 2)
-    calibrated_amplitude = observed_amplitude * modulation_efficiency
-
-    # Compute error on amplitudes
-    systematic_error = 5 * u.percent  # from G. Hurford 5% systematics
-    amplitude_stat_error = ((np.sqrt((real_component / observed_amplitude * real_component_err) ** 2
-                            + (imag_component / observed_amplitude * imag_component_err) ** 2))
-                            * modulation_efficiency)
-    amplitude_error = np.sqrt(amplitude_stat_error ** 2 +
-                              (systematic_error * calibrated_amplitude)
-                              .to(observed_amplitude.unit) ** 2)
-
-    # Apply pixel correction
-    phase += 46.1 * u.deg  # Center of large pixel in terms of phase of morie pattern
-    # TODO add correction for small pixel
+    modulation_efficiency = np.pi ** 3 / (8 * np.sqrt(2))
 
     # Grid correction factors
     grid_cal_file = Path(__file__).parent.parent / 'config' / 'data' / 'grid' / 'GridCorrection.csv'
     grid_cal = Table.read(grid_cal_file, header_start=2, data_start=3)
-    grid_corr = grid_cal['Phase correction factor'] * u.deg
-
-    # Apply grid correction
-    phase += grid_corr
+    grid_corr = grid_cal['Phase correction factor'][vis.isc-1] * u.deg
 
     # Phase correction
     phase_cal_file = Path(__file__).parent.parent / 'config' / 'data' / 'grid' / 'PhaseCorrFactors.csv'
     phase_cal = Table.read(phase_cal_file, header_start=3, data_start=4)
-    phase_corr = phase_cal['Phase correction factor'] * u.deg
+    phase_corr = phase_cal['Phase correction factor'][vis.isc-1] * u.deg
 
-    # Apply grid correction
-    phase += phase_corr
+    phase_mapcenter_corr = -2 * np.pi * (-63.168198*u.arcsec * vis.u + 29.324207*u.arcsec * vis.v) * u.rad
 
-    # Compute error on phases
-    phase_error = amplitude_error / calibrated_amplitude
+    ovis = vis.obsvis[:]
+    ovis_real = np.real(ovis)
+    ovis_imag = np.imag(ovis)
 
-    imaging_detector_indices = vis['isc'] - 1
+    ovis_amp = np.sqrt(ovis_real**2 + ovis_imag**2)
+    ovis_phase = np.arctan2(ovis_imag, ovis_real).to('deg')
 
-    vis = SimpleNamespace(amplitude=calibrated_amplitude[imaging_detector_indices],
-                          amplitude_error=amplitude_error[imaging_detector_indices],
-                          phase=phase[imaging_detector_indices],
-                          phase_error=phase_error[imaging_detector_indices],
-                          **vis)
+    calibrated_amplitude = ovis_amp * modulation_efficiency
+    calibrated_phase = ovis_phase + grid_corr + phase_corr + phase_mapcenter_corr
 
-    return vis
+    # Compute error on amplitudes
+    systematic_error = 5 * u.percent  # from G. Hurford 5% systematics
+
+    calibrated_amplitude_error = np.sqrt((vis.amplitude_error*modulation_efficiency) ** 2 +
+                              (systematic_error * calibrated_amplitude)
+                              .to(ovis_amp.unit) ** 2)
+
+    calibrated_visibility = (np.cos(calibrated_phase) + np.sin(calibrated_phase)*1j) * calibrated_amplitude
+
+    orig_vis = vis.__dict__
+    [orig_vis.pop(n) for n in ['obsvis', 'amplitude', 'amplitude_error', 'phase']]
+
+    cal_vis = SimpleNamespace(obsvis=calibrated_visibility,
+                          amplitude=calibrated_amplitude,
+                          amplitude_error=calibrated_amplitude_error,
+                          phase=calibrated_phase,
+                          **orig_vis)
+
+    return cal_vis
 
 
 def correct_phase_projection(vis, flare_xy):

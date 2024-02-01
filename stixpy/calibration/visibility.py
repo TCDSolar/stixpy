@@ -65,8 +65,7 @@ def get_subcollimator_info():
 
 def create_meta_pixels(pixel_data, time_range, energy_range, phase_center, no_shadowing=False):
     r"""
-    Return visibility created from pixel data with in given time and energy range.
-
+    Create meta-pixels by summing data with in given time and energy range.
 
     Parameters
     ----------
@@ -92,6 +91,14 @@ def create_meta_pixels(pixel_data, time_range, energy_range, phase_center, no_sh
     t_ind = np.argwhere(t_mask).ravel()
     e_ind = np.argwhere(e_mask).ravel()
 
+    changed = []
+    for column in ['rcr', 'pixel_masks', 'detector_masks']:
+        if np.unique(pixel_data.data[column][t_ind], axis=0).shape[0] != 1:
+            changed.append(column)
+    if len(changed) > 0:
+        raise ValueError(f"The following: {', '.join(changed)} changed in the selected time interval "
+                         f"please select a time interval where these are constant.")
+
     # For the moment copied from idl
     trigger_to_detector = [0, 0, 7, 7, 2, 1, 1, 6, 6, 5, 2, 3, 3, 4, 4, 5, 13,
                            12, 12, 11, 11, 10, 13, 14, 14, 9, 9, 10, 15, 15, 8, 8]
@@ -116,8 +123,8 @@ def create_meta_pixels(pixel_data, time_range, energy_range, phase_center, no_sh
 
     counts = pixel_data.data['counts']
     ct = counts[t_ind][..., e_ind].astype(float)
-    ct[..., 0] = ct[..., 0] * e_cor_low[..., 0:8]
-    ct[..., -1] = ct[..., -1] * e_cor_high[..., 0:8]
+    ct[..., 0:8, 0] = ct[..., 0:8, 0] * e_cor_low[..., 0:8]
+    ct[..., 0:8, -1] = ct[..., 0:8, -1] * e_cor_high[..., 0:8]
 
     lt = (livefrac * pixel_data.data['timedel'].reshape(-1, 1).to('s'))[t_ind].sum(axis=0)
 
@@ -130,18 +137,19 @@ def create_meta_pixels(pixel_data, time_range, energy_range, phase_center, no_sh
         ct_sumed = ct_sumed / grid_shadowing.reshape(-1, 1) / 4  # transmission grid ~ 0.5*0.5 = .25
         err_sumed = err_sumed / grid_shadowing.reshape(-1, 1) / 4
 
-    abcd_counts = ct_sumed.reshape(-1, 2, 4)[:, [0, 1], :].sum(axis=1)
-    abcd_count_errors = np.sqrt((err_sumed.reshape(-1, 2, 4)[:, [0, 1], :]**2).sum(axis=1))
+    abcd_counts = ct_sumed.reshape(ct_sumed.shape[0], -1, 4)[:, [0, 1], :].sum(axis=1)
+    abcd_count_errors = np.sqrt((err_sumed.reshape(ct_sumed.shape[0], -1, 4)[:, [0, 1], :]**2).sum(axis=1))
 
     abcd_rate = abcd_counts / lt.reshape(-1, 1)
     abcd_rate_error = abcd_count_errors / lt.reshape(-1, 1)
 
-    abcd_rate_kev = abcd_rate / 4 *u.keV
-    abcd_rate_error_kev = abcd_rate_error / 4 * u.keV
+    e_bin = pixel_data.energies[e_ind][-1]['e_high'] - pixel_data.energies[e_ind][0]['e_low']
+    abcd_rate_kev = abcd_rate / e_bin
+    abcd_rate_error_kev = abcd_rate_error / e_bin
 
     # Taken from IDL
     pixel_areas = [0.096194997, 0.096194997, 0.096194997, 0.096194997, 0.096194997, 0.096194997,
-                   0.096194997, 0.096194997, 0.010009999, 0.010009999, 0.010009999, 0.010009999]
+                   0.096194997, 0.096194997, 0.010009999, 0.010009999, 0.010009999, 0.010009999] * u.cm**2
 
     areas = np.array(pixel_areas).reshape(-1, 4)[0:2].sum(axis=0)
 
@@ -152,6 +160,17 @@ def create_meta_pixels(pixel_data, time_range, energy_range, phase_center, no_sh
 
 
 def create_visibility(meta_pixels):
+    r"""
+    Create visibilities from meta-pixels
+
+    Parameters
+    ----------
+    meta_pixels
+
+    Returns
+    -------
+
+    """
     abcd_rate_kev_cm, abcd_rate_error_kev_cm = meta_pixels.values()
     real = abcd_rate_kev_cm[:, 2] - abcd_rate_kev_cm[:, 0]
     imag = abcd_rate_kev_cm[:, 3] - abcd_rate_kev_cm[:, 1]
@@ -322,7 +341,7 @@ def calibrate_visibility(vis, flare_location=(0, 0) * u.arcsec):
     phase_cal = Table.read(phase_cal_file, header_start=3, data_start=4)
     phase_corr = phase_cal['Phase correction factor'][vis.isc-1] * u.deg
 
-    phase_mapcenter_corr = -2 * np.pi * (-63.168198*u.arcsec * vis.u + 29.324207*u.arcsec * vis.v) * u.rad
+    phase_mapcenter_corr = -2 * np.pi * (flare_location[0].value*u.arcsec * vis.u + flare_location[1].value*u.arcsec * vis.v) * u.rad
 
     ovis = vis.obsvis[:]
     ovis_real = np.real(ovis)
@@ -391,7 +410,7 @@ def correct_phase_projection(vis, flare_xy):
     # Subtract Frederic's mean shift values
 
     # TODO check the u, v why is flare_xy[1] used with u (prob stix vs spacecraft orientation
-    phase_mapcenter = -2 * np.pi * (map_center[1] * vis.u - map_center[0] * vis.v) * u.rad
+    phase_mapcenter = -2 * np.pi * (map_center[0] * vis.u - map_center[1] * vis.v) * u.rad
     vis.obsvis *= (np.cos(phase_mapcenter) + np.sin(phase_mapcenter) * 1j)
 
     return vis

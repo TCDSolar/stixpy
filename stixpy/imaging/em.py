@@ -13,7 +13,7 @@ from stixpy.utils.logging import get_logger
 logger = get_logger(__name__, level='DEBUG')
 
 
-def get_transmission_matrix(vis, shape=[64, 64]*apu.pix,
+def get_transmission_matrix(u, v, shape=[64, 64]*apu.pix,
                             pixel_size=[4.0, 4.0]*apu.arcsec, *, center, pixel_sum):
     r"""
 
@@ -64,20 +64,21 @@ def get_transmission_matrix(vis, shape=[64, 64]*apu.pix,
 
     m, n = shape.to_value('pix')
 
-    center = center - [26.1, 58.2] * apu.arcsec
+    #center = center - [26.1, 58.2] * apu.arcsec
 
-    y = generate_xy(m, pixel_size=pixel_size[1], center=-center[0])
-    x = generate_xy(n, pixel_size=pixel_size[0], center=center[1])
+    y = generate_xy(m, pixel_size=pixel_size[1], center=center[1])
+    x = generate_xy(n, pixel_size=pixel_size[0], center=center[0])
     x, y = np.meshgrid(x, y)
     # Check apu are correct for exp need to be dimensionless and then remove apu for speed
-    if (vis.uv[0, :] * x[0, 0]).unit == apu.dimensionless_unscaled and \
-            (vis.uv[1, :] * y[0, 0]).unit == apu.dimensionless_unscaled:
-        uv = vis.uv.value
+    if (u[0] * x[0, 0]).unit == apu.dimensionless_unscaled and \
+            (v[0] * y[0, 0]).unit == apu.dimensionless_unscaled:
+        u = u.value
+        v = v.value
         x = x.value
         y = y.value
 
-        phase = (2 * np.pi * (x[..., np.newaxis] * uv[np.newaxis, 0, :]
-                              + y[..., np.newaxis] * uv[np.newaxis, 1, :])
+        phase = (2 * np.pi * (x[..., np.newaxis] * u[np.newaxis, :]
+                              + y[..., np.newaxis] * v[np.newaxis, :])
                  - phase_cor.to_value('rad'))
 
         H = np.concatenate([-np.cos(phase), -np.sin(phase), np.cos(phase), np.sin(phase)], axis=-1)
@@ -87,25 +88,43 @@ def get_transmission_matrix(vis, shape=[64, 64]*apu.pix,
         H = H * 2.0 * M1 + M0
         H = H * (pixel_size[0] * pixel_size[1])
         H = np.transpose(H, (2, 0, 1))
-        return H.reshape(vis.uv.shape[1]*4, -1)
+        return H.reshape(u.shape[0]*4, -1)
     else:
         raise ValueError('Units dont match')
 
 
 def em(countrates, vis, shape, pixel_size, maxiter=5000, tolerance=0.001, *, flare_xy, idx):
-    # what is this doing
-    grid_shadowing = get_grid_transmission(flare_xy)
-    countrates = countrates * grid_shadowing.reshape(-1, 1) * 4
+    r"""
+    Count-based expectation maximisation imaging algorithm.
+
+
+    Parameters
+    ----------
+    countrates :
+        Meta pixel counts rates
+    vis
+        Visiblty
+    shape
+
+    pixel_size
+    maxiter
+    tolerance
+    flare_xy
+    idx
+
+    Returns
+    -------
+
+    """
 
     # temp
     idx = [6, 28, 0, 24, 4, 22, 5, 29, 1, 14, 26, 30, 23, 7, 27, 20, 25, 3, 15, 13, 31, 2, 19, 21]
+    ii = np.array([np.argwhere(vis.isc - 1 == i).ravel() for i in idx]).ravel()
 
-    u, v = get_visibility_info_giordano()
-    vis.uv = np.vstack([u[idx], v[idx]])
-
-    H = get_transmission_matrix(vis, shape=shape, pixel_size=pixel_size,
+    H = get_transmission_matrix(vis.u[ii], vis.v[ii], shape=shape, pixel_size=pixel_size,
                                 center=flare_xy, pixel_sum=1)
     y = countrates[idx, ...]
+    # Not quite sure why this is needed clearly related to ordering of counts and H matrix
     y = y.flatten(order='F')
     # EXPECTATION MAXIMIZATION ALGORITHM
 
@@ -115,11 +134,10 @@ def em(countrates, vis, shape, pixel_size, maxiter=5000, tolerance=0.001, *, fla
     Ht1 = np.matmul(np.ones_like(y), H.reshape(96, -1))
     H2 = H**2
 
-    # logger.info(f'EM iterations: ' & print, 'N. Iter:      STD:          C-STAT:'
-
     # Loop of the algorithm
     for i in range(maxiter):
         Hx = np.matmul(H, x)
+        # TODO support possibility to subtract background z y / Hx + b
         z = y / Hx
         Hz = np.matmul(z, H)
 
@@ -139,5 +157,7 @@ def em(countrates, vis, shape, pixel_size, maxiter=5000, tolerance=0.001, *, fla
             if std_index < tolerance:
                 break
     m, n = shape.to_value('pix').astype(int)
-    x_im = x.reshape(m, n)
+    # Note the order keyword here to match `y.flatten(order='F')` above at line 108
+    # TODO investigate why .T is needed probably because of fortran odering
+    x_im = x.reshape(m, n, order='F').T
     return x_im

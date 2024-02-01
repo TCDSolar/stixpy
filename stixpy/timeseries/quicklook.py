@@ -408,8 +408,8 @@ class QLVariance(GenericTimeSeries):
     >>> from stixpy.data import test
     >>> from sunpy.timeseries import TimeSeries
     >>> from stixpy.timeseries.quicklook import QLLightCurve
-    >>> ql_var = TimeSeries("https://pub099.cs.technik.fhnw.ch/fits/L1/2020/05/06/HK/"
-    ...                     "solo_L1_stix-hk-maxi_20200506_V02.fits") # doctest: +REMOTE_DATA
+    >>> ql_var = TimeSeries("https://pub099.cs.technik.fhnw.ch/fits/L1/2020/05/06/QL/"
+    ...                     "solo_L1_stix-ql-variance_20200506_V02.fits") # doctest: +REMOTE_DATA
     >>> ql_var # doctest: +SKIP
     <stixpy.timeseries.quicklook.QLVariance object at ...>
     SunPy TimeSeries

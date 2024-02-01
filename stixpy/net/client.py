@@ -33,11 +33,11 @@ class STIXClient(GenericClient):
     <BLANKLINE>
     <BLANKLINE>
     """
-    baseurl = (r'http://pub099.cs.technik.fhnw.ch/data/fits/'
+    baseurl = (r'https://pub099.cs.technik.fhnw.ch/data/fits/'
                r'{level}/{year:4d}/{month:02d}/{day:02d}/{datatype}/')
-    ql_filename = r'solo_{level}_stix-{product}_\d{{8}}_V\d{{2}}.fits'
+    ql_filename = r'solo_{level}_stix-{product}_\d{{8}}_V\d{{2}}\D*.fits'
     sci_filename = (r'solo_{level}_stix-{product}_'
-                    r'\d{{8}}T\d{{6}}-\d{{8}}T\d{{6}}_V\d{{2}}_\d+-\d{{5}}.fits')
+                    r'\d{{8}}T\d{{6}}-\d{{8}}T\d{{6}}_V\d{{2}}\D*_.*.fits')
 
     base_pattern = r'{}/{Level}/{year:4d}/{month:02d}/{day:02d}/{DataType}/'
     ql_pattern = r'solo_{Level}_{descriptor}_{time}_{Ver}.fits'

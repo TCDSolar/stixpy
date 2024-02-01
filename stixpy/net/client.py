@@ -35,7 +35,7 @@ class STIXClient(GenericClient):
     """
     baseurl = (r'http://pub099.cs.technik.fhnw.ch/data/fits/'
                r'{level}/{year:4d}/{month:02d}/{day:02d}/{datatype}/')
-    ql_filename = r'solo_{level}_stix-{product}_\d{{8}}_V\d{{2}}.fits'
+    ql_filename = r'solo_{level}_stix-{product}_\d{{8}}_V\d{{2}}U.fits'
     sci_filename = (r'solo_{level}_stix-{product}_'
                     r'\d{{8}}T\d{{6}}-\d{{8}}T\d{{6}}_V\d{{2}}_\d+-\d{{5}}.fits')
 
@@ -93,6 +93,7 @@ class STIXClient(GenericClient):
                         url = url.format(level=level.upper(), year=year, month=month, day=day,
                                          datatype=datatype.upper(),
                                          product=product.replace('_', '-'))
+                        
 
                         scraper = Scraper(url, regex=True)
                         filesmeta = scraper._extract_files_meta(tr, extractor=pattern)

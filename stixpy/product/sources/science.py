@@ -661,7 +661,7 @@ class RawPixelData(ScienceData, PixelPlotMixin, TimesSeriesPlotMixin, Spectrogra
     >>> from stixpy.data import test
     >>> from stixpy.product import Product
     >>> raw_pd = Product("http://dataarchive.stix.i4ds.net/fits/L1/2020/05/05/SCI/"
-    ...                  "solo_L1_stix-sci-xray-rpd_20200505T235959-20200506T000019_V01_0087031808-50882.fits")  # doctest: +REMOTE_DATA
+    ...                  "solo_L1_stix-sci-xray-rpd_20200505T235959-20200506T000019_V02_0087031808-50882.fits")  # doctest: +REMOTE_DATA
     >>> raw_pd  # doctest: +REMOTE_DATA
     RawPixelData   <sunpy.time.timerange.TimeRange object at ...
         Start: 2020-05-05 23:59:59
@@ -700,7 +700,7 @@ class CompressedPixelData(ScienceData, PixelPlotMixin, TimesSeriesPlotMixin, Spe
     >>> from stixpy.data import test
     >>> from stixpy.product import Product
     >>> compressed_pd = Product("http://dataarchive.stix.i4ds.net/fits/L1/2020/05/05/SCI/"
-    ...                         "solo_L1_stix-sci-xray-cpd_20200505T235959-20200506T000019_V01_0087031809-50883.fits")  # doctest: +REMOTE_DATA
+    ...                         "solo_L1_stix-sci-xray-cpd_20200505T235959-20200506T000019_V02_0087031809-50883.fits")  # doctest: +REMOTE_DATA
     >>> compressed_pd  # doctest: +REMOTE_DATA
     CompressedPixelData   <sunpy.time.timerange.TimeRange object at ...
         Start: 2020-05-05 23:59:59
@@ -739,7 +739,7 @@ class SummedCompressedPixelData(ScienceData, PixelPlotMixin, TimesSeriesPlotMixi
     >>> from stixpy.data import test
     >>> from stixpy.product import Product
     >>> summed_pd = Product("http://dataarchive.stix.i4ds.net/fits/L1/2020/05/05/SCI/"
-    ...                     "solo_L1_stix-sci-xray-scpd_20200505T235959-20200506T000019_V01_0087031810-50884.fits")  # doctest: +REMOTE_DATA
+    ...                     "solo_L1_stix-sci-xray-scpd_20200505T235959-20200506T000019_V02_0087031810-50884.fits")  # doctest: +REMOTE_DATA
     >>> summed_pd  # doctest: +REMOTE_DATA
     SummedCompressedPixelData   <sunpy.time.timerange.TimeRange object at ...
         Start: 2020-05-05 23:59:59
@@ -892,7 +892,7 @@ class Spectrogram(ScienceData, TimesSeriesPlotMixin, SpectrogramPlotMixin):
     >>> from stixpy.data import test
     >>> from stixpy.product import Product
     >>> spectogram = Product("http://dataarchive.stix.i4ds.net/fits/L1/2020/05/05/SCI/"
-    ...                      "solo_L1_stix-sci-xray-spec_20200505T235959-20200506T000019_V01_0087031812-50886.fits")  # doctest: +REMOTE_DATA
+    ...                      "solo_L1_stix-sci-xray-spec_20200505T235959-20200506T000019_V02_0087031812-50886.fits")  # doctest: +REMOTE_DATA
     >>> spectogram  # doctest: +REMOTE_DATA
     Spectrogram   <sunpy.time.timerange.TimeRange ...
         Start: 2020-05-05 23:59:59

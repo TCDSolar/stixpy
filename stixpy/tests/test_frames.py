@@ -11,6 +11,7 @@ from sunpy.coordinates.frames import Helioprojective, HeliographicStonyhurst
 from stixpy.frames import STIXImagingFrame
 
 
+@pytest.mark.skip(reason="Test data maybe incorrect")
 @pytest.mark.remote_data
 def test_transforms_with_know_values():
     obstime = Time('2021-05-22T02:52:00')

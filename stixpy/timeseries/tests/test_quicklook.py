@@ -31,5 +31,5 @@ def test_qlvariance():
 @pytest.mark.remote_data
 def test_hk_maxi():
     hk_maxi = TimeSeries(
-        'https://pub099.cs.technik.fhnw.ch/fits/L1/2020/05/06/HK/solo_L1_stix-hk-maxi_20200506_V02.fits')
+        'https://pub099.cs.technik.fhnw.ch/fits/L1/2020/05/06/HK/solo_L1_stix-hk-maxi_20200506_V02U.fits')
     assert isinstance(hk_maxi, HKMaxi)

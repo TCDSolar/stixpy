@@ -577,7 +577,7 @@ class HKMaxi(GenericTimeSeries):
     >>> from sunpy.timeseries import TimeSeries
     >>> from stixpy.timeseries.quicklook import HKMaxi
     >>> hk = TimeSeries("https://pub099.cs.technik.fhnw.ch/fits/L1/2020/05/06/HK/"
-    ...                 "solo_L1_stix-hk-maxi_20200506_V02.fits") # doctest: +REMOTE_DATA
+    ...                 "solo_L1_stix-hk-maxi_20200506_V02U.fits") # doctest: +REMOTE_DATA
     >>> hk  # doctest: +SKIP
     <stixpy.timeseries.quicklook.HKMaxi ...>
     """

@@ -4,6 +4,7 @@ include setup.cfg
 include LICENSE.rst
 include pyproject.toml
 include stixpy/data/test_data.tar.gz
+recursive-include stixpy/config/data *.*
 
 recursive-include stixpy *.pyx *.c *.pxd
 recursive-include docs *

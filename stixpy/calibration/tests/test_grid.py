@@ -3,7 +3,7 @@ import pytest
 
 import astropy.units as u
 
-from stixpy.calibration.grid import get_subcollimator_trasmission
+from stixpy.calibration.grid import get_grid_transmission
 
 
 # Output values taken from IDL routine
@@ -19,5 +19,5 @@ from stixpy.calibration.grid import get_subcollimator_trasmission
                     1.00000000, 1.00000000, 1.00000000, 0.26544300, 0.25416556, 0.25598019, 0.27559373, 0.23802824,
                     0.28210551, 0.25501686, 0.23110151, 0.26802292, 0.38006619, 0.25902179, 0.26052520, 0.25992528])])
 def test_grid_transmission(input, out):
-    grid_transmission = get_subcollimator_trasmission(input)
+    grid_transmission = get_grid_transmission(input)
     assert np.allclose(grid_transmission, np.array(out))

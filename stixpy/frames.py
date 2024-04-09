@@ -8,20 +8,16 @@ import numpy as np
 
 import astropy.wcs.utils
 from astropy.coordinates import frame_transform_graph
-from astropy.coordinates.baseframe import BaseCoordinateFrame
-from astropy.coordinates.errors import ConvertError
 from astropy.coordinates.matrix_utilities import rotation_matrix, matrix_product, matrix_transpose
-from astropy.coordinates.representation import UnitSphericalRepresentation, SphericalRepresentation
 from astropy.io import fits
 from astropy.table import QTable
 from astropy.time import Time
-from astropy.wcs import WCS
+
 from sunpy.coordinates.frames import HeliographicStonyhurst, Helioprojective, \
     SunPyBaseCoordinateFrame
-from sunpy.coordinates.transformations import _check_observer_defined
-from sunpy.coordinates.wcs_utils import _set_wcs_aux_obs_coord
+
 from sunpy.net import Fido, attrs as a
-from sunpy.util.exceptions import warn_user
+
 
 from stixpy.utils.logging import get_logger
 from stixpy.net.client import STIXClient  # noqa

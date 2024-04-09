@@ -16,12 +16,13 @@ from matplotlib.dates import date2num, HourLocator, DateFormatter
 from matplotlib.widgets import Slider
 from sunpy.time.timerange import TimeRange
 
+from stixpy.product.product import L1Product
+
 __all__ = ['ScienceData', 'RawPixelData', 'CompressedPixelData', 'SummedCompressedPixelData',
            'Visibility', 'Spectrogram', 'TimesSeriesPlotMixin', 'SpectrogramPlotMixin',
            'PixelPlotMixin', 'PPrintMixin', 'IndexMasks', 'DetectorMasks', 'PixelMasks',
            'EnergyMasks']
 
-from stixpy.product.product import L1Product
 
 quantity_support()
 
@@ -45,12 +46,13 @@ class PPrintMixin:
 
 class IndexMasks(PPrintMixin):
     """
+    Index mask class to store masked indices.
 
     Attributes
     ----------
-    masks : 'numpy.ndarray`
+    masks : `numpy.ndarray`
         The mask arrays
-    indices : `numpy.ndarray'
+    indices : `numpy.ndarray`
         The indices the mask/s applies to
 
     """
@@ -325,9 +327,14 @@ class PixelPlotMixin:
         stime = SliderCustomValue(axetime, 'Time', 0, counts.shape[0]-1, format_func=timeval,
                                   valinit=0, valstep=1)
 
-        pixel_ids = [slice(0, 4), slice(4, 8), slice(8, 12)]
         if counts.shape[2] == 4:
             pixel_ids = [slice(0, 4)]
+        elif counts.shape[2] == 8:
+            pixel_ids = [slice(0, 4), slice(4, 8)]
+        elif counts.shape[2] == 12:
+            pixel_ids = [slice(0, 4), slice(4, 8), slice(8, 12)]
+        else:
+            raise ValueError("Invalid number of pixels")
 
         containers = defaultdict(list)
 

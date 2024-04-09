@@ -9,6 +9,7 @@ from numpy.testing import assert_equal
 from stixpy.calibration.detector import get_srm, get_sci_channels
 
 
+@pytest.mark.skip(reason="File only locally available.")
 def test_get_srm():
     srm = get_srm()
 

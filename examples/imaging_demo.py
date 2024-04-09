@@ -3,15 +3,14 @@ import astropy.units as u
 import matplotlib.pyplot as plt
 import numpy as np
 from astropy.coordinates import SkyCoord
-from sunpy.coordinates import Helioprojective
-from sunpy.map import make_fitswcs_header
+from astropy.time import Time
+from sunpy.map import make_fitswcs_header, Map
 
-import stixpy.frames
-from stixpy.frames import STIXImaging
+from stixpy.frames import get_hpc_info
 from stixpy.imaging.em import em
 from stixpy.calibration.visibility import calibrate_visibility, create_meta_pixels, create_visibility, get_visibility_info_giordano
 from stixpy.product import Product
-from stixpy.science import ScienceData
+
 from xrayvision.clean import vis_clean
 from xrayvision.imaging import vis_to_image, vis_to_map
 from xrayvision.mem import mem
@@ -20,21 +19,8 @@ from xrayvision.visibility import Visibility
 logger = logging.getLogger(__name__)
 logger.setLevel('DEBUG')
 
-#http://pub099.cs.technik.fhnw.ch/fits/L1/2020/06/07/SCI/solo_L1_stix-sci-xray-cpd_20200607T213709-20200607T215208_V01_1178428688-49155.fits
 
-# cpd = ScienceData.from_fits('/Users/sm/Downloads/solo_L1_stix-sci-xray-cpd_20200607T213709-20200607T215208_V01_1178428688-49155.fits')
-# time_range = ['2020-06-07T21:38:58', '2020-06-07T21:43:00']
-# energy_range = [6, 10]
-
-# cpd = ScienceData.from_fits('/Users/sm/sunpy/data/solo_L1_stix-sci-xray-cpd_20230516T170425-20230516T173914_V01_2305162947-52420.fits')
-# time_range = ['2023-05-16T17:20:30', '2023-05-16T17:21:50']
-# energy_range = [22, 76]
-
-# cpd = ScienceData.from_fits('/Users/sm/sunpy/data/solo_L1_stix-sci-xray-cpd_20220331T180714-20220331T191742_V01_2203315831-49317.fits')
-# time_range = ['2022-03-31T18:21:58', '2022-03-31T18:23:00']
-# energy_range = [6, 18]
-
-cpd = Product('http://pub099.cs.technik.fhnw.ch/fits/L1/2021/09/23/SCI/solo_L1_stix-sci-xray-cpd_20210923T152015-20210923T152639_V01_2109230030-62447.fits')
+cpd = Product('http://pub099.cs.technik.fhnw.ch/fits/L1/2021/09/23/SCI/solo_L1_stix-sci-xray-cpd_20210923T152015-20210923T152639_V02_2109230030-62447.fits')
 time_range = ['2021-09-23T15:21:00', '2021-09-23T15:24:00']
 energy_range = [28, 40]
 
@@ -157,3 +143,4 @@ solo_coord = SkyCoord(*pos, frame='heliocentricearthecliptic', representation_ty
 ref_coord = SkyCoord(ref[0], ref[1], obstime=Time(time_range[0]), observer=solo_coord, frame='helioprojective')
 header = make_fitswcs_header(fd_bp_nat.value, ref_coord, rotation_angle=-roll+90*u.deg, scale=[10,10]*u.arcsec/u.pix)
 stix_hpc_map = Map(fd_bp_nat.value, header)
+print(1)

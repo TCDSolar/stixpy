@@ -1,9 +1,8 @@
 from pathlib import Path
-from functools import partial
 from collections import OrderedDict
 
 import numpy as np
-from roentgen.absorption.material import Compound, MassAttenuationCoefficient, Material
+from roentgen.absorption.material import Material, Stack
 
 import astropy.units as u
 from astropy.table.table import Table
@@ -73,7 +72,7 @@ class Transmission:
         self.materials = MATERIALS
         self.components = COMPONENTS
         self.components = dict()
-        self.energies = ENERGY_CHANNELS['Elower'][1:-1]
+        self.energies = ENERGY_CHANNELS[1:32]['Elower']
 
         for name, layers in COMPONENTS.items():
             parts = []
@@ -81,9 +80,10 @@ class Transmission:
                 if material == 'solarblack':
                     material = self.solarblack
                 mass_frac, den = MATERIALS[material]
-                parts.append(self.create_material(name=material, fractional_masses=mass_frac,
-                                                  thickness=thickness, density=den))
-            self.components[name] = Compound(parts)
+                mat = Material(mass_frac, thickness=thickness, density=den)
+                mat.name = name
+                parts.append(mat)
+            self.components[name] = Stack(parts)
 
     def get_transmission(self, energies=None, attenuator=False):
         """
@@ -113,10 +113,10 @@ class Transmission:
         if attenuator:
             base_comps.append(self.components['attenuator'])
 
-        base = Compound(base_comps)
+        base = Stack(base_comps)
         base_trans = base.transmission(energies)
 
-        fine = Compound(base_comps + [self.components['grid_covers']])
+        fine = Stack(base_comps + [self.components['grid_covers']])
         fine_trans = fine.transmission(energies)
 
         # TODO need to move to configuration db
@@ -167,48 +167,11 @@ class Transmission:
         res = {}
         for name, thickness in material_thickness.items():
             frac_mass, density = self.materials[name]
-            mat = self.create_material(name=name, fractional_masses=frac_mass,
-                                       density=density, thickness=thickness)
+            mat = Material(frac_mass, density=density, thickness=thickness)
+            mat.name = name
             res[name] = mat
 
         return res
-
-    @classmethod
-    def create_material(cls, name=None, fractional_masses=None, thickness=None, density=None):
-        """
-        Create a new material given the composition and fractional masses.
-
-        Parameters
-        ----------
-        name : `str`
-            Name of the meterial
-        fractional_masses : `dict`
-            The element and fractional masses of the material e.g. `{'H': 0.031, 'O': 0.969}`
-        thickness : `astropy.units.Quantity`
-            Thickness of the material
-        density : `astropy.units.Quantity`
-            Density of the material
-
-        Returns
-        -------
-        `roentgen.absorption.material.Material`
-            The material
-        """
-        material = Material('h', thickness, density)
-        material.name = name
-        # probably don't need this
-        material.density = density
-
-        # TODO remove in favour of upstream fix when completed
-        #  see https://github.com/ehsteve/roentgen/issues/26
-        def func(composition, e):
-            return sum([MassAttenuationCoefficient(element).func(e) * frac_mass
-                        for element, frac_mass in composition.items()])
-
-        material_func = partial(func, fractional_masses)
-
-        material.mass_attenuation_coefficient.func = material_func
-        return material
 
 
 def generate_transmission_tables():

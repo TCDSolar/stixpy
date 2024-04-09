@@ -23,7 +23,6 @@ from sunpy.util.metadata import MetaDict
 
 from stixpy.product.product import GenericProduct
 from stixpy.utils.logging import get_logger
-from stixpy.product.sources import *
 
 
 __all__ = ['Product', 'ProductFactory']

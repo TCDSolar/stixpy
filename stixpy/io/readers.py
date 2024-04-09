@@ -100,7 +100,7 @@ def read_elut(elut_file):
     elut.gain = elut_table['Gain keV/ADC'].reshape(32, 12)
     elut.pixel = elut_table['Pixel'].reshape(32, 12)
     elut.detector = elut_table['Detector'].reshape(32, 12)
-    adc = np.vstack(elut_table.columns[4:].values()).reshape(31, 32, 12)
+    adc = np.vstack(list(elut_table.columns[4:].values())).reshape(31, 32, 12)
     adc = np.moveaxis(adc, 0, 2)
     elut.adc = adc
     elut.e_actual = (elut.adc - elut.offset[..., None]) * elut.gain[..., None]

@@ -6,26 +6,25 @@ import astropy.coordinates as coord
 import astropy.units as u
 import numpy as np
 
+import astropy.wcs.utils
 from astropy.coordinates import frame_transform_graph
-from astropy.coordinates.baseframe import BaseCoordinateFrame
-from astropy.coordinates.errors import ConvertError
 from astropy.coordinates.matrix_utilities import rotation_matrix, matrix_product, matrix_transpose
-from astropy.coordinates.representation import UnitSphericalRepresentation, SphericalRepresentation
 from astropy.io import fits
 from astropy.table import QTable
 from astropy.time import Time
+
 from sunpy.coordinates.frames import HeliographicStonyhurst, Helioprojective, \
     SunPyBaseCoordinateFrame
-from sunpy.coordinates.transformations import _check_observer_defined
+
 from sunpy.net import Fido, attrs as a
-from sunpy.util.exceptions import warn_user
+
 
 from stixpy.utils.logging import get_logger
 from stixpy.net.client import STIXClient  # noqa
 
 logger = get_logger(__name__, 'DEBUG')
 
-__all__ = ['STIXImagingFrame', '_get_rotation_matrix_and_position', 'hpc_to_stixim', 'stixim_to_hpc']
+__all__ = ['STIXImaging', '_get_rotation_matrix_and_position', 'hpc_to_stixim', 'stixim_to_hpc']
 
 STIX_X_SHIFT = 26.1 * u.arcsec  # fall back to this when non sas solution available
 STIX_Y_SHIFT = 58.2 * u.arcsec  # fall back to this when non sas solution available
@@ -33,7 +32,7 @@ STIX_X_OFFSET = 60.0 * u.arcsec  # remaining offset after SAS solution
 STIX_Y_OFFSET = 8.0 * u.arcsec  # remaining offset after SAS solution
 
 
-class STIXImagingFrame(SunPyBaseCoordinateFrame):
+class STIXImaging(SunPyBaseCoordinateFrame):
     r"""
     STIX Imaging Frame
 
@@ -152,22 +151,46 @@ def _get_rotation_matrix_and_position(obstime):
     Returns
     -------
     """
+    roll, solo_position_heeq, spacecraft_pointing = get_hpc_info(obstime)
+
+    # Generate the rotation matrix using the x-convention (see Goldstein)
+    # Rotate +90 clockwise around the first axis
+    # STIX is mounted on the -Y panel (SOLO_SRF) need to rotate to from STIX frame to SOLO_SRF
+    rot_to_solo = np.array([[1, 0, 0],
+                            [0, 0, -1],
+                            [0, 1, 0]])
+
+    logger.debug('Pointing: %s.', spacecraft_pointing)
+    A = rotation_matrix(-1 * roll, 'x')
+    B = rotation_matrix(spacecraft_pointing[1], "y")
+    C = rotation_matrix(-1 * spacecraft_pointing[0], "z")
+
+    # Will be applied right to left
+    rmatrix = matrix_product(A, B, C, rot_to_solo)
+
+    return rmatrix, solo_position_heeq
+
+
+def get_hpc_info(obstime):
     roll, pitch, yaw, sas_x, sas_y, solo_position_heeq = _get_aux_data(obstime)
     if np.isnan(sas_x) or np.isnan(sas_y):
         warnings.warn('SAS solution not available using spacecraft pointing and average SAS offset')
         sas_x = yaw
         sas_y = pitch
-
-    # Generate the rotation matrix using the x-convention (see Goldstein)
-    axes_matrix = np.array([[1, 0, 0],
-                            [0, 0, 1],
-                            [0, 1, 0]])
-    C = rotation_matrix(sas_x + STIX_X_OFFSET, "z")
-    B = rotation_matrix(-1*sas_y + STIX_Y_OFFSET, "y")
-    A = rotation_matrix(-1*roll, 'x')
-    rmatrix = matrix_product(A, B, C, axes_matrix)
-
-    return rmatrix, solo_position_heeq
+    # Convert the spacecraft pointing to STIX frame
+    rotated_yaw = -yaw * np.cos(roll) + pitch * np.sin(roll)
+    rotated_pitch = yaw * np.sin(roll) + pitch * np.cos(roll)
+    spacecraft_pointing = np.hstack([STIX_X_SHIFT + rotated_yaw, STIX_Y_SHIFT + rotated_pitch])
+    sas_pointing = np.hstack([sas_x + STIX_X_OFFSET, -1 * sas_y + STIX_Y_OFFSET])
+    pointing_diff = np.linalg.norm(spacecraft_pointing - sas_pointing)
+    if pointing_diff < 200 * u.arcsec:
+        logger.debug(f'Using SAS pointing {sas_pointing}')
+        spacecraft_pointing = sas_pointing
+    else:
+        logger.debug(f'Using spacecraft pointing {spacecraft_pointing}')
+        warnings.warn(f'Using spacecraft pointing large difference between '
+                      f'SAS {sas_pointing} and spacecraft {spacecraft_pointing}.')
+    return roll, solo_position_heeq, spacecraft_pointing
 
 
 def _get_aux_data(obstime):
@@ -190,14 +213,19 @@ def _get_aux_data(obstime):
     rel_date = (obstime - start_time).to('s')
     idx = np.argmin(np.abs(rel_date - aux['time']))
     sas_x, sas_y = aux[idx][['y_srf', 'z_srf']]
-    roll, yaw, pitch = aux[idx]['roll_angle_rpy']
+    roll, pitch, yaw = aux[idx]['roll_angle_rpy']
     solo_position_heeq = aux[idx]['solo_loc_heeq_zxy']
-    logger.debug('SAS: %s, %s, Orientation: %s, %s, %s, Position: %s', sas_x, sas_y, roll, yaw,
-                 pitch, solo_position_heeq)
+    logger.debug('SAS: %s, %s, Orientation: %s, %s, %s, Position: %s', sas_x, sas_y, roll, yaw.to('arcsec'),
+                 pitch.to('arcsec'), solo_position_heeq)
+
+    # roll, pitch, yaw = np.mean(aux[1219:1222]['roll_angle_rpy'], axis=0)
+    # sas_x = np.mean(aux[1219:1222]['y_srf'])
+    # sas_y = np.mean(aux[1219:1222]['z_srf'])
+
     return roll, pitch, yaw, sas_x, sas_y, solo_position_heeq
 
 
-@frame_transform_graph.transform(coord.FunctionTransform, STIXImagingFrame, Helioprojective)
+@frame_transform_graph.transform(coord.FunctionTransform, STIXImaging, Helioprojective)
 def stixim_to_hpc(stxcoord, hpcframe):
     r"""
     Transform STIX Imaging coordinates to given HPC frame
@@ -217,12 +245,14 @@ def stixim_to_hpc(stxcoord, hpcframe):
     logger.debug('SOLO HPC: %s', solo_hpc)
 
     # Transform from SOLO HPC to input HPC
+    if hpcframe.observer is None:
+        hpcframe = type(hpcframe)(obstime=hpcframe.obstime, observer=solo_heeq)
     hpc = solo_hpc.transform_to(hpcframe)
     logger.debug('Target HPC: %s', hpc)
     return hpc
 
 
-@frame_transform_graph.transform(coord.FunctionTransform, Helioprojective, STIXImagingFrame)
+@frame_transform_graph.transform(coord.FunctionTransform, Helioprojective, STIXImaging)
 def hpc_to_stixim(hpccoord, stxframe):
     r"""
     Transform HPC coordinate to STIX Imaging frame.

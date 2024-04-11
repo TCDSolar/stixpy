@@ -1,7 +1,7 @@
 .. _ visualisation:
 
 Visualisation ('stixpy.visualisation')
-*********************************
+**************************************
 
 The ``visualisation`` submodule contain classes and function related to the visualisations.
 

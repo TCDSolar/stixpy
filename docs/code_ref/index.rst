@@ -13,4 +13,3 @@ Code Reference
    product
    visualisation
    frames
-   products

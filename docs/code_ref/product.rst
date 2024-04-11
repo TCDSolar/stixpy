@@ -40,6 +40,8 @@ product matches, `~stixpy.product.product.GenericProduct`.
 
 .. _product-classes:
 
+.. currentmodule:: stixpy.product
+
 stixpy.product Package
 ======================
 

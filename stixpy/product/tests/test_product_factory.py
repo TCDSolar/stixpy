@@ -3,7 +3,8 @@ from pathlib import Path
 import pytest
 
 from stixpy.data import test
-from stixpy.product.sources import QLLightCurve, Spectrogram
+from stixpy.product.sources.quicklook import QLLightCurve
+from stixpy.product.sources.science import  Spectrogram
 from stixpy.product.product_factory import Product
 
 from stixpy.science import *

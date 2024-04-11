@@ -3,8 +3,7 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
-from stixpy.data import test
-from stixpy.product.sources import CompressedPixelData, SummedCompressedPixelData, Spectrogram, RawPixelData
+from stixpy.product.sources.science import CompressedPixelData, SummedCompressedPixelData, Spectrogram, RawPixelData
 from stixpy.product import Product
 
 

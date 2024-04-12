@@ -58,3 +58,8 @@ The STIXpy documentation is broken down into four keys areas.
 
             code_ref/index
             whatsnew/index
+
+.. toctree::
+    :maxdepth: 1
+
+    generated/gallery/index

@@ -137,7 +137,7 @@ def em(countrates, vis, shape, pixel_size, maxiter=5000, tolerance=0.001, *, fla
     # Loop of the algorithm
     for i in range(maxiter):
         Hx = np.matmul(H, x)
-        # TODO support possibility to subtract background z y / Hx + b
+        # TODO support possibility to subtract background z = y / Hx + b
         z = y / Hx
         Hz = np.matmul(z, H)
 

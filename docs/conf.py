@@ -5,7 +5,6 @@
 # full list see the documentation:
 # http://www.sphinx-doc.org/en/master/config
 
-from pathlib import Path
 
 # -- Project information -----------------------------------------------------
 
@@ -13,9 +12,9 @@ project = "STIXpy"
 copyright = "2020, STIX Team"
 author = "STIX Team"
 
+from pathlib import Path
 # The full version, including alpha/beta/rc tags
 from stixpy import __version__
-
 release = __version__
 is_development = ".dev" in release
 
@@ -26,7 +25,6 @@ is_development = ".dev" in release
 # ones.
 extensions = [
     "matplotlib.sphinxext.plot_directive",
-    "sphinx_gallery.gen_gallery",
     "sphinx.ext.autodoc",
     "sphinx.ext.coverage",
     "sphinx.ext.doctest",
@@ -40,6 +38,7 @@ extensions = [
     "sphinx_automodapi.smart_resolver",
     "sphinx_changelog",
     "sphinx_design",
+    "sphinx_gallery.gen_gallery",
 ]
 
 # Add any paths that contain templates here, relative to this directory.

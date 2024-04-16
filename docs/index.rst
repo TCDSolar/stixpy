@@ -14,7 +14,7 @@ The documentation is broken down into four keys areas.
     .. grid-item-card::
         :class-card: card
 
-        **Tutorials** start here if you are new to STIX or ``stixpy`` as this material wil help you lean to analyse STIX data in STIXpy.
+        **Tutorials** start here if you are new to STIX or ``stixpy`` as this material will help you lean to analyse STIX data in STIXpy.
 
         .. toctree::
             :maxdepth: 1

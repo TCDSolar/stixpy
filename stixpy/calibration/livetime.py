@@ -16,7 +16,7 @@ fraction the ratio of the event rate to the photon rate is thus given by
 
     R_{photon} = \\frac{R_{trigger}}{1 -  R_{trigger}(\\tau+\\eta)}
 
-    \\text{livetime fraction} = \\frac{e^{-\\eta R_{photon}}}{ 1 + R_{photon}(\\tau+\\eta)}
+    \\text{lifetime fraction} = \\frac{e^{-\\eta R_{photon}}}{ 1 + R_{photon}(\\tau+\\eta)}
 
 where :math:`R_{trigger}` is the observed trigger rate and :math:`R_{photon}` is the derived
 incident photon rate.
@@ -29,7 +29,7 @@ The plot below shows the behaviour of the trigger rate taking these effects into
 
     from matplotlib import pyplot as plt
 
-    from stixcore.calibration.livetime import get_livetime_fraction
+    from stixcore.calibration.lifetime import get_livetime_fraction
 
     eta = 2.5e-6
     tau = 12.5e-6
@@ -58,16 +58,14 @@ References
 
 STIX-TN-0015-ETH_I1R0_Caliste_Rates
 """
-import numpy as np
 
 import astropy.units as u
+import numpy as np
 
-__all__ = ['get_livetime_fraction']
-
-from stixpy.io.readers import read_subc_params
+__all__ = ["get_livetime_fraction"]
 
 
-def get_livetime_fraction(trigger_rate, *, eta=2.63*u.us, tau=10.1*u.us):
+def get_livetime_fraction(trigger_rate, *, eta=2.63 * u.us, tau=10.1 * u.us):
     """
     Return the live time fraction for the given trigger rate.
 
@@ -89,7 +87,7 @@ def get_livetime_fraction(trigger_rate, *, eta=2.63*u.us, tau=10.1*u.us):
     # TODO implement full calculation code this values was taken from IDL
     beta = 0.94059104
 
-    photons_in = trigger_rate / (1. - trigger_rate * (tau + eta))
-    livetime_fraction = 1 / (1. + (tau + eta) * photons_in)
+    photons_in = trigger_rate / (1.0 - trigger_rate * (tau + eta))
+    livetime_fraction = 1 / (1.0 + (tau + eta) * photons_in)
     two_photon = np.exp(-eta * beta * photons_in) * livetime_fraction
     return livetime_fraction, two_photon, photons_in

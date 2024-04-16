@@ -143,7 +143,7 @@ Lets download a spectrogram (spec) and some compressed pixel data (cpd) that cov
    sci_files = Fido.fetch(sci_query[0][[4,-1]])
    sci_files = sorted(sci_files)
 
-Now lets create a spectrogram, similar ot Sunpy Map and TimeSeries stixpy Procduct can take a number of input types and
+Now lets create a spectrogram, similar to Sunpy Map and TimeSeries stixpy Procduct can take a number of input types and
 will return the correct product type. In this case we are providing the path to to spectrogram fits file.
 
 .. plot::

@@ -19,10 +19,11 @@ Examples
    2020-11-25T12:21:27Z DEBUG: you will see me - stixcore.mymodule
 
 """
+
 import logging
 
-STX_LOGGER_FORMAT = '%(asctime)s %(levelname)s %(name)s %(lineno)s: %(message)s'
-STX_LOGGER_DATE_FORMAT = '%Y-%m-%dT%H:%M:%SZ'
+STX_LOGGER_FORMAT = "%(asctime)s %(levelname)s %(name)s %(lineno)s: %(message)s"
+STX_LOGGER_DATE_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 
 
 def get_logger(name, level=logging.INFO):

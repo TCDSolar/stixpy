@@ -25,10 +25,16 @@ References
 ----------
 STIX-TN-0117-FHNW
 """
+
 import numpy as np
 
-__all__ = ['compress', 'decompress', 'CompressionRangeError', 'CompressionSchemeParameterError',
-           'NonIntegerCompressionError']
+__all__ = [
+    "compress",
+    "decompress",
+    "CompressionRangeError",
+    "CompressionSchemeParameterError",
+    "NonIntegerCompressionError",
+]
 
 
 def compress(values, *, s, k, m):
@@ -62,27 +68,28 @@ def compress(values, *, s, k, m):
     """
     values = np.atleast_1d(np.array(values))
     if not np.issubdtype(values.dtype, np.integer):
-        raise NonIntegerCompressionError(f'Input must be an integer type not {values.dtype}')
+        raise NonIntegerCompressionError(f"Input must be an integer type not {values.dtype}")
 
     total = s + k + m
     if total > 8:
-        raise CompressionSchemeParameterError(f'Invalid s={s}, k={k}, m={m} '
-                                              f'must sum to less than 8 not {total}')
+        raise CompressionSchemeParameterError(f"Invalid s={s}, k={k}, m={m} " f"must sum to less than 8 not {total}")
 
-    max_value = 2**(2**k-2)*(2**(m + 1)) - 1
+    max_value = 2 ** (2**k - 2) * (2 ** (m + 1)) - 1
     abs_range = [0, max_value] if s == 0 else [-1 * max_value, 1 * max_value]
 
     if values.min() < abs_range[0] or values.max() > abs_range[1]:
-        raise CompressionRangeError(f'Valid input range exceeded for s={s}, k={k}, m={m} '
-                                    f'input (min/max) {values.min()}/{values.max()} '
-                                    f'exceeds {abs_range}')
+        raise CompressionRangeError(
+            f"Valid input range exceeded for s={s}, k={k}, m={m} "
+            f"input (min/max) {values.min()}/{values.max()} "
+            f"exceeds {abs_range}"
+        )
 
     negative_indices = np.nonzero(values < 0)
     out = np.abs(values).astype(np.uint64)
     compress_indices = np.nonzero(out >= 2 ** (m + 1))
 
     if values[compress_indices].size != 0:
-        kv = np.floor((np.log(np.abs(values[compress_indices])) / np.log(2.0) - m)).astype(np.int64)
+        kv = np.floor(np.log(np.abs(values[compress_indices])) / np.log(2.0) - m).astype(np.int64)
         mv = (np.abs(values[compress_indices], dtype=np.int64) // 2**kv) & (2**m - 1)
         out[compress_indices] = kv + 1 << m | mv
 
@@ -123,28 +130,27 @@ def decompress(values, *, s, k, m, return_variance=False):
     """
     values = np.atleast_1d(np.array(values))
     if not np.issubdtype(values.dtype, np.integer):
-        raise NonIntegerCompressionError(f'Input must be an integer type not {values.dtype}')
+        raise NonIntegerCompressionError(f"Input must be an integer type not {values.dtype}")
 
     values = values.astype(np.uint64)
 
     total = s + k + m
     if total > 8:
-        raise CompressionSchemeParameterError(f'Invalid s={s}, k={k}, m={m} '
-                                              f'must sum to less than 8 not {total}')
+        raise CompressionSchemeParameterError(f"Invalid s={s}, k={k}, m={m} " f"must sum to less than 8 not {total}")
 
     if values.min() < 0 or values.max() > 255:
-        raise CompressionRangeError(f'Compressed values must be in the range 0 to 255')
+        raise CompressionRangeError("Compressed values must be in the range 0 to 255")
 
-    max_value = 2**(2**k-2)*(2**(m + 1)) - 1
+    max_value = 2 ** (2**k - 2) * (2 ** (m + 1)) - 1
     uint64_info = np.iinfo(np.uint64)
 
     if max_value > uint64_info.max:
-        raise CompressionRangeError('Decompressed value too large to fit into uint64')
+        raise CompressionRangeError("Decompressed value too large to fit into uint64")
 
     abs_values = values if s == 0 else values & 127
     out = abs_values[:].astype(np.uint64)
     negative_indices = np.nonzero(values >= 128) if s != 0 else ([])
-    decompress_indices = np.nonzero(abs_values >= 2**(m+1))
+    decompress_indices = np.nonzero(abs_values >= 2 ** (m + 1))
 
     if return_variance:
         variance = np.zeros_like(values, dtype=np.float64)
@@ -154,7 +160,7 @@ def decompress(values, *, s, k, m, return_variance=False):
         mv = 2**m + (abs_values[decompress_indices] & 2**m - 1)
         out[decompress_indices] = (mv << kv) + (1 << (kv - 1)) - 1
         if return_variance:
-            variance[decompress_indices] = ((1 << kv)**2 + 2)/12
+            variance[decompress_indices] = ((1 << kv) ** 2 + 2) / 12
 
     if abs_values[negative_indices].size >= 1:
         out = out.astype(np.int64)

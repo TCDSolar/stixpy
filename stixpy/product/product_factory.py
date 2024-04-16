@@ -1,14 +1,11 @@
 import pathlib
 from urllib.request import Request
 
-import numpy as np
-
 import astropy.io.fits
+import numpy as np
 from astropy.io import fits
 from astropy.table import QTable
-
 from sunpy.data import cache
-
 from sunpy.util import expand_list
 from sunpy.util.datatype_factory_base import (
     BasicRegistrationFactory,
@@ -19,20 +16,13 @@ from sunpy.util.datatype_factory_base import (
 from sunpy.util.exceptions import NoMapsInFileError, warn_user
 from sunpy.util.functools import seconddispatch
 from sunpy.util.io import is_url, parse_path, possibly_a_path
-from sunpy.util.metadata import MetaDict
 
 from stixpy.product.product import GenericProduct
 from stixpy.utils.logging import get_logger
 
+__all__ = ["Product", "ProductFactory"]
 
-__all__ = ['Product', 'ProductFactory']
-
-BITS_TO_UINT = {
-    8: np.ubyte,
-    16: np.uint16,
-    32: np.uint32,
-    64: np.uint64
-}
+BITS_TO_UINT = {8: np.ubyte, 16: np.uint16, 32: np.uint32, 64: np.uint64}
 
 
 logger = get_logger(__name__)
@@ -65,16 +55,16 @@ def read_qtable(file, hdu, hdul=None):
 
     for col in hdul[hdu].data.columns:
         if col.unit:
-            logger.debug(f'Unit present dtype correction needed for {col}')
+            logger.debug(f"Unit present dtype correction needed for {col}")
             dtype = col.dtype
 
             if col.bzero:
-                logger.debug(f'Unit present dtype and bzero correction needed for {col}')
+                logger.debug(f"Unit present dtype and bzero correction needed for {col}")
                 bits = np.log2(col.bzero)
                 if bits.is_integer():
-                    dtype = BITS_TO_UINT[int(bits+1)]
+                    dtype = BITS_TO_UINT[int(bits + 1)]
 
-            if hasattr(dtype, 'subdtype'):
+            if hasattr(dtype, "subdtype"):
                 dtype = dtype.base
 
             qtable[col.name] = qtable[col.name].astype(dtype)
@@ -112,25 +102,25 @@ class ProductFactory(BasicRegistrationFactory):
         # File gets read here.
         # NOTE: use os.fspath so that fname can be either a str or pathlib.Path
         # This can be removed once read_file supports pathlib.Path
-        logger.debug(f'Reading {fname}')
+        logger.debug(f"Reading {fname}")
         name = str(fname)
-        if not name.endswith('.fits'):
-            raise ValueError(f'File {fname} is not a fits file, only fits are supported')
+        if not name.endswith(".fits"):
+            raise ValueError(f"File {fname} is not a fits file, only fits are supported")
         try:
             hdul = fits.open(fname, **kwargs)
         except Exception as e:
             msg = f"Failed to read {fname}."
-            raise IOError(msg) from e
+            raise OSError(msg) from e
 
-        if hdul[0].header.get('INSTRUME', '') != 'STIX':
+        if hdul[0].header.get("INSTRUME", "") != "STIX":
             raise FileError(f"File '{fname}' is not a STIX fits file.")
 
-        data = {'meta': hdul[0].header}
-        for name in ['CONTROL', 'DATA', 'IDB_VERSIONS', 'ENERGIES']:
+        data = {"meta": hdul[0].header}
+        for name in ["CONTROL", "DATA", "IDB_VERSIONS", "ENERGIES"]:
             try:
                 data[name.lower()] = read_qtable(fname, hdu=name)
             except KeyError as e:
-                if name in ('IDB_VERSIONS', 'ENERGIES'):
+                if name in ("IDB_VERSIONS", "ENERGIES"):
                     logger.debug(f"Extension '{name}' not in file '{fname}'")
                 else:
                     raise e
@@ -231,7 +221,7 @@ class ProductFactory(BasicRegistrationFactory):
         return parse_path(arg, self._read_file, **kwargs)
 
     def __call__(self, *args, composite=False, sequence=False, silence_errors=False, **kwargs):
-        """ Method for running the factory. Takes arbitrary arguments and
+        """Method for running the factory. Takes arbitrary arguments and
         keyword arguments and passes them to a sequence of pre-registered types
         to determine which is the correct Map-type to build.
         Arguments args and kwargs are passed through to the validation
@@ -266,14 +256,13 @@ class ProductFactory(BasicRegistrationFactory):
             try:
                 new_product = self._check_registered_widgets(**meta_control_data, **kwargs)
                 new_products.append(new_product)
-            except (NoMatchError, MultipleMatchError,
-                    ValidationFunctionError) as e:
+            except (NoMatchError, MultipleMatchError, ValidationFunctionError) as e:
                 if not silence_errors:
                     raise
                 warn_user(f"One of the inputs failed to validate with: {e}")
 
         if not len(new_products):
-            raise RuntimeError('No maps loaded')
+            raise RuntimeError("No maps loaded")
 
         if len(new_products) == 1:
             return new_products[0]
@@ -281,11 +270,9 @@ class ProductFactory(BasicRegistrationFactory):
         return new_products
 
     def _check_registered_widgets(self, *, meta, control, data, **kwargs):
-
         candidate_widget_types = list()
 
         for key in self.registry:
-
             # Call the registered validation function for each registered class
             if self.registry[key](meta=meta, **kwargs):
                 candidate_widget_types.append(key)
@@ -298,10 +285,12 @@ class ProductFactory(BasicRegistrationFactory):
             else:
                 candidate_widget_types = [self.default_widget_type]
         elif n_matches > 1:
-            raise MultipleMatchError("Too many candidate types identified "
-                                     f"({candidate_widget_types}). "
-                                     "Specify enough keywords to guarantee unique type "
-                                     "identification.")
+            raise MultipleMatchError(
+                "Too many candidate types identified "
+                f"({candidate_widget_types}). "
+                "Specify enough keywords to guarantee unique type "
+                "identification."
+            )
 
         # Only one is found
         WidgetType = candidate_widget_types[0]
@@ -315,14 +304,15 @@ class InvalidMapInput(ValueError):
 
 
 class InvalidMapType(ValueError):
-    """Exception to raise when an invalid type of map is requested with Map
-    """
+    """Exception to raise when an invalid type of map is requested with Map"""
 
 
 class FileError(ValueError):
-    """Exception to raise when input is not valid STIX file
-    """
+    """Exception to raise when input is not valid STIX file"""
 
 
-Product = ProductFactory(registry=GenericProduct._registry, default_widget_type=GenericProduct,
-                 additional_validation_functions=['is_datasource_for'])
+Product = ProductFactory(
+    registry=GenericProduct._registry,
+    default_widget_type=GenericProduct,
+    additional_validation_functions=["is_datasource_for"],
+)

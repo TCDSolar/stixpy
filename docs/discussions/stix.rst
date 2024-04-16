@@ -13,7 +13,7 @@ Additionally STIX contains and aspect system that can determine the location of 
 At a high level the most granular X-ray data record is pixel data (PD), that is for each pixel of
 each detector the X-ray counts for each time and energy bin are recorded. While the detectors
 count individual photons (time and energy) these are summed into 32 pre-selected energy bins (4-150)
-and rate dependant time intervals (0.5 - 20 s)
+and rate dependent time intervals (0.5 - 20 s)
 
 .. note::
     As SolarOrbiter is a deep space mission many of the design choices of the instrument have been

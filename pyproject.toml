@@ -1,8 +1,10 @@
 [build-system]
 
-requires = ["setuptools",
-            "setuptools_scm",
-            "wheel"]
+requires = [
+    "setuptools>=56,!=61.0.0",
+    "setuptools_scm[toml]>=6.2",
+    "wheel"
+]
 
 build-backend = 'setuptools.build_meta'
 
@@ -28,7 +30,7 @@ build-backend = 'setuptools.build_meta'
     package = "stixpy"
     filename = "CHANGELOG.rst"
     directory = "changelog/"
-    issue_format = "`#{issue} <https://github.com/samaloney/STIXpy/pull/{issue}>`__"
+    issue_format = "`#{issue} <https://github.com/TCDSolar/stixpy/pull/{issue}>`__"
 
     [[tool.towncrier.type]]
         directory = "breaking"

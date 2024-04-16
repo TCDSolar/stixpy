@@ -17,5 +17,5 @@ def test_get_livetime():
     livetime_fraction1, livetime_fraction2, ph_out = get_livetime_fraction(trig1, eta=eta, tau=tau)
 
     assert np.allclose(ph_in, ph_out)
-    assert np.allclose(ph_in, trig1/livetime_fraction1)
-    assert np.allclose(ph_in, trig2/livetime_fraction2)
+    assert np.allclose(ph_in, trig1 / livetime_fraction1)
+    assert np.allclose(ph_in, trig2 / livetime_fraction2)

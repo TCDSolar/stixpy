@@ -75,23 +75,22 @@ A HMI map
 
 import astropy.units as u
 import matplotlib.pyplot as plt
-
 import sunpy
 from astropy.coordinates import SkyCoord
 from astropy.wcs import WCS
 from reproject import reproject_interp
+
 try:
     from stixcore.ephemeris.manager import Spice
 except (ImportError, ModuleNotFoundError):
     Spice = None
-from sunpy.coordinates import frames
-from sunpy.coordinates import get_body_heliographic_stonyhurst
+from sunpy.coordinates import frames, get_body_heliographic_stonyhurst, get_horizons_coord
 
 from stixpy.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
-__all__ = ['get_solo_position', 'reproject_map', 'create_headers', 'plot_map_reproj']
+__all__ = ["get_solo_position", "reproject_map", "create_headers", "plot_map_reproj"]
 
 
 def get_solo_position(map):
@@ -109,16 +108,19 @@ def get_solo_position(map):
         The position of SOLO in HeliographicStonyhurst frame
     """
     if Spice is not None:
-        logger.info('Using Spice')
-        p = Spice.instance.get_position(date=map.date.datetime, frame='SOLO_HEE')
-        solo_hee = SkyCoord(*p, frame=frames.HeliocentricEarthEcliptic, representation_type='cartesian',
-                            obstime=map.date.datetime)
+        logger.info("Using Spice")
+        p = Spice.instance.get_position(date=map.date.datetime, frame="SOLO_HEE")
+        solo_hee = SkyCoord(
+            *p, frame=frames.HeliocentricEarthEcliptic, representation_type="cartesian", obstime=map.date.datetime
+        )
         # Converting HeliocentricEarthEcliptic coords of SOLAR ORBITER position to
         # HeliographicStonyhurst frame
         solo_hgs = solo_hee.transform_to(frames.HeliographicStonyhurst)
     else:
-        logger.info('Spice not configured falling back to JPL ')
-        solo_hgs = get_horizons_coord('solo', time=map.date)
+        logger.info("Spice not configured falling back to JPL ")
+        solo_hgs = get_horizons_coord("solo", time=map.date)
+
+    return solo_hgs
 
 
 def create_headers(obs_ref_coord, map, out_shape=None, out_scale=None):
@@ -150,13 +152,10 @@ def create_headers(obs_ref_coord, map, out_shape=None, out_scale=None):
     if out_shape is None:
         out_shape = map.data.shape
 
-    if map.wavelength.unit.to_string() == '':
+    if map.wavelength.unit.to_string() == "":
         obs_metadict_header = sunpy.map.make_fitswcs_header(
-            out_shape,
-            obs_ref_coord,
-            scale=out_scale,
-            rotation_matrix=map.rotation_matrix,
-            instrument=map.detector)
+            out_shape, obs_ref_coord, scale=out_scale, rotation_matrix=map.rotation_matrix, instrument=map.detector
+        )
     else:
         obs_metadict_header = sunpy.map.make_fitswcs_header(
             out_shape,
@@ -164,7 +163,8 @@ def create_headers(obs_ref_coord, map, out_shape=None, out_scale=None):
             scale=out_scale,
             rotation_matrix=map.rotation_matrix,
             instrument=map.detector,
-            wavelength=map.wavelength)
+            wavelength=map.wavelength,
+        )
     obs_wcs_header = WCS(obs_metadict_header)
     return obs_wcs_header, obs_metadict_header
 
@@ -190,9 +190,13 @@ def reproject_map(map, observer, out_shape=None):
     if out_shape is None:
         out_shape = map.data.shape
 
-    obs_ref_coord = SkyCoord(map.reference_coordinate.Tx, map.reference_coordinate.Ty,
-                             obstime=map.reference_coordinate.obstime,
-                             observer=observer, frame="helioprojective")
+    obs_ref_coord = SkyCoord(
+        map.reference_coordinate.Tx,
+        map.reference_coordinate.Ty,
+        obstime=map.reference_coordinate.obstime,
+        observer=observer,
+        frame="helioprojective",
+    )
     obs_wcs_header, obs_metadict_header = create_headers(obs_ref_coord, map, out_shape=out_shape)
     output, footprint = reproject_interp(map, obs_wcs_header, out_shape)
     outmap = sunpy.map.Map(output, obs_metadict_header)
@@ -218,11 +222,11 @@ def plot_map_reproj(map, reprojected_map):
     """
     fig = plt.figure(figsize=(16, 4))
     ax1 = fig.add_subplot(1, 3, 1, projection=map)
-    map.plot(axes=ax1, title=f'Input {map.detector} map {map.date}')
-    reprojected_map.draw_grid(annotate=False, color='w')
+    map.plot(axes=ax1, title=f"Input {map.detector} map {map.date}")
+    reprojected_map.draw_grid(annotate=False, color="w")
     ax2 = fig.add_subplot(1, 3, 2, projection=reprojected_map)
-    reprojected_map.plot(axes=ax2, title=f'Map as seen by observer {map.date}')
-    reprojected_map.draw_grid(annotate=False, color='k')
+    reprojected_map.plot(axes=ax2, title=f"Map as seen by observer {map.date}")
+    reprojected_map.draw_grid(annotate=False, color="k")
     ax2.axes.get_yaxis().set_visible(False)
 
     new_observer = reprojected_map.observer_coordinate
@@ -232,18 +236,11 @@ def plot_map_reproj(map, reprojected_map):
 
     # Plotting polar positions
     ax3 = fig.add_subplot(1, 3, 3, projection="polar")
-    ax3.plot(new_observer.lon.to(u.rad),
-             new_observer.radius.to(u.AU),
-             'o', ms=10,
-             label="New Map Observer")
-    ax3.plot(original_observer.lon.to(u.rad),
-             original_observer.radius.to(u.AU),
-             'o', ms=10,
-             label="Original Map Observer")
-    ax3.plot(sun_coords.lon.to(u.rad),
-             sun_coords.radius.to(u.AU),
-             'o', ms=10,
-             label="Sun")
+    ax3.plot(new_observer.lon.to(u.rad), new_observer.radius.to(u.AU), "o", ms=10, label="New Map Observer")
+    ax3.plot(
+        original_observer.lon.to(u.rad), original_observer.radius.to(u.AU), "o", ms=10, label="Original Map Observer"
+    )
+    ax3.plot(sun_coords.lon.to(u.rad), sun_coords.radius.to(u.AU), "o", ms=10, label="Sun")
     fig.legend()
     plt.show()
     return fig

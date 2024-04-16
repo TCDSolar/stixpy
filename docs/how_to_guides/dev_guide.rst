@@ -11,7 +11,7 @@ The instructions in this following section are based upon resources:
 Fork and Clone Repository
 -------------------------
 Working of your own forked version of the repository is the preferred approach. To fork the
-repository visit the repository page at https://github.com/samaloney/stixpy (make sure you are logged
+repository visit the repository page at https://github.com/TCDSolar/stixpy (make sure you are logged
 into github) and click on the fork button at the to right of the page.
 
 Clone your forked version of the
@@ -24,7 +24,7 @@ It is also advisable to configure the upstream remote at this point
 
 .. code:: bash
 
-    git remote add upstream https://github.com/samaloney/stixpy
+    git remote add upstream https://github.com/TCDSolar/stixpy
 
 
 Isolated Environment

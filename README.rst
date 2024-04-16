@@ -1,5 +1,5 @@
-Analysis software for Solar Orbiter Spectrometer Telescope for Imaging X-rays
------------------------------------------------------------------------------
+STIX Analysis Software
+----------------------
 
 .. image:: http://img.shields.io/badge/powered%20by-SunPy-orange.svg?style=flat
     :target: http://www.sunpy.org
@@ -9,9 +9,11 @@ Analysis software for Solar Orbiter Spectrometer Telescope for Imaging X-rays
     :target: https://stixpy.readthedocs.io/en/latest/?badge=latest
     :alt: Documentation Status
 
-.. image:: https://dev.azure.com/SMALONEY/stixpy/_apis/build/status/samaloney.stixpy?repoName=samaloney%2Fstixpy&branchName=master
-    :target: https://dev.azure.com/SMALONEY/stixpy/_build
+.. image:: https://github.com/samaloney/stixpy/actions/workflows/ci.yml/badge.svg
+    :target: https://github.com/samaloney/stixpy/actions/workflows/ci.yaml
     :alt: Build Status
+
+Spectrometer Telescope for Imaging X-rays (STIX) onboard Solar Orbiter (SO) python analysis software
 
 Installation
 ------------

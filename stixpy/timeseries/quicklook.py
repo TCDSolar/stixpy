@@ -3,16 +3,14 @@ from collections import OrderedDict
 import astropy.units as u
 import matplotlib.dates
 import numpy as np
-
-from astropy.table import Table, QTable
 from astropy.io import fits
+from astropy.table import QTable, Table
 from astropy.time.core import Time, TimeDelta
 from astropy.visualization import quantity_support
-
-from sunpy.visualization import peek_show
 from sunpy.timeseries.timeseriesbase import GenericTimeSeries
+from sunpy.visualization import peek_show
 
-__all__ = ['QLLightCurve', 'QLBackground', 'QLVariance', 'HKMaxi']
+__all__ = ["QLLightCurve", "QLBackground", "QLVariance", "HKMaxi"]
 
 
 eta = 2.5 * u.us
@@ -48,7 +46,8 @@ class QLLightCurve(GenericTimeSeries):
                86396.01 seconds
     <BLANKLINE>
     """
-    _source = 'stix'
+
+    _source = "stix"
 
     @peek_show
     def peek(self, **kwargs):
@@ -62,7 +61,7 @@ class QLLightCurve(GenericTimeSeries):
         **kwargs : `dict`
             Any additional plot arguments that should be used when plotting.
         """
-        import matplotlib.pyplot as plt
+
         # Check we have a timeseries valid for plotting
         self._validate_data_for_plotting()
         self.plot(**kwargs)
@@ -86,6 +85,7 @@ class QLLightCurve(GenericTimeSeries):
             The plot axes.
         """
         import matplotlib.pyplot as plt
+
         # Get current axes
         if axes is None:
             fig, axes = plt.subplots()
@@ -97,27 +97,29 @@ class QLLightCurve(GenericTimeSeries):
 
         dates = matplotlib.dates.date2num(self.to_dataframe().index)
 
-        labels = [f'{col}' for col in self.columns[5:]]
+        labels = [f"{col}" for col in self.columns[5:]]
 
-        lines = [axes.plot_date(dates, self.to_dataframe().iloc[:, 5+i], '-', label=labels[i], **plot_args)
-         for i in range(5)]
+        lines = [
+            axes.plot_date(dates, self.to_dataframe().iloc[:, 5 + i], "-", label=labels[i], **plot_args)
+            for i in range(5)
+        ]
 
-        axes.legend(loc='upper right')
+        axes.legend(loc="upper right")
 
         axes.set_yscale("log")
 
-        axes.set_title('STIX Quick Look')
-        axes.set_ylabel('count s$^{-1}$ keV$^{-1}$')
+        axes.set_title("STIX Quick Look")
+        axes.set_ylabel("count s$^{-1}$ keV$^{-1}$")
 
-        axes.yaxis.grid(True, 'major')
-        axes.xaxis.grid(False, 'major')
+        axes.yaxis.grid(True, "major")
+        axes.xaxis.grid(False, "major")
         axes.legend()
 
         # TODO: display better tick labels for date range (e.g. 06/01 - 06/05)
-        formatter = matplotlib.dates.DateFormatter('%d %H:%M')
+        formatter = matplotlib.dates.DateFormatter("%d %H:%M")
         axes.xaxis.set_major_formatter(formatter)
 
-        axes.fmt_xdata = matplotlib.dates.DateFormatter('%d %H:%M')
+        axes.fmt_xdata = matplotlib.dates.DateFormatter("%d %H:%M")
         fig.autofmt_xdate()
 
         return lines
@@ -146,41 +148,42 @@ class QLLightCurve(GenericTimeSeries):
         """
         header = hdulist[0].header
         control = QTable(hdulist[1].data)
-        header['control'] = control
+        header["control"] = control
         data = QTable(hdulist[2].data)
         energies = QTable(hdulist[4].data)
-        energy_delta = energies['e_high'] - energies['e_low'] << u.keV
+        energy_delta = energies["e_high"] - energies["e_low"] << u.keV
 
-        live_time = _lfrac(data['triggers'].reshape(-1)/(16*data['timedel']*u.s))
+        live_time = _lfrac(data["triggers"].reshape(-1) / (16 * data["timedel"] * u.s))
 
-        data['counts'] = data['counts'] / (live_time.reshape(-1, 1) * energy_delta)
+        data["counts"] = data["counts"] / (live_time.reshape(-1, 1) * energy_delta)
 
-        names = ['{:d}-{:d} keV'.format(energies["e_low"][i].astype(int),energies["e_high"][i].astype(int)) for i in range(5)]
+        names = [
+            "{:d}-{:d} keV".format(energies["e_low"][i].astype(int), energies["e_high"][i].astype(int))
+            for i in range(5)
+        ]
 
-        [data.add_column(data['counts'][:, i], name=names[i]) for i in range(5)]
-        data.remove_column('counts')
-        [data.add_column(data['counts_comp_err'][:, i], name=f'{names[i]}_comp_err') for i in range(5)]
-        data.remove_column('counts_comp_err')
+        [data.add_column(data["counts"][:, i], name=names[i]) for i in range(5)]
+        data.remove_column("counts")
+        [data.add_column(data["counts_comp_err"][:, i], name=f"{names[i]}_comp_err") for i in range(5)]
+        data.remove_column("counts_comp_err")
 
         try:
-            data['time'] = Time(header['date_obs']) + data['time'] * u.cs
+            data["time"] = Time(header["date_obs"]) + data["time"] * u.cs
         except KeyError:
-            data['time'] = Time(header['date-obs']) + TimeDelta(data['time'] * u.cs)
+            data["time"] = Time(header["date-obs"]) + TimeDelta(data["time"] * u.cs)
 
-        units = OrderedDict([('control_index', None),
-                             ('timedel', u.s),
-                             ('triggers', None),
-                             ('triggers_comp_err', None),
-                             ('rcr', None)])
+        units = OrderedDict(
+            [("control_index", None), ("timedel", u.s), ("triggers", None), ("triggers_comp_err", None), ("rcr", None)]
+        )
         units.update([(name, u.ct) for name in names])
-        units.update([(f'{name}_comp_err', u.ct) for name in names])
+        units.update([(f"{name}_comp_err", u.ct) for name in names])
 
-        data['triggers'] = data['triggers'].reshape(-1)
-        data['triggers_comp_err'] = data['triggers_comp_err'].reshape(-1)
+        data["triggers"] = data["triggers"].reshape(-1)
+        data["triggers_comp_err"] = data["triggers_comp_err"].reshape(-1)
 
         data_df = data.to_pandas()
-        data_df.index = data_df['time']
-        data_df.drop(columns='time', inplace=True)
+        data_df.index = data_df["time"]
+        data_df.drop(columns="time", inplace=True)
 
         return data_df, header, units
 
@@ -191,17 +194,15 @@ class QLLightCurve(GenericTimeSeries):
         `~sunpy.timeseries.TimeSeries`.
         """
         # Check if source is explicitly assigned
-        if 'source' in kwargs.keys():
-            if kwargs.get('source', ''):
-                return kwargs.get('source', '').lower().startswith(cls._source)
+        if "source" in kwargs.keys():
+            if kwargs.get("source", ""):
+                return kwargs.get("source", "").lower().startswith(cls._source)
         # Check if HDU defines the source instrument
-        if 'meta' in kwargs.keys():
-            return (kwargs['meta'].get('telescop', '') == 'SOLO/STIX'
-                    and 'ql-lightcurve' in kwargs['meta']['filename'])
+        if "meta" in kwargs.keys():
+            return kwargs["meta"].get("telescop", "") == "SOLO/STIX" and "ql-lightcurve" in kwargs["meta"]["filename"]
 
     def __repr__(self):
-        return f'{self.__class__.__name__}\n' \
-               f'    {self.time_range}'
+        return f"{self.__class__.__name__}\n" f"    {self.time_range}"
 
 
 class QLBackground(GenericTimeSeries):
@@ -246,6 +247,7 @@ class QLBackground(GenericTimeSeries):
      [10758 rows x 14 columns]
 
     """
+
     @peek_show
     def peek(self, **kwargs):
         """
@@ -258,7 +260,7 @@ class QLBackground(GenericTimeSeries):
         **kwargs : `dict`
             Any additional plot arguments that should be used when plotting.
         """
-        import matplotlib.pyplot as plt
+
         # Check we have a timeseries valid for plotting
         self._validate_data_for_plotting()
         self.plot(**kwargs)
@@ -282,6 +284,7 @@ class QLBackground(GenericTimeSeries):
             The plot axes.
         """
         import matplotlib.pyplot as plt
+
         # Get current axes
         if axes is None:
             fig, axes = plt.subplots()
@@ -291,27 +294,26 @@ class QLBackground(GenericTimeSeries):
 
         dates = matplotlib.dates.date2num(self.to_dataframe().index)
 
-        labels = [f'{col} keV' for col in self.columns[4:]]
+        labels = [f"{col} keV" for col in self.columns[4:]]
 
-        [axes.plot_date(dates, self.to_dataframe().iloc[:, 4+i], '-', label=labels[i], **plot_args)
-         for i in range(5)]
+        [axes.plot_date(dates, self.to_dataframe().iloc[:, 4 + i], "-", label=labels[i], **plot_args) for i in range(5)]
 
-        axes.legend(loc='upper right')
+        axes.legend(loc="upper right")
 
         axes.set_yscale("log")
 
-        axes.set_title('STIX Quick Look')
-        axes.set_ylabel('count s$^{-1}$ keV$^{-1}$')
+        axes.set_title("STIX Quick Look")
+        axes.set_ylabel("count s$^{-1}$ keV$^{-1}$")
 
-        axes.yaxis.grid(True, 'major')
-        axes.xaxis.grid(False, 'major')
+        axes.yaxis.grid(True, "major")
+        axes.xaxis.grid(False, "major")
         axes.legend()
 
         # TODO: display better tick labels for date range (e.g. 06/01 - 06/05)
-        formatter = matplotlib.dates.DateFormatter('%d %H:%M')
+        formatter = matplotlib.dates.DateFormatter("%d %H:%M")
         axes.xaxis.set_major_formatter(formatter)
 
-        axes.fmt_xdata = matplotlib.dates.DateFormatter('%d %H:%M')
+        axes.fmt_xdata = matplotlib.dates.DateFormatter("%d %H:%M")
         fig.autofmt_xdate()
 
         return fig
@@ -341,45 +343,43 @@ class QLBackground(GenericTimeSeries):
         """
         header = hdulist[0].header
         control = Table(hdulist[1].data)
-        header['control'] = control
+        header["control"] = control
         data = Table(hdulist[2].data)
         energies = Table(hdulist[4].data)
 
-        energy_delta = energies['e_high'] - energies['e_low'] << u.keV
+        energy_delta = energies["e_high"] - energies["e_low"] << u.keV
 
-        live_time = _lfrac(data['triggers'].reshape(-1)/(16*data['timedel']*u.s))
+        live_time = _lfrac(data["triggers"].reshape(-1) / (16 * data["timedel"] * u.s))
 
-        data['counts'] = data['counts'] / (live_time.reshape(-1, 1) * energy_delta)
+        data["counts"] = data["counts"] / (live_time.reshape(-1, 1) * energy_delta)
 
         names = [f'{energies["e_low"][i]}-{energies["e_high"][i]}' for i in range(5)]
 
-        [data.add_column(data['counts'][:, i], name=names[i]) for i in range(5)]
-        data.remove_column('counts')
+        [data.add_column(data["counts"][:, i], name=names[i]) for i in range(5)]
+        data.remove_column("counts")
 
-        [data.add_column(data['counts_comp_err'][:, i], name=f'{names[i]}_comp_err') for i in range(5)]
-        data.remove_column('counts_comp_err')
+        [data.add_column(data["counts_comp_err"][:, i], name=f"{names[i]}_comp_err") for i in range(5)]
+        data.remove_column("counts_comp_err")
 
         try:
-            data['time'] = Time(header['date_obs']) + TimeDelta(data['time'] * u.s)
+            data["time"] = Time(header["date_obs"]) + TimeDelta(data["time"] * u.s)
         except KeyError:
-            data['time'] = Time(header['date-obs']) + TimeDelta(data['time'] * u.s)
+            data["time"] = Time(header["date-obs"]) + TimeDelta(data["time"] * u.s)
 
         # [f'{energies[i]["e_low"]} - {energies[i]["e_high"]} keV' for i in range(5)]
 
-        units = OrderedDict([('control_index', None),
-                             ('timedel', u.s),
-                             ('triggers', None),
-                             ('triggers_comp_err', None),
-                             ('rcr', None)])
+        units = OrderedDict(
+            [("control_index", None), ("timedel", u.s), ("triggers", None), ("triggers_comp_err", None), ("rcr", None)]
+        )
         units.update([(name, u.ct) for name in names])
-        units.update([(f'{name}_comp_err', u.ct) for name in names])
+        units.update([(f"{name}_comp_err", u.ct) for name in names])
 
-        data['triggers'] = data['triggers'].reshape(-1)
-        data['triggers_comp_err'] = data['triggers_comp_err'].reshape(-1)
+        data["triggers"] = data["triggers"].reshape(-1)
+        data["triggers_comp_err"] = data["triggers_comp_err"].reshape(-1)
 
         data_df = data.to_pandas()
-        data_df.index = data_df['time']
-        data_df.drop(columns='time', inplace=True)
+        data_df.index = data_df["time"]
+        data_df.drop(columns="time", inplace=True)
 
         return data_df, header, units
 
@@ -390,13 +390,12 @@ class QLBackground(GenericTimeSeries):
         `~sunpy.timeseries.TimeSeries`.
         """
         # Check if source is explicitly assigned
-        if 'source' in kwargs.keys():
-            if kwargs.get('source', ''):
-                return kwargs.get('source', '').lower().startswith(cls._source)
+        if "source" in kwargs.keys():
+            if kwargs.get("source", ""):
+                return kwargs.get("source", "").lower().startswith(cls._source)
         # Check if HDU defines the source instrument
-        if 'meta' in kwargs.keys():
-            return (kwargs['meta'].get('telescop', '') == 'SOLO/STIX'
-                    and 'ql-background' in kwargs['meta']['filename'])
+        if "meta" in kwargs.keys():
+            return kwargs["meta"].get("telescop", "") == "SOLO/STIX" and "ql-background" in kwargs["meta"]["filename"]
 
 
 class QLVariance(GenericTimeSeries):
@@ -440,6 +439,7 @@ class QLVariance(GenericTimeSeries):
     <BLANKLINE>
     [21516 rows x 4 columns]
     """
+
     def plot(self, axes=None, **plot_args):
         """
         Show a plot of the data.
@@ -459,6 +459,7 @@ class QLVariance(GenericTimeSeries):
             The plot axes.
         """
         import matplotlib.pyplot as plt
+
         # Get current axes
         if axes is None:
             fig, axes = plt.subplots()
@@ -468,26 +469,26 @@ class QLVariance(GenericTimeSeries):
 
         dates = matplotlib.dates.date2num(self.to_dataframe().index)
 
-        label = f'{self.columns[2]} keV'
+        label = f"{self.columns[2]} keV"
 
-        axes.plot_date(dates, self.to_dataframe().iloc[:, 2], '-', label=label) #, **plot_args)
+        axes.plot_date(dates, self.to_dataframe().iloc[:, 2], "-", label=label)  # , **plot_args)
 
-        axes.legend(loc='upper right')
+        axes.legend(loc="upper right")
 
         axes.set_yscale("log")
 
-        axes.set_title('STIX Quick Look Variance')
-        axes.set_ylabel('count s$^{-1}$ keV$^{-1}$')
+        axes.set_title("STIX Quick Look Variance")
+        axes.set_ylabel("count s$^{-1}$ keV$^{-1}$")
 
-        axes.yaxis.grid(True, 'major')
-        axes.xaxis.grid(False, 'major')
+        axes.yaxis.grid(True, "major")
+        axes.xaxis.grid(False, "major")
         axes.legend()
 
         # TODO: display better tick labels for date range (e.g. 06/01 - 06/05)
-        formatter = matplotlib.dates.DateFormatter('%d %H:%M')
+        formatter = matplotlib.dates.DateFormatter("%d %H:%M")
         axes.xaxis.set_major_formatter(formatter)
 
-        axes.fmt_xdata = matplotlib.dates.DateFormatter('%d %H:%M')
+        axes.fmt_xdata = matplotlib.dates.DateFormatter("%d %H:%M")
         fig.autofmt_xdate()
 
         return fig
@@ -517,37 +518,38 @@ class QLVariance(GenericTimeSeries):
         """
         header = hdulist[0].header
         control = Table(hdulist[1].data)
-        header['control'] = control
+        header["control"] = control
         data = Table(hdulist[2].data)
         energies = Table(hdulist[4].data)
-        dE = energies[control['energy_bin_mask'][0]]['e_high'][-1] \
-             - energies[control['energy_bin_mask'][0]]['e_low'][0] << u.keV
-        name = f'{energies[control["energy_bin_mask"][0]]["e_low"][0]}' \
-               f'-{energies[control["energy_bin_mask"][0]]["e_high"][-1]}'
+        dE = (
+            energies[control["energy_bin_mask"][0]]["e_high"][-1] - energies[control["energy_bin_mask"][0]]["e_low"][0]
+            << u.keV
+        )
+        name = (
+            f'{energies[control["energy_bin_mask"][0]]["e_low"][0]}'
+            f'-{energies[control["energy_bin_mask"][0]]["e_high"][-1]}'
+        )
 
         try:
-            data['time'] = Time(header['date_obs']) + TimeDelta(data['time'] * u.s)
+            data["time"] = Time(header["date_obs"]) + TimeDelta(data["time"] * u.s)
         except KeyError:
-            data['time'] = Time(header['date-obs']) + TimeDelta(data['time'] * u.s)
+            data["time"] = Time(header["date-obs"]) + TimeDelta(data["time"] * u.s)
 
-        data['variance'] = data['variance'].reshape(-1)/(dE * data['timedel'])
+        data["variance"] = data["variance"].reshape(-1) / (dE * data["timedel"])
 
-        data.add_column(data['variance'], name=name)
-        data.remove_column('variance')
-        data.add_column(data['variance_comp_err'], name=f'{name}_comp_err')
-        data.remove_column('variance_comp_err')
+        data.add_column(data["variance"], name=name)
+        data.remove_column("variance")
+        data.add_column(data["variance_comp_err"], name=f"{name}_comp_err")
+        data.remove_column("variance_comp_err")
 
-        units = OrderedDict([('control_index', None),
-                             ('timedel', u.s),
-                             (name, u.count),
-                             (f'{name}_comp_err', u.count)])
+        units = OrderedDict([("control_index", None), ("timedel", u.s), (name, u.count), (f"{name}_comp_err", u.count)])
 
         data[name] = data[name].reshape(-1)
-        data[f'{name}_comp_err'] = data[f'{name}_comp_err'].reshape(-1)
+        data[f"{name}_comp_err"] = data[f"{name}_comp_err"].reshape(-1)
 
         data_df = data.to_pandas()
-        data_df.index = data_df['time']
-        data_df.drop(columns='time', inplace=True)
+        data_df.index = data_df["time"]
+        data_df.drop(columns="time", inplace=True)
 
         return data_df, header, units
 
@@ -558,13 +560,12 @@ class QLVariance(GenericTimeSeries):
         `~sunpy.timeseries.TimeSeries`.
         """
         # Check if source is explicitly assigned
-        if 'source' in kwargs.keys():
-            if kwargs.get('source', ''):
-                return kwargs.get('source', '').lower().startswith(cls._source)
+        if "source" in kwargs.keys():
+            if kwargs.get("source", ""):
+                return kwargs.get("source", "").lower().startswith(cls._source)
         # Check if HDU defines the source instrument
-        if 'meta' in kwargs.keys():
-            return (kwargs['meta'].get('telescop', '') == 'SOLO/STIX'
-                    and 'ql-variance' in kwargs['meta']['filename'])
+        if "meta" in kwargs.keys():
+            return kwargs["meta"].get("telescop", "") == "SOLO/STIX" and "ql-variance" in kwargs["meta"]["filename"]
 
 
 class HKMaxi(GenericTimeSeries):
@@ -581,6 +582,7 @@ class HKMaxi(GenericTimeSeries):
     >>> hk  # doctest: +SKIP
     <stixpy.timeseries.quicklook.HKMaxi ...>
     """
+
     # def plot(self, axes=None, **plot_args):
     #     """
     #     Show a plot of the data.
@@ -658,17 +660,17 @@ class HKMaxi(GenericTimeSeries):
         """
         header = hdulist[0].header
         control = Table(hdulist[1].data)
-        header['control'] = control
+        header["control"] = control
         data = Table(hdulist[2].data)
 
         try:
-            data['time'] = Time(header['date_obs']) + TimeDelta(data['time'] * u.s)
+            data["time"] = Time(header["date_obs"]) + TimeDelta(data["time"] * u.s)
         except KeyError:
-            data['time'] = Time(header['date-obs']) + TimeDelta(data['time'] * u.s)
+            data["time"] = Time(header["date-obs"]) + TimeDelta(data["time"] * u.s)
 
         data_df = data.to_pandas()
-        data_df.index = data_df['time']
-        data_df.drop(columns='time', inplace=True)
+        data_df.index = data_df["time"]
+        data_df.drop(columns="time", inplace=True)
 
         return data_df, header, None
 
@@ -679,10 +681,9 @@ class HKMaxi(GenericTimeSeries):
         `~sunpy.timeseries.TimeSeries`.
         """
         # Check if source is explicitly assigned
-        if 'source' in kwargs.keys():
-            if kwargs.get('source', ''):
-                return kwargs.get('source', '').lower().startswith(cls._source)
+        if "source" in kwargs.keys():
+            if kwargs.get("source", ""):
+                return kwargs.get("source", "").lower().startswith(cls._source)
         # Check if HDU defines the source instrument
-        if 'meta' in kwargs.keys():
-            return (kwargs['meta'].get('telescop', '') == 'SOLO/STIX'
-                    and 'hk-maxi' in kwargs['meta']['filename'])
+        if "meta" in kwargs.keys():
+            return kwargs["meta"].get("telescop", "") == "SOLO/STIX" and "hk-maxi" in kwargs["meta"]["filename"]

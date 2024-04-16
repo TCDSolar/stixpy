@@ -1,8 +1,8 @@
 .. _reference:
 
-**************
-Code Reference
-**************
+*********
+Reference
+*********
 
 .. toctree::
    :maxdepth: 2
@@ -13,3 +13,5 @@ Code Reference
    product
    visualisation
    frames
+
+   ../whatsnew/index

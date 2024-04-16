@@ -11,7 +11,7 @@ The instructions in this following section are based upon resources:
 Fork and Clone Repository
 -------------------------
 Working of your own forked version of the repository is the preferred approach. To fork the
-repository visit the repository page at https://github.com/samaloney/stixpy (make sure you are logged
+repository visit the repository page at https://github.com/TCDSolar/stixpy (make sure you are logged
 into github) and click on the fork button at the to right of the page.
 
 Clone your forked version of the
@@ -24,20 +24,20 @@ It is also advisable to configure the upstream remote at this point
 
 .. code:: bash
 
-    git remote add upstream https://github.com/samaloney/stixpy
+    git remote add upstream https://github.com/TCDSolar/stixpy
 
 
 Isolated Environment
 --------------------
 It is highly recommended to work in an isolated python environment there are a number of tools
-available to help mange and create isolated environment such as
+available to help manage and create isolated environment such as
 
 * `Anaconda <https://anaconda.org>`__
 * `Pyenv <https://github.com/pyenv/pyenv>`__
 * Python 3.6+ inbuilt venv.
 
 For this documentation we will proceed using Python's venv but the step would be similar in other
-tools. For a more detailed overview see the virturl enviroment section of astropy development
+tools. For a more detailed overview see the virturl environment section of astropy development
 workflow `here <https://docs.astropy.org/en/stable/development/workflow/virtual_pythons.html#virtual-envs>`_.
 
 

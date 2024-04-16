@@ -1,19 +1,19 @@
 .. _stix:
 
-Instrument
-==========
+STIX
+====
 
 Introduction
 ------------
 
 STIX is an imaging X-ray spectrometer and essentially consists of 384 independent CdTe X-ray detectors which are arranged into 32 collimators each with a pixelised detector with 12 pixels.
 Thirty of these are used for normal observations, the other two serve as a background monitor and a coarse flare locator.
-Additionally STIX contains and aspect system that can determine the location of the Sun in the STIX FOV the time and spatial accuracy necessary for X-ray imaging.
+Additionally STIX contains and aspect system that can determine the location of the Sun in the STIX FOV at the time and spatial accuracy necessary for X-ray imaging.
 
 At a high level the most granular X-ray data record is pixel data (PD), that is for each pixel of
 each detector the X-ray counts for each time and energy bin are recorded. While the detectors
 count individual photons (time and energy) these are summed into 32 pre-selected energy bins (4-150)
-and rate dependant time intervals (1 - 20 s)
+and rate dependent time intervals (0.5 - 20 s)
 
 .. note::
     As SolarOrbiter is a deep space mission many of the design choices of the instrument have been

@@ -1,11 +1,13 @@
 from astropy.time import Time
 
-__all__ = ['BaseProduct', 'GenericProduct', 'LevelBinary', 'L1Product', 'Level2']
+__all__ = ["BaseProduct", "GenericProduct", "LevelBinary", "L1Product", "Level2"]
+
 
 class BaseProduct:
     """
     Base Product that all other product inherit from contains the registry for the factory pattern
     """
+
     _registry = {}
 
     def __init_subclass__(cls, **kwargs):
@@ -16,7 +18,7 @@ class BaseProduct:
         This is then passed into the factory so we can register them.
         """
         super().__init_subclass__(**kwargs)
-        if hasattr(cls, 'is_datasource_for'):
+        if hasattr(cls, "is_datasource_for"):
             cls._registry[cls] = cls.is_datasource_for
 
 
@@ -40,57 +42,59 @@ class GenericProduct(BaseProduct):
 
     @property
     def level(self):
-        return self.meta.get('level')
+        return self.meta.get("level")
 
     @property
     def service_type(self):
-        return self.meta.get('stype')
+        return self.meta.get("stype")
 
     @property
     def servie_subtype(self):
-        return self.meta.get('stype')
+        return self.meta.get("stype")
 
     @property
     def ssid(self):
-        return self.meta.get('ssid')
+        return self.meta.get("ssid")
 
 
 class LevelBinary(GenericProduct):
     """Level Binary data"""
+
     def __init__(self, **kwargs):
-        raise NotImplementedError('Level Binary Data is not currently supported in stixpy')
+        raise NotImplementedError("Level Binary Data is not currently supported in stixpy")
 
     @classmethod
     def is_datasource_for(cls, *, meta, **kwargs):
         """Determines if meta data meach Raw Pixel Data"""
-        level = meta['level']
-        if level == 'LB':
+        level = meta["level"]
+        if level == "LB":
             return True
 
 
 class L1Product(GenericProduct):
     """Level Binary data"""
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        meta = kwargs['meta']
-        data = kwargs['data']
+        meta = kwargs["meta"]
+        data = kwargs["data"]
 
         # TODO don't change the data add new property or similar
         try:
-            data['time'] = Time(meta['date-obs']) + data['time']
+            data["time"] = Time(meta["date-obs"]) + data["time"]
         except KeyError:
-            data['time'] = Time(meta['date_obs']) + data['time']
+            data["time"] = Time(meta["date_obs"]) + data["time"]
 
 
 class Level2(GenericProduct):
     """Level Binary data"""
 
     def __init__(self, **kwargs):
-        raise NotImplementedError('Level Binary Data is not currently supported in stixpy')
+        raise NotImplementedError("Level Binary Data is not currently supported in stixpy")
 
     @classmethod
     def is_datasource_for(cls, *, meta, **kwargs):
         """Determines if meta data meach Raw Pixel Data"""
-        level = meta['level']
-        if level == 'LB':
+        level = meta["level"]
+        if level == "LB":
             return True

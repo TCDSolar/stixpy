@@ -19,7 +19,7 @@ build-backend = 'setuptools.build_meta'
     changelog_skip_label = "No Changelog Entry Needed"
     help_url = "https://github.com/TCDSolar/stixpy/blob/main/changelog/README.rst"
 
-    changelog_missing_long = "There isn't a changelog file in this pull request. Please add a changelog file to the `changelog/` directory following the instructions in the changelog [README](https://https://github.com/TCDSolar/stixpy/blob/main/changelog/README.rst)."
+    changelog_missing_long = "There isn't a changelog file in this pull request. Please add a changelog file to the `changelog/` directory following the instructions in the changelog [README](https://github.com/TCDSolar/stixpy/blob/main/changelog/README.rst)."
 
     type_incorrect_long = "The changelog file you added is not one of the allowed types. Please use one of the types described in the changelog [README](https://github.com/TCDSolar/stixpy/blob/main/changelog/README.rst)"
 

@@ -66,6 +66,9 @@ napoleon_use_rtype = False
 # Disable google style docstrings
 napoleon_google_docstring = False
 
+# until sphinx-gallery / sphinx is fixed https://github.com/sphinx-doc/sphinx/issues/12300
+suppress_warnings = ["config.cache"]
+
 # -- Options for intersphinx extension ---------------------------------------
 
 # Example configuration for intersphinx: refer to the Python standard library.
@@ -84,6 +87,12 @@ intersphinx_mapping = {
 # a list of builtin themes.
 
 html_theme = "pydata_sphinx_theme"
+
+html_theme_options = {
+    "logo": {
+        "text": "stixpy"
+    },
+}
 
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,

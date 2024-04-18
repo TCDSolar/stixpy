@@ -5,9 +5,42 @@ import numpy as np
 import pytest
 from astropy.tests.helper import assert_quantity_allclose
 from astropy.time import Time
+from astropy.wcs import WCS
 from sunpy.coordinates.frames import HeliographicStonyhurst, Helioprojective
 
-from stixpy.frames import STIXImaging
+from stixpy.frames import STIXImaging, stix_frame_to_wcs, stix_wcs_to_frame
+
+
+@pytest.fixture
+def stix_wcs():
+    w = WCS(naxis=2)
+
+    w.wcs.dateavg = '2024-01-01'
+    w.wcs.crpix = [10, 20]
+    w.wcs.cdelt = np.array([2, 2])
+    w.wcs.crval = [0, 0]
+    w.wcs.ctype = ["SXLN-TAN", "SXLT-TAN"]
+
+    w.wcs.aux.hgln_obs = 10
+    w.wcs.aux.hglt_obs = 20
+    w.wcs.aux.dsun_obs = 1.5e11
+
+    return w
+
+@pytest.fixture
+def stix_frame():
+    obstime = '2024-01-01'
+    observer = HeliographicStonyhurst(10 * u.deg,
+                                      20 * u.deg,
+                                      1.5e11 * u.m,
+                                      obstime=obstime)
+
+    frame_args = {'obstime': obstime,
+                  'observer': observer,
+                  'rsun': 695_700_000 * u.m}
+
+    frame = STIXImaging(**frame_args)
+    return frame
 
 
 @pytest.mark.skip(reason="Test data maybe incorrect")
@@ -57,3 +90,35 @@ def test_hpc_to_stx_no_sas(mock):
         # should match the offset -8, 60 added to yaw and pitch 10, 10
         assert_quantity_allclose(stix_coord.x, (10 - 8) * u.arcsec)
         assert_quantity_allclose(stix_coord.y, (10 + 60) * u.arcsec)
+
+
+def test_stix_wcs_to_frame(stix_wcs):
+    frame = stix_wcs_to_frame(stix_wcs)
+    assert isinstance(frame, STIXImaging)
+
+
+def test_stix_wcs_to_frame_none():
+    w = WCS(naxis=2)
+    w.wcs.ctype = ['ham', 'cheese']
+    frame = stix_wcs_to_frame(w)
+
+    assert frame is None
+
+
+def test_stix_frame_to_wcs(stix_frame):
+    wcs = stix_frame_to_wcs(stix_frame)
+
+    assert isinstance(wcs, WCS)
+    assert wcs.wcs.ctype[0] == 'SXLN-TAN'
+    assert wcs.wcs.cunit[0] == 'arcsec'
+    assert wcs.wcs.dateobs == '2024-01-01 00:00:00.000'
+
+    assert wcs.wcs.aux.rsun_ref == stix_frame.rsun.to_value(u.m)
+    assert wcs.wcs.aux.dsun_obs == 1.5e11
+    assert wcs.wcs.aux.hgln_obs == 10
+    assert wcs.wcs.aux.hglt_obs == 20
+
+
+def test_stix_frame_to_wcs_none():
+    wcs = stix_frame_to_wcs(Helioprojective())
+    assert wcs is None

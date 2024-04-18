@@ -1,20 +1,145 @@
 import warnings
 
+import astropy
+import astropy.coordinates as coord
+import astropy.units as u
 import numpy as np
-from astropy import coordinates as coord
-from astropy import units as u
-from astropy.coordinates import frame_transform_graph
+from astropy.coordinates import QuantityAttribute, frame_transform_graph
 from astropy.coordinates.matrix_utilities import matrix_product, matrix_transpose, rotation_matrix
 from astropy.io import fits
 from astropy.table import QTable
 from astropy.time import Time
-from sunpy.coordinates import HeliographicStonyhurst, Helioprojective
+from astropy.wcs import WCS
+from sunpy.coordinates.frameattributes import ObserverCoordinateAttribute
+from sunpy.coordinates.frames import HeliographicStonyhurst, Helioprojective, SunPyBaseCoordinateFrame
 from sunpy.net import Fido
 from sunpy.net import attrs as a
+from sunpy.sun.constants import radius as _RSUN
 
 from stixpy.coordinates.frames import STIX_X_OFFSET, STIX_X_SHIFT, STIX_Y_OFFSET, STIX_Y_SHIFT, STIXImaging, logger
 
-__all__ = ['get_hpc_info', 'stixim_to_hpc', 'hpc_to_stixim']
+
+logger = get_logger(__name__, "DEBUG")
+
+__all__ = ["STIXImaging", "_get_rotation_matrix_and_position", "hpc_to_stixim", "stixim_to_hpc"]
+
+STIX_X_SHIFT = 26.1 * u.arcsec  # fall back to this when non sas solution available
+STIX_Y_SHIFT = 58.2 * u.arcsec  # fall back to this when non sas solution available
+STIX_X_OFFSET = 60.0 * u.arcsec  # remaining offset after SAS solution
+STIX_Y_OFFSET = 8.0 * u.arcsec  # remaining offset after SAS solution
+
+
+class STIXImaging(SunPyBaseCoordinateFrame):
+    r"""
+    STIX Imaging Frame
+
+    - ``x`` (aka "theta_x") along the pixel rows (e.g. 0, 1, 2, 3; 4, 5, 6, 8).
+    - ``y`` (aka "theta_y") along the pixel columns (e.g. A, B, C, D).
+    - ``distance`` is the Sun-observer distance.
+
+    Aligned with SIIX 'pixels' +X corresponds direction along pixel row toward pixels
+    0, 4 and +Y corresponds direction along columns towards pixels 0, 1, 2, 3.
+
+    .. code-block:: text
+
+      Col\Row
+            ---------
+           | 3  | 7  |
+        D  |   _|_   |
+           |  |11 |  |
+            ---------
+           | 2  | 6  |
+        C  |   _|_   |
+           |  |10 |  |
+            ---------
+           | 1  | 5  |
+        B  |   _|_   |
+           |  | 9 |  |
+            ---------
+           | 0  | 4  |
+        A  |   _|_   |
+           |  | 8 |  |
+            ---------
+
+    """
+    observer = ObserverCoordinateAttribute(HeliographicStonyhurst)
+    rsun = QuantityAttribute(default=_RSUN, unit=u.km)
+
+    frame_specific_representation_info = {
+        coord.SphericalRepresentation: [
+            coord.RepresentationMapping("lon", "x", u.arcsec),
+            coord.RepresentationMapping("lat", "y", u.arcsec),
+            coord.RepresentationMapping("distance", "distance"),
+        ]
+    }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    # def make_3d(self):
+    #     """
+    #     This method calculates the third coordinate of the Helioprojective
+    #     frame. It assumes that the coordinate point is on the surface of the Sun.
+    #     If a point in the frame is off limb then NaN will be returned.
+    #     Returns
+    #     -------
+    #     new_frame : `~sunpy.coordinates.frames.Helioprojective`
+    #         A new frame instance with all the attributes of the original but
+    #         now with a third coordinate.
+    #     """
+    #     # Skip if we already are 3D
+    #     if not self._is_2d:
+    #         return self
+    #
+    #     if not isinstance(self.observer, BaseCoordinateFrame):
+    #         raise ConvertError("Cannot calculate distance to the Sun "
+    #                            f"for observer '{self.observer}' "
+    #                            "without `obstime` being specified.")
+    #
+    #     rep = self.represent_as(UnitSphericalRepresentation)
+    #     lat, lon = rep.lat, rep.lon
+    #
+    #     # Check for the use of floats with lower precision than the native Python float
+    #     if not set([lon.dtype.type, lat.dtype.type]).issubset([float, np.float64, np.longdouble]):
+    #         warn_user("The Helioprojective component values appear to be lower "
+    #                   "precision than the native Python float: "
+    #                   f"Tx is {lon.dtype.name}, and Ty is {lat.dtype.name}. "
+    #                   "To minimize precision loss, you may want to cast the values to "
+    #                   "`float` or `numpy.float64` via the NumPy method `.astype()`.")
+    #
+    #     # Calculate the distance to the surface of the Sun using the law of cosines
+    #     cos_alpha = np.cos(lat) * np.cos(lon)
+    #     c = self.observer.radius ** 2 - self.rsun ** 2
+    #     b = -2 * self.observer.radius * cos_alpha
+    #     # Ignore sqrt of NaNs
+    #     with np.errstate(invalid='ignore'):
+    #         d = ((-1 * b) - np.sqrt(b ** 2 - 4 * c)) / 2  # use the "near" solution
+    #
+    #     if self._spherical_screen:
+    #         sphere_center = self._spherical_screen['center'].transform_to(self).cartesian
+    #         c = sphere_center.norm() ** 2 - self._spherical_screen['radius'] ** 2
+    #         b = -2 * sphere_center.dot(rep)
+    #         # Ignore sqrt of NaNs
+    #         with np.errstate(invalid='ignore'):
+    #             dd = ((-1 * b) + np.sqrt(b ** 2 - 4 * c)) / 2  # use the "far" solution
+    #
+    #         d = np.fmin(d, dd) if self._spherical_screen['only_off_disk'] else dd
+    #
+    #     # This warning can be triggered in specific draw calls when plt.show() is called
+    #     # we can not easily prevent this, so we check the specific function is being called
+    #     # within the stack trace.
+    #     stack_trace = traceback.format_stack()
+    #     matching_string = 'wcsaxes.*_draw_grid'
+    #     bypass = any([re.search(matching_string, string) for string in stack_trace])
+    #     if not bypass and np.all(np.isnan(d)) and np.any(np.isfinite(cos_alpha)):
+    #         warn_user("The conversion of these 2D helioprojective coordinates to 3D is all NaNs "
+    #                   "because off-disk coordinates need an additional assumption to be mapped to "
+    #                   "calculate distance from the observer. Consider using the context manager "
+    #                   "`Helioprojective.assume_spherical_screen()`.")
+    #
+    #     return self.realize_frame(SphericalRepresentation(lon=lon,
+    #                                                       lat=lat,
+    #                                                       distance=d))
 
 
 def _get_rotation_matrix_and_position(obstime):
@@ -156,3 +281,85 @@ def hpc_to_stixim(hpccoord, stxframe):
     stx_coord = stxframe.realize_frame(newrepr, obstime=solo_hpc_frame.obstime)
     logger.debug("STIX: %s", stx_coord)
     return stx_coord
+
+
+def stix_wcs_to_frame(wcs):
+    r"""
+    This function registers the coordinate frames to their FITS-WCS coordinate
+    type values in the `astropy.wcs.utils.wcs_to_celestial_frame` registry.
+
+    Parameters
+    ----------
+    wcs : astropy.wcs.WCS
+
+    Returns
+    -------
+    astropy.coordinates.BaseCoordinateFrame
+    """
+
+    # Not a STIX wcs bail out early
+    if set(wcs.wcs.ctype) != {'SXLN-TAN', 'SXLT-TAN'}:
+        return None
+
+    dateobs = wcs.wcs.dateavg
+
+    rsun = wcs.wcs.aux.rsun_ref
+    if rsun is not None:
+        rsun *= u.m
+
+    hgs_longitude = wcs.wcs.aux.hgln_obs
+    hgs_latitude = wcs.wcs.aux.hglt_obs
+    hgs_distance = wcs.wcs.aux.dsun_obs
+
+    observer = HeliographicStonyhurst(hgs_latitude * u.deg,
+                                      hgs_longitude * u.deg,
+                                      hgs_distance * u.m,
+                                      obstime=dateobs,
+                                      rsun=rsun)
+
+    frame_args = {'obstime': dateobs,
+                  'observer': observer,
+                  'rsun': rsun}
+    return STIXImaging(**frame_args)
+
+
+def stix_frame_to_wcs(frame):
+    r"""
+    For a given frame, this function returns the corresponding WCS object.
+    It registers the WCS coordinates types from their associated frame in the
+    `astropy.wcs.utils.celestial_frame_to_wcs` registry.
+
+    Parameters
+    ----------
+    frame : astropy.coordinates.BaseCoordinateFrame
+    projection : str, optional
+
+    Returns
+    -------
+    astropy.wcs.WCS
+    """
+    # Bail out early if not STIXImaging frame
+    if not isinstance(frame, STIXImaging):
+        return None
+
+    wcs = WCS(naxis=2)
+    wcs.wcs.aux.rsun_ref = frame.rsun.to_value(u.m)
+
+    # Sometimes obs_coord can be a SkyCoord, so convert down to a frame
+    obs_frame = frame.observer
+    if hasattr(obs_frame, 'frame'):
+        obs_frame = frame.observer.frame
+
+    wcs.wcs.aux.hgln_obs = obs_frame.lon.to_value(u.deg)
+    wcs.wcs.aux.hglt_obs = obs_frame.lat.to_value(u.deg)
+    wcs.wcs.aux.dsun_obs = obs_frame.radius.to_value(u.m)
+
+    wcs.wcs.dateobs = frame.obstime.utc.iso
+    wcs.wcs.cunit = ['arcsec', 'arcsec']
+    wcs.wcs.ctype = ['SXLN-TAN', 'SXLT-TAN']
+
+    return wcs
+
+
+astropy.wcs.utils.WCS_FRAME_MAPPINGS.append([stix_wcs_to_frame])
+astropy.wcs.utils.FRAME_WCS_MAPPINGS.append([stix_frame_to_wcs])

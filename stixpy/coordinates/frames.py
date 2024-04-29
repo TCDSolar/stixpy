@@ -97,9 +97,9 @@ def stix_wcs_to_frame(wcs):
     hgs_latitude = wcs.wcs.aux.hglt_obs
     hgs_distance = wcs.wcs.aux.dsun_obs
 
-    observer = HeliographicStonyhurst(hgs_latitude * u.deg,
-                                      hgs_longitude * u.deg,
-                                      hgs_distance * u.m,
+    observer = HeliographicStonyhurst(lat=hgs_latitude * u.deg,
+                                      lon=hgs_longitude * u.deg,
+                                      radius=hgs_distance * u.m,
                                       obstime=dateobs,
                                       rsun=rsun)
 
@@ -113,7 +113,7 @@ def stix_wcs_to_frame(wcs):
 def stix_frame_to_wcs(frame, projection='TAN'):
     r"""
     For a given frame, this function returns the corresponding WCS object.
-    
+
     It registers the WCS coordinates types from their associated frame in the
     `astropy.wcs.utils.celestial_frame_to_wcs` registry.
 

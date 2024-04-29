@@ -3,8 +3,10 @@ import numpy as np
 import pytest
 from astropy.coordinates import SkyCoord
 from astropy.wcs import WCS
+from sunpy.coordinates import get_horizons_coord
 from sunpy.coordinates.frames import HeliographicStonyhurst, Helioprojective
 from sunpy.map import Map, make_fitswcs_header
+from sunpy.map.mapbase import SpatialPair
 
 from stixpy.coordinates.frames import STIXImaging, stix_frame_to_wcs, stix_wcs_to_frame
 from stixpy.map.stix import STIXMap
@@ -42,9 +44,18 @@ def stix_frame():
     frame = STIXImaging(**frame_args)
     return frame
 
+
 def test_stix_wcs_to_frame(stix_wcs):
     frame = stix_wcs_to_frame(stix_wcs)
     assert isinstance(frame, STIXImaging)
+
+    assert frame.obstime.isot == '2024-01-01T00:00:00.000'
+    assert frame.rsun == 695700 * u.km
+    assert frame.observer == HeliographicStonyhurst(10 * u.deg,
+                                                    20 * u.deg,
+                                                    1.5e11 * u.m,
+                                                    obstime='2024-01-01T00:00:00.000')
+
 
 
 def test_stix_wcs_to_frame_none():
@@ -73,10 +84,18 @@ def test_stix_frame_to_wcs_none():
     wcs = stix_frame_to_wcs(Helioprojective())
     assert wcs is None
 
+@pytest.mark.remote_data
 def test_stix_frame_map():
-    data = np.random.rand(10, 10)
-    coord = SkyCoord(0 * u.arcsec, 0 * u.arcsec, obstime='now', observer='earth', frame=STIXImaging)
-    header = make_fitswcs_header(data, coord, scale=[2, 2]*u.arcsec/u.pix, telescope='STIX',
+    data = np.random.rand(512, 512)
+    obstime = '2023-01-01 12:00:00'
+    solo = get_horizons_coord('solo', time=obstime)
+    coord = SkyCoord(0 * u.arcsec, 0 * u.arcsec, obstime=obstime, observer=solo, frame=STIXImaging)
+    header = make_fitswcs_header(data, coord, scale=[8, 8] * u.arcsec / u.pix, telescope='STIX',
                                  instrument='STIX', observatory='Solar Orbiter')
     smap = Map((data, header))
     assert isinstance(smap, STIXMap)
+    assert smap.coordinate_system == SpatialPair(axis1='SXLN-TAN', axis2='SXLT-TAN')
+    assert isinstance(smap.coordinate_frame, STIXImaging)
+    smap.plot()
+    smap.draw_limb()
+    smap.draw_grid()

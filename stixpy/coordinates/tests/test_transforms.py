@@ -3,14 +3,11 @@ from unittest import mock
 import astropy.units as u
 import numpy as np
 import pytest
+from astropy.tests.helper import assert_quantity_allclose
 from astropy.time import Time
 from sunpy.coordinates import HeliographicStonyhurst, Helioprojective
 
 from stixpy.coordinates.frames import STIXImaging
-
-
-def assert_quantity_allclose(x, param):
-    pass
 
 
 @pytest.mark.skip(reason="Test data maybe incorrect")

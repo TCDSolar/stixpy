@@ -13,19 +13,6 @@ class STIXMap(GenericMap):
     def is_datasource_for(cls, data, header, **kwargs):
         return str(header.get('TELESCOP', '')).endswith('STIX')
 
-    # @property
-    # def coordinate_system(self):
-    #     """
-    #     Coordinate system used
-    #
-    #     Overrides the values in the header which are not understood by Astropy WCS
-    #     """
-    #     return SpatialPair("SXLN-TAN", "SXLT-TAN")
-    #
-    # @property
-    # def spatial_units(self):
-    #     return SpatialPair(u.arcsec, u.arcsec)
-
     def plot(self, **kwargs):
 
         # Until this is resolved need to manually override https://github.com/astropy/astropy/issues/16339

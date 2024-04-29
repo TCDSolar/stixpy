@@ -24,11 +24,11 @@ class STIXImaging(SunPyBaseCoordinateFrame):
     r"""
     STIX Imaging Frame
 
-    - ``x`` (aka "theta_x") along the pixel rows (e.g. 0, 1, 2, 3; 4, 5, 6, 8).
-    - ``y`` (aka "theta_y") along the pixel columns (e.g. A, B, C, D).
+    - ``Tx`` (aka "theta_x") along the pixel rows (e.g. 0, 1, 2, 3; 4, 5, 6, 8).
+    - ``Ty`` (aka "theta_y") along the pixel columns (e.g. A, B, C, D).
     - ``distance`` is the Sun-observer distance.
 
-    Aligned with SIIX 'pixels' +X corresponds direction along pixel row toward pixels
+    Aligned with STIX 'pixels' +X corresponds direction along pixel row toward pixels
     0, 4 and +Y corresponds direction along columns towards pixels 0, 1, 2, 3.
 
     .. code-block:: text
@@ -74,11 +74,11 @@ def stix_wcs_to_frame(wcs):
 
     Parameters
     ----------
-    wcs : astropy.wcs.WCS
+    wcs : `astropy.wcs.WCS`
 
     Returns
     -------
-    astropy.coordinates.BaseCoordinateFrame
+    `astropy.coordinates.BaseCoordinateFrame`
     """
     if hasattr(wcs, "coordinate_frame"):
         return wcs.coordinate_frame
@@ -113,17 +113,18 @@ def stix_wcs_to_frame(wcs):
 def stix_frame_to_wcs(frame, projection='TAN'):
     r"""
     For a given frame, this function returns the corresponding WCS object.
+    
     It registers the WCS coordinates types from their associated frame in the
     `astropy.wcs.utils.celestial_frame_to_wcs` registry.
 
     Parameters
     ----------
-    frame : astropy.coordinates.BaseCoordinateFrame
-    projection : str, optional
+    frame : `astropy.coordinates.BaseCoordinateFrame`
+    projection : `str`, optional
 
     Returns
     -------
-    astropy.wcs.WCS
+    `astropy.wcs.WCS`
     """
     # Bail out early if not STIXImaging frame
     if not isinstance(frame, STIXImaging):

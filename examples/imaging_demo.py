@@ -30,7 +30,6 @@ from stixpy.calibration.visibility import (
 from stixpy.imaging.em import em
 from stixpy.product import Product
 
-
 logger = logging.getLogger(__name__)
 logger.setLevel("DEBUG")
 

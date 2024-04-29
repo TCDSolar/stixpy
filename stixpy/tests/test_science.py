@@ -4,12 +4,7 @@ import pytest
 from numpy.testing import assert_allclose
 
 from stixpy.product import Product
-from stixpy.product.sources.science import (
-    CompressedPixelData,
-    RawPixelData,
-    Spectrogram,
-    SummedCompressedPixelData,
-)
+from stixpy.product.sources.science import CompressedPixelData, RawPixelData, Spectrogram, SummedCompressedPixelData
 
 
 @pytest.mark.remote_data

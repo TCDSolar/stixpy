@@ -271,10 +271,10 @@ def get_uv_points_data(d_det=47.78 * u.mm, d_sep=545.30 * u.mm):
     ----------
     d_det: astropy Quantity
         Distance between the rear grid and the detector plane (in mm). Default, 47.78 * u.mm
-    
+
     d_sep: astropy Quantity
         Distance between the front and the rear grid (in mm). Default, 545.30 * u.mm
-        
+
     Returns
     -------
     A dictionary containing sub-collimator indices, sub-collimator labels and coordinates of the STIX (u,v) points (defined in arcsec^-1)
@@ -285,7 +285,7 @@ def get_uv_points_data(d_det=47.78 * u.mm, d_sep=545.30 * u.mm):
         https://doi.org/10.1007/s11207-023-02205-7
 
     """
-    
+
     subc = read_subc_params()
     imaging_ind = np.where((subc["Grid Label"] != "cfl") & (subc["Grid Label"] != "bkg"))
 
@@ -323,7 +323,7 @@ def get_uv_points_data(d_det=47.78 * u.mm, d_sep=545.30 * u.mm):
     }
 
     return uv_data
-    
+
 
 def calibrate_visibility(vis, flare_location=(0, 0) * u.arcsec):
     """
@@ -386,7 +386,7 @@ def calibrate_visibility(vis, flare_location=(0, 0) * u.arcsec):
     )
 
     return cal_vis
-    
+
 
 def sas_map_center():
     # receter map at 0,0 taking account of mean or actual sas sol

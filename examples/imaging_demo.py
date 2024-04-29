@@ -12,27 +12,30 @@ Imports
 """
 
 import logging
+
 import astropy.units as u
 import matplotlib.pyplot as plt
 import numpy as np
-# from astropy.coordinates import SkyCoord
-# from astropy.time import Time
-# from sunpy.map import make_fitswcs_header, Map
+from xrayvision.clean import vis_clean
+from xrayvision.imaging import vis_to_image, vis_to_map
+from xrayvision.mem import mem
+from xrayvision.visibility import Visibility
 
-# from stixpy.frames import get_hpc_info
-from stixpy.imaging.em import em
 from stixpy.calibration.visibility import (
     calibrate_visibility,
     create_meta_pixels,
     create_visibility,
     get_uv_points_data,
 )
+# from stixpy.frames import get_hpc_info
+from stixpy.imaging.em import em
 from stixpy.product import Product
 
-from xrayvision.clean import vis_clean
-from xrayvision.imaging import vis_to_image, vis_to_map
-from xrayvision.mem import mem
-from xrayvision.visibility import Visibility
+# from astropy.coordinates import SkyCoord
+# from astropy.time import Time
+# from sunpy.map import make_fitswcs_header, Map
+
+
 
 logger = logging.getLogger(__name__)
 logger.setLevel("DEBUG")

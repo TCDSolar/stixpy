@@ -60,7 +60,6 @@ def test_hpc_to_stx_no_sas(mock):
         # should match the offset -8, 60 added to yaw and pitch 10, 10
         assert_quantity_allclose(stix_coord.Tx, (10 - 8) * u.arcsec)
         assert_quantity_allclose(stix_coord.Ty, (10 + 60) * u.arcsec)
-<<<<<<< HEAD
 
 
 def test_stix_wcs_to_frame(stix_wcs):
@@ -93,5 +92,3 @@ def test_stix_frame_to_wcs(stix_frame):
 def test_stix_frame_to_wcs_none():
     wcs = stix_frame_to_wcs(Helioprojective())
     assert wcs is None
-=======
->>>>>>> 8f2c7e0 (Working end to end)

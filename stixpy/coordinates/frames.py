@@ -116,7 +116,11 @@ def stix_wcs_to_frame(wcs):
 def stix_frame_to_wcs(frame, projection='TAN'):
     r"""
     For a given frame, this function returns the corresponding WCS object.
+<<<<<<< HEAD
 
+=======
+    
+>>>>>>> 722550f (Apply suggestions from code review)
     It registers the WCS coordinates types from their associated frame in the
     `astropy.wcs.utils.celestial_frame_to_wcs` registry.
 

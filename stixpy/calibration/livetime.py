@@ -29,7 +29,7 @@ The plot below shows the behaviour of the trigger rate taking these effects into
 
     from matplotlib import pyplot as plt
 
-    from stixcore.calibration.lifetime import get_livetime_fraction
+    from stixpy.calibration.livetime import get_livetime_fraction
 
     eta = 2.5e-6
     tau = 12.5e-6

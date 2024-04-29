@@ -1,6 +1,0 @@
-from stixcore.calibration.visibility import get_visibility_info_giordano
-
-
-def test_get_visibility_info_giordano():
-    vis = get_visibility_info_giordano()
-    assert True

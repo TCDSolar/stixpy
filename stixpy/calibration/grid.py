@@ -8,6 +8,7 @@ import astropy.units as u
 import numpy as np
 from astropy.table import Table
 
+__all__ = ["get_grid_transmission","_calculate_grid_transmission"]
 
 def get_grid_transmission(xy_flare):
     r"""

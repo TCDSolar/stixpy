@@ -8,6 +8,7 @@ Reference
    :maxdepth: 2
 
    data
+   calibration
    timeseries
    science
    product

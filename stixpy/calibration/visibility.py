@@ -275,15 +275,15 @@ def get_uv_points_data(d_det=47.78 * u.mm, d_sep=545.30 * u.mm):
 
     Parameters
     ----------
-    d_det: astropy Quantity
+    d_det: `u.Quantity` optional
         Distance between the rear grid and the detector plane (in mm). Default, 47.78 * u.mm
 
-    d_sep: astropy Quantity
+    d_sep: `u.Quantity` optional
         Distance between the front and the rear grid (in mm). Default, 545.30 * u.mm
 
     Returns
     -------
-    A dictionary containing sub-collimator indices, sub-collimator labels and coordinates of the STIX (u,v) points (defined in arcsec^-1)
+    A dictionary containing sub-collimator indices, sub-collimator labels and coordinates of the STIX (u,v) points (defined in arcsec$^{-1}$)
 
     References
     ----------
@@ -308,15 +308,13 @@ def get_uv_points_data(d_det=47.78 * u.mm, d_sep=545.30 * u.mm):
     phase_sense = subc_imaging["Phase Sense"]
 
     # see Equation (9) in [1]
-    pitch_front = (1 / subc_imaging["Front Pitch"] * (d_det + d_sep)).value * 1 / u.rad
-    pitch_rear = (1 / subc_imaging["Rear Pitch"] * d_det).value * 1 / u.rad
+    front_unit_vector_comp = (((d_det + d_sep) / subc_imaging["Front Pitch"]) / u.rad).to(1 / u.arcsec)
+    rear_unit_vector_comp = ((d_det / subc_imaging["Rear Pitch"]) / u.rad).to(1 / u.arcsec)
 
-    uu = np.cos(subc_imaging["Front Orient"].to("deg")) * pitch_front.to(1 / u.arcsec) - np.cos(
-        subc_imaging["Rear Orient"].to("deg")
-    ) * pitch_rear.to(1 / u.arcsec)
-    vv = np.sin(subc_imaging["Front Orient"].to("deg")) * pitch_front.to(1 / u.arcsec) - np.sin(
-        subc_imaging["Rear Orient"].to("deg")
-    ) * pitch_rear.to(1 / u.arcsec)
+    uu = np.cos(subc_imaging["Front Orient"].to("deg")) * front_unit_vector_comp - np.cos(
+        subc_imaging["Rear Orient"].to("deg")) * rear_unit_vector_comp
+    vv = np.sin(subc_imaging["Front Orient"].to("deg")) * front_unit_vector_comp - np.sin(
+        subc_imaging["Rear Orient"].to("deg")) * rear_unit_vector_comp
 
     uu = -uu * phase_sense
     vv = -vv * phase_sense
@@ -324,8 +322,8 @@ def get_uv_points_data(d_det=47.78 * u.mm, d_sep=545.30 * u.mm):
     uv_data = {
         "isc": isc,     # sub-collimator indices
         "label": label, # sub-collimator labels
-        "u": uu.to(1 / u.arcsec),
-        "v": vv.to(1 / u.arcsec),
+        "u": uu,
+        "v": vv,
     }
 
     return uv_data

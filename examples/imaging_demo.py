@@ -27,15 +27,8 @@ from stixpy.calibration.visibility import (
     create_visibility,
     get_uv_points_data,
 )
-# from stixpy.frames import get_hpc_info
 from stixpy.imaging.em import em
 from stixpy.product import Product
-
-# from astropy.coordinates import SkyCoord
-# from astropy.time import Time
-# from sunpy.map import make_fitswcs_header, Map
-
-
 
 logger = logging.getLogger(__name__)
 logger.setLevel("DEBUG")

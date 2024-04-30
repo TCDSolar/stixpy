@@ -7,12 +7,13 @@ Reference
 .. toctree::
    :maxdepth: 2
 
-   data
    calibration
-   timeseries
-   science
+   coordinates
+   data
+   map
    product
+   science
+   timeseries
    visualisation
-   frames
 
    ../whatsnew/index

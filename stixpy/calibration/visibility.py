@@ -269,21 +269,22 @@ def create_visibility(meta_pixels):
     return vis
 
 
-def get_uv_points_data(d_det=47.78 * u.mm, d_sep=545.30 * u.mm):
+@u.quantity_input
+def get_uv_points_data(d_det: u.Quantity[u.mm]=47.78 * u.mm, d_sep:u.Quantity[u.mm]=545.30 * u.mm):
     r"""
     Returns the STIX (u,v) points coordinates defined in [1]. The coordinates are ordered with respect to the detector index.
 
     Parameters
     ----------
-    d_det: `u.Quantity` optional
+    d_det: `u.Quantity[u.mm]` optional
         Distance between the rear grid and the detector plane (in mm). Default, 47.78 * u.mm
 
-    d_sep: `u.Quantity` optional
+    d_sep: `u.Quantity[u.mm]` optional
         Distance between the front and the rear grid (in mm). Default, 545.30 * u.mm
 
     Returns
     -------
-    A dictionary containing sub-collimator indices, sub-collimator labels and coordinates of the STIX (u,v) points (defined in arcsec$^{-1}$)
+    A dictionary containing sub-collimator indices, sub-collimator labels and coordinates of the STIX (u,v) points (defined in arcsec :sup:`-1`)
 
     References
     ----------

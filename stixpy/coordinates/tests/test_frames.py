@@ -57,7 +57,6 @@ def test_stix_wcs_to_frame(stix_wcs):
                                                     obstime='2024-01-01T00:00:00.000')
 
 
-
 def test_stix_wcs_to_frame_none():
     w = WCS(naxis=2)
     w.wcs.ctype = ['ham', 'cheese']

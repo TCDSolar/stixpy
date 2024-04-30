@@ -19,6 +19,9 @@ STIX_Y_SHIFT = 58.2 * u.arcsec  # fall back to this when non sas solution availa
 STIX_X_OFFSET = 60.0 * u.arcsec  # remaining offset after SAS solution
 STIX_Y_OFFSET = 8.0 * u.arcsec  # remaining offset after SAS solution
 
+STIX_X_CTYPE = "SXLN-TAN"
+STIX_Y_CTYPE = "SXLT-TAN"
+
 
 class STIXImaging(SunPyBaseCoordinateFrame):
     r"""
@@ -84,7 +87,7 @@ def stix_wcs_to_frame(wcs):
         return wcs.coordinate_frame
 
     # Not a STIX wcs bail out early
-    if set(wcs.wcs.ctype) != {'SXLN-TAN', 'SXLT-TAN'}:
+    if set(wcs.wcs.ctype) != {STIX_X_CTYPE, STIX_Y_CTYPE}:
         return None
 
     dateobs = wcs.wcs.dateobs
@@ -144,7 +147,7 @@ def stix_frame_to_wcs(frame, projection='TAN'):
 
     wcs.wcs.dateobs = frame.obstime.utc.iso
     wcs.wcs.cunit = ['arcsec', 'arcsec']
-    wcs.wcs.ctype = ['SXLN-TAN', 'SXLT-TAN']
+    wcs.wcs.ctype = [STIX_X_CTYPE, STIX_Y_CTYPE]
 
     return wcs
 

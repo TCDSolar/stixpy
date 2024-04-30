@@ -27,7 +27,7 @@ class STIXMap(GenericMap):
             res.axes.coords[0].set_axislabel(r'STIX $\Theta_{X}$')
             res.axes.coords[1].set_axislabel(r'STIX $\Theta_{Y}$')
 
-        res.axes.coords[0].set_xlabel(r'STIX $\theta_{X}$')
-        res.axes.coords[0].set_xlabel(r'STIX $\theta_{Y}$')
+        res.axes.coords[0].set_axislabel(r'STIX $\theta_{X}$')
+        res.axes.coords[0].set_axislabel(r'STIX $\theta_{Y}$')
 
         return res

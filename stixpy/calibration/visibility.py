@@ -162,8 +162,8 @@ def create_meta_pixels(pixel_data, time_range, energy_range, phase_center, no_sh
     ebin_edges_high = elut.e_actual[..., 1:]
     ebin_widths = ebin_edges_high - ebin_edges_low
 
-    e_cor_low = (ebin_edges_high[..., e_ind[0]] - elut.e[..., e_ind[0] + 1].value) / ebin_widths[..., e_ind[0]]
-    e_cor_high = (elut.e[..., e_ind[-1] + 2].value - ebin_edges_high[..., e_ind[-1] - 1]) / ebin_widths[..., e_ind[-1]]
+    e_cor_low = (ebin_edges_high[..., e_ind[0]-1] - elut.e[..., e_ind[0]].value) / ebin_widths[..., e_ind[0]-1]
+    e_cor_high = (elut.e[..., e_ind[-1]+1].value - ebin_edges_high[..., e_ind[-1] - 2]) / ebin_widths[..., e_ind[-1]-1]
 
     e_cor = (  # noqa
         (ebin_edges_high[..., e_ind[-1]] - ebin_edges_low[..., e_ind[0]])
@@ -213,7 +213,7 @@ def create_meta_pixels(pixel_data, time_range, energy_range, phase_center, no_sh
         0.010009999,
     ] * u.cm**2
 
-    areas = np.array(pixel_areas).reshape(-1, 4)[0:2].sum(axis=0)
+    areas = pixel_areas.reshape(-1, 4)[0:2].sum(axis=0)
 
     meta_pixels = {"abcd_rate_kev_cm": abcd_rate_kev / areas, "abcd_rate_error_kev_cm": abcd_rate_error_kev / areas}
 

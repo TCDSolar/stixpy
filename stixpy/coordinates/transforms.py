@@ -17,6 +17,7 @@ from stixpy.coordinates.frames import STIX_X_OFFSET, STIX_X_SHIFT, STIX_Y_OFFSET
 
 __all__ = ['get_hpc_info', 'stixim_to_hpc', 'hpc_to_stixim']
 
+
 def _get_rotation_matrix_and_position(obstime):
     r"""
     Return rotation matrix STIX Imaging to SOLO HPC and position of SOLO in HEEQ.

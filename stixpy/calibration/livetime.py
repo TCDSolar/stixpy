@@ -83,9 +83,12 @@ def pileup_correction_factor():
 
     subc_str = read_subc_params()
     large_pixel_area = (subc_str['L Pixel Xsize'] * subc_str['L Pixel Ysize'])[0]
-    detector_area = (subc_str['Detect Xsize'] * subc_str['Detect Xsize'])[0]
-    big_pixel_fraction = large_pixel_area/detector_area
-    prob_diff_pix = (2./big_pixel_fraction - 1.)/(2./big_pixel_fraction)
+    small_pixel_area = (subc_str['S Pixel Xsize'] * subc_str['S Pixel Ysize'])[0]
+    # half a small pixel overlaps each big pixel
+    large_pixel_area_corrected = large_pixel_area - 0.5 * small_pixel_area
+    detector_area = (subc_str['Detect Xsize'] * subc_str['Detect Ysize'])[0]
+    big_pixel_fraction = large_pixel_area_corrected/detector_area
+    prob_diff_pix = (2/big_pixel_fraction - 1)/(2/big_pixel_fraction)
 
     return prob_diff_pix
 
@@ -108,7 +111,7 @@ def get_livetime_fraction(trigger_rate, *, eta=1.10 * u.us, tau=10.1 * u.us):
     `float`, `float`, `float`:
         The live time fraction
     """
-    beta = pileup_correction_factor()
+    beta = 0.94059104  # pileup_correction_factor()
 
     photons_in = trigger_rate / (1.0 - trigger_rate * (tau + eta))
     livetime_fraction = 1 / (1.0 + (tau + eta) * photons_in)

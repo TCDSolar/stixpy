@@ -5,7 +5,7 @@ from stixpy.calibration.livetime import get_livetime_fraction, pileup_correction
 
 def test_pileup_correction_factor():
     pileup_factor = pileup_correction_factor()
-    assert pileup_factor == 0.9346590909090909
+    assert pileup_factor == 0.9405910326086957
 
 
 def test_get_livetime():

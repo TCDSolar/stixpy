@@ -24,4 +24,7 @@ class STIXMap(GenericMap):
         res.axes.coords[0].set_format_unit(u.arcsec)
         res.axes.coords[1].set_format_unit(u.arcsec)
 
+        res.axes.coords[0].set_xlabel(r'STIX $\theta_{X}$')
+        res.axes.coords[0].set_xlabel(r'STIX $\theta_{Y}$')
+
         return res

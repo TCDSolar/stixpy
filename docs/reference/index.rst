@@ -13,8 +13,6 @@ Reference
    map
    product
    science
-   science
-   timeseries
    timeseries
    visualisation
 

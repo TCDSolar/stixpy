@@ -11,6 +11,12 @@ from stixpy.calibration.grid import get_grid_transmission
 from stixpy.calibration.livetime import get_livetime_fraction
 from stixpy.io.readers import read_subc_params
 
+__all__ = ["get_subcollimator_info",
+           "create_meta_pixels",
+           "create_visibility",
+           "get_uv_points_data",
+           "calibrate_visibility",
+           "sas_map_center"]
 
 def get_subcollimator_info():
     r"""
@@ -233,7 +239,7 @@ def create_visibility(meta_pixels):
     real_err = np.sqrt(abcd_rate_error_kev_cm[:, 2] ** 2 + abcd_rate_error_kev_cm[:, 0] ** 2).value * real.unit
     imag_err = np.sqrt(abcd_rate_error_kev_cm[:, 3] ** 2 + abcd_rate_error_kev_cm[:, 1] ** 2).value * real.unit
 
-    vis = get_visibility_info()
+    vis = get_uv_points_data()
 
     # Compute raw phases
     phase = np.arctan2(imag, real)
@@ -263,38 +269,35 @@ def create_visibility(meta_pixels):
     return vis
 
 
-def get_visibility_info(grid_separation=550 * u.mm):
+@u.quantity_input
+def get_uv_points_data(d_det: u.Quantity[u.mm]=47.78 * u.mm, d_sep:u.Quantity[u.mm]=545.30 * u.mm):
     r"""
-    Return the sub-collimator data and corresponding u, v points.
+    Returns the STIX (u,v) points coordinates defined in [1]. The coordinates are ordered with respect to the detector index.
 
     Parameters
     ----------
-    grid_separation : `float`, optional
-        Front to read grid separation
+    d_det: `u.Quantity[u.mm]` optional
+        Distance between the rear grid and the detector plane (in mm). Default, 47.78 * u.mm
+
+    d_sep: `u.Quantity[u.mm]` optional
+        Distance between the front and the rear grid (in mm). Default, 545.30 * u.mm
 
     Returns
     -------
+    A dictionary containing sub-collimator indices, sub-collimator labels and coordinates of the STIX (u,v) points (defined in arcsec :sup:`-1`)
+
+    References
+    ----------
+    [1] Massa et al., 2023, The STIX Imaging Concept, Solar Physics, 298,
+        https://doi.org/10.1007/s11207-023-02205-7
 
     """
-    # imaging sub-collimators
+
     subc = read_subc_params()
     imaging_ind = np.where((subc["Grid Label"] != "cfl") & (subc["Grid Label"] != "bkg"))
 
     # filter out background monitor and flare locator
     subc_imaging = subc[imaging_ind]
-
-    # take average of front and rear grid pitches (mm)
-    pitch = (subc_imaging["Front Pitch"] + subc_imaging["Rear Pitch"]) / 2.0
-
-    # convert pitch from mm to arcsec
-    # TODO check diff not using small angle approx
-    pitch = (pitch / grid_separation).decompose() * u.rad
-
-    # take average of front and rear grid orientation
-    orientation = (subc_imaging["Front Orient"] + subc_imaging["Rear Orient"]) / 2.0
-
-    # calculate number of frequency components
-    len(subc_imaging)
 
     # assign detector numbers to visibility index of subcollimator (isc)
     isc = subc_imaging["Det #"]
@@ -305,74 +308,26 @@ def get_visibility_info(grid_separation=550 * u.mm):
     # save phase orientation of the grids to the visibility
     phase_sense = subc_imaging["Phase Sense"]
 
-    # calculate u and v
-    uv = 1.0 / pitch.to("arcsec")
-    uu = uv * np.cos(orientation.to("rad"))
-    vv = uv * np.sin(orientation.to("rad"))
+    # see Equation (9) in [1]
+    front_unit_vector_comp = (((d_det + d_sep) / subc_imaging["Front Pitch"]) / u.rad).to(1 / u.arcsec)
+    rear_unit_vector_comp = ((d_det / subc_imaging["Rear Pitch"]) / u.rad).to(1 / u.arcsec)
 
-    # Add the lifetime isc association. This gives the lifetime pairings
-    # vis.live_time = stx_ltpair_assignment(vis.isc)
-
-    vis = {
-        "pitch": pitch,
-        "orientation": orientation,
-        "isc": isc,
-        "label": label,
-        "phase_sense": phase_sense,
-        "u": uu,
-        "v": vv,
-    }
-    return vis
-
-
-def get_visibility_info_giordano():
-    L1 = 545.30 * u.mm
-    L2 = 47.78 * u.mm
-
-    subc = read_subc_params()
-    imaging_ind = np.where((subc["Grid Label"] != "cfl") & (subc["Grid Label"] != "bkg"))
-
-    # np.where((subc['Grid Label'] != 'cfl') & (subc['Grid Label'] != 'bkg'))
-
-    # filter out background monitor and flare locator
-    subc_imaging = subc[imaging_ind]
-
-    # take average of front and rear grid pitches (mm)
-    # pitch = (subc_imaging['Front Pitch'] + subc_imaging['Rear Pitch']) / 2.0
-
-    # convert pitch from mm to arcsec
-    # TODO check diff not using small angle approx
-    # pitch = (pitch / L1).decompose() * u.rad
-
-    # take average of front and rear grid orientation
-    # (subc_imaging['Front Orient'] + subc_imaging['Rear Orient']) / 2.0
-
-    # calculate number of frequency components
-    # len(subc_imaging)
-
-    # assign detector numbers to visibility index of subcollimator (isc)
-    # isc = subc_imaging['Det #']
-
-    # assign the stix sc label for convenience
-    subc_imaging["Grid Label"]
-
-    # save phase orientation of the grids to the visibility
-    phase_sense = subc_imaging["Phase Sense"]
-
-    pitch_front = (1 / subc_imaging["Front Pitch"] * (L2 + L1)).value * 1 / u.rad
-    pitch_rear = (1 / subc_imaging["Rear Pitch"] * L2).value * 1 / u.rad
-
-    uu = np.cos(subc_imaging["Front Orient"].to("deg")) * pitch_front.to(1 / u.arcsec) - np.cos(
-        subc_imaging["Rear Orient"].to("deg")
-    ) * pitch_rear.to(1 / u.arcsec)
-    vv = np.sin(subc_imaging["Front Orient"].to("deg")) * pitch_front.to(1 / u.arcsec) - np.sin(
-        subc_imaging["Rear Orient"].to("deg")
-    ) * pitch_rear.to(1 / u.arcsec)
+    uu = np.cos(subc_imaging["Front Orient"].to("deg")) * front_unit_vector_comp - np.cos(
+        subc_imaging["Rear Orient"].to("deg")) * rear_unit_vector_comp
+    vv = np.sin(subc_imaging["Front Orient"].to("deg")) * front_unit_vector_comp - np.sin(
+        subc_imaging["Rear Orient"].to("deg")) * rear_unit_vector_comp
 
     uu = -uu * phase_sense
     vv = -vv * phase_sense
 
-    return uu.to(1 / u.arcsec), vv.to(1 / u.arcsec)
+    uv_data = {
+        "isc": isc,     # sub-collimator indices
+        "label": label, # sub-collimator labels
+        "u": uu,
+        "v": vv,
+    }
+
+    return uv_data
 
 
 def calibrate_visibility(vis, flare_location=(0, 0) * u.arcsec):
@@ -436,49 +391,6 @@ def calibrate_visibility(vis, flare_location=(0, 0) * u.arcsec):
     )
 
     return cal_vis
-
-
-def correct_phase_projection(vis, flare_xy):
-    r"""
-    Correct visibilities for projection of the grids onto the detectors.
-
-    The rear grids are not in direct contact with the detectors so the phase of the visibilities
-    needs to be project onto the grid and this is dependent on the position of the xray emission
-
-    Parameters
-    ----------
-    vis
-        Input visibilities
-    flare_xy
-        Position of the flare
-
-    Returns
-    -------
-
-    """
-    # Phase projection correction
-    l1 = 550 * u.mm  # separation of front rear grid
-    l2 = 47 * u.mm  # separation of rear grid and detector
-    # TODO check how this works out to degrees
-    vis.phase -= (
-        flare_xy[1].to_value("arcsec") * 360.0 * np.pi / (180.0 * 3600.0 * 8.8 * u.mm) * (l2 + l1 / 2.0)
-    ) * u.deg
-
-    vis.u *= -vis.phase_sense
-    vis.v *= -vis.phase_sense
-
-    # Compute real and imaginary part of the visibility
-    vis.obsvis = vis.amplitude * (np.cos(vis.phase.to("rad")) + np.sin(vis.phase.to("rad")) * 1j)
-
-    # Add phase factor for shifting the flare_xy
-    map_center = flare_xy  # - [26.1, 58.2] * u.arcsec
-    # Subtract Frederic's mean shift values
-
-    # TODO check the u, v why is flare_xy[1] used with u (prob stix vs spacecraft orientation
-    phase_mapcenter = -2 * np.pi * (map_center[0] * vis.u - map_center[1] * vis.v) * u.rad
-    vis.obsvis *= np.cos(phase_mapcenter) + np.sin(phase_mapcenter) * 1j
-
-    return vis
 
 
 def sas_map_center():

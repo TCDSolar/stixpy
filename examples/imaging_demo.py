@@ -12,27 +12,30 @@ Imports
 """
 
 import logging
+
 import astropy.units as u
 import matplotlib.pyplot as plt
 import numpy as np
-# from astropy.coordinates import SkyCoord
-# from astropy.time import Time
-# from sunpy.map import make_fitswcs_header, Map
-
-# from stixpy.frames import get_hpc_info
-from stixpy.imaging.em import em
-from stixpy.calibration.visibility import (
-    calibrate_visibility,
-    create_meta_pixels,
-    create_visibility,
-    get_visibility_info_giordano,
-)
-from stixpy.product import Product
-
 from xrayvision.clean import vis_clean
 from xrayvision.imaging import vis_to_image, vis_to_map
 from xrayvision.mem import mem
 from xrayvision.visibility import Visibility
+
+from stixpy.calibration.visibility import (
+    calibrate_visibility,
+    create_meta_pixels,
+    create_visibility,
+    get_uv_points_data,
+)
+# from stixpy.frames import get_hpc_info
+from stixpy.imaging.em import em
+from stixpy.product import Product
+
+# from astropy.coordinates import SkyCoord
+# from astropy.time import Time
+# from sunpy.map import make_fitswcs_header, Map
+
+
 
 logger = logging.getLogger(__name__)
 logger.setLevel("DEBUG")
@@ -67,9 +70,9 @@ vis = create_visibility(meta_pixels)
 # Calibrate the visibilties
 
 # Extra phase calihraiton not needed with these
-uu, vv = get_visibility_info_giordano()
-vis.u = uu
-vis.v = vv
+uv_data = get_uv_points_data()
+vis.u = uv_data['u']
+vis.v = uv_data['v']
 
 cal_vis = calibrate_visibility(vis)
 
@@ -127,9 +130,9 @@ meta_pixels = create_meta_pixels(
 )
 
 vis = create_visibility(meta_pixels)
-uu, vv = get_visibility_info_giordano()
-vis.u = uu
-vis.v = vv
+uv_data = get_uv_points_data()
+vis.u = uv_data['u']
+vis.v = uv_data['v']
 cal_vis = calibrate_visibility(vis, [max_hpc.Tx, max_hpc.Ty])
 
 ###############################################################################
@@ -233,6 +236,7 @@ d = axes[1, 1].imshow(em_map.value, vmin=0, vmax=vmax)
 axes[1, 1].set_title("EM")
 fig.colorbar(d)
 fig.tight_layout()
+plt.show()
 
 # roll, pos, ref = get_hpc_info(Time(time_range[0]))
 # solo_coord = SkyCoord(*pos, frame='heliocentricearthecliptic', representation_type='cartesian', obstime=Time(time_range[0]))

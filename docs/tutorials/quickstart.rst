@@ -171,7 +171,7 @@ will return the correct product type. In this case we are providing the path to 
     PixelMasks
     [0...339]: [['1' '1' '1' '1' '1' '1' '1' '1' '1' '1' '1' '1']]
 
-    EnergyMasks
+    EnergyEdgeMasks
     [0]: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31]
 
 A spectrogram plot can be obtained by call the `plot_spectrogram` method.
@@ -226,7 +226,7 @@ Now let look at the pixel data, the data can be loaded just same as the spectrog
     PixelMasks
     [0...146]: [['1' '1' '1' '1' '1' '1' '1' '1' '0' '0' '0' '0']]
 
-    EnergyMasks
+    EnergyEdgeMasks
     [0]: [_,_,2,3,4,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_]
 
 Pixel data supports the same plot methods as spectrogram but notice the plots only contain

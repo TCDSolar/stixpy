@@ -34,35 +34,56 @@ logger = logging.getLogger(__name__)
 logger.setLevel("DEBUG")
 
 #############################################################################
-# Create a product
+# Read science file as Product
 
-cpd = Product(
+cpd_sci = Product(
     "http://pub099.cs.technik.fhnw.ch/fits/L1/2021/09/23/SCI/solo_L1_stix-sci-xray-cpd_20210923T152015-20210923T152639_V02_2109230030-62447.fits"
 )
-cpd
+cpd_sci
+
+#############################################################################
+# Read background file as Product
+
+cpd_bkg = Product(
+    "http://pub099.cs.technik.fhnw.ch/fits/L1/2021/09/23/SCI/solo_L1_stix-sci-xray-cpd_20210923T095923-20210923T113523_V02_2109230083-57078.fits"
+)
+cpd_bkg
 
 ###############################################################################
-# Set time and energy ranges which will be used to create the visibilties
+# Set time and energy ranges which will be considered for the science and the background file
 
-time_range = ["2021-09-23T15:21:00", "2021-09-23T15:24:00"]
+time_range_sci = ["2021-09-23T15:21:00", "2021-09-23T15:24:00"]
+# time_range_bkg = ["2021-09-23T09:59:23.757", "2021-09-23T11:35:23.757"] # Set this range larger than the actual observation time
+time_range_bkg = ["2021-09-23T09:00:00", "2021-09-23T12:00:00"]
 energy_range = [28, 40]
 
 ###############################################################################
-# Creat the meta pixel, A, B, C, D
+# Create the meta pixel, A, B, C, D for the science and the background data
 
-meta_pixels = create_meta_pixels(
-    cpd, time_range=time_range, energy_range=energy_range, phase_center=[0, 0] * u.arcsec, no_shadowing=True
+meta_pixels_sci = create_meta_pixels(
+    cpd_sci, time_range=time_range_sci, energy_range=energy_range, phase_center=[0, 0] * u.arcsec, no_shadowing=True
 )
+
+meta_pixels_bkg = create_meta_pixels(
+    cpd_bkg, time_range=time_range_bkg, energy_range=energy_range, phase_center=[0, 0] * u.arcsec, no_shadowing=True
+)
+
+###############################################################################
+# Perform background subtraction
+
+meta_pixels_bkg_subtracted = {"abcd_rate_kev_cm": meta_pixels_sci["abcd_rate_kev_cm"] - meta_pixels_bkg["abcd_rate_kev_cm"],
+                              "abcd_rate_error_kev_cm": np.sqrt( meta_pixels_sci["abcd_rate_error_kev_cm"]**2 +
+                                                                 meta_pixels_bkg["abcd_rate_error_kev_cm"]**2)}
 
 ###############################################################################
 # Create visibilites from the meta pixels
 
-vis = create_visibility(meta_pixels)
+vis = create_visibility(meta_pixels_bkg_subtracted)
 
 ###############################################################################
-# Calibrate the visibilties
+# Calibrate the visibilities
 
-# Extra phase calihraiton not needed with these
+# Extra phase calibration not needed with these
 uv_data = get_uv_points_data()
 vis.u = uv_data['u']
 vis.v = uv_data['v']
@@ -95,7 +116,7 @@ pixel = [10, 10] * u.arcsec  # pixel size in aresec
 # Make a full disk back projection (inverse transform) map
 
 fd_bp_map = vis_to_map(stix_vis, imsize, pixel_size=pixel)
-fd_bp_map.meta["rsun_obs"] = cpd.meta["rsun_arc"]
+fd_bp_map.meta["rsun_obs"] = cpd_sci.meta["rsun_arc"]
 fd_bp_map.draw_limb()
 fd_bp_map.plot()
 
@@ -113,16 +134,20 @@ fd_bp_map.draw_limb()
 axes.plot_coord(max_hpc, marker=".", markersize=50, fillstyle="none", color="r", markeredgewidth=2)
 axes.set_xlabel("STIX Y")
 axes.set_ylabel("STIX X")
-axes.set_title(f'STIX {" ".join(time_range)} {"-".join([str(e) for e in energy_range])} keV')
+axes.set_title(f'STIX {" ".join(time_range_sci)} {"-".join([str(e) for e in energy_range])} keV')
 
 ################################################################################
 # Use estimated flare location to create more accurate visibilities
 
-meta_pixels = create_meta_pixels(
-    cpd, time_range=time_range, energy_range=energy_range, phase_center=[max_hpc.Tx, max_hpc.Ty], no_shadowing=False
+meta_pixels_sci = create_meta_pixels(
+    cpd_sci, time_range=time_range_sci, energy_range=energy_range, phase_center=[max_hpc.Tx, max_hpc.Ty], no_shadowing=True
 )
 
-vis = create_visibility(meta_pixels)
+meta_pixels_bkg_subtracted = {"abcd_rate_kev_cm": meta_pixels_sci["abcd_rate_kev_cm"] - meta_pixels_bkg["abcd_rate_kev_cm"],
+                              "abcd_rate_error_kev_cm": np.sqrt( meta_pixels_sci["abcd_rate_error_kev_cm"]**2 +
+                                                                 meta_pixels_bkg["abcd_rate_error_kev_cm"]**2)}
+
+vis = create_visibility(meta_pixels_bkg_subtracted)
 uv_data = get_uv_points_data()
 vis.u = uv_data['u']
 vis.v = uv_data['v']
@@ -202,7 +227,7 @@ for k, v in cal_vis.__dict__.items():
         setattr(stix_vis1, k, v[idx])
 
 em_map = em(
-    meta_pixels["abcd_rate_kev_cm"],
+    meta_pixels_bkg_subtracted["abcd_rate_kev_cm"],
     stix_vis1,
     shape=imsize,
     pixel_size=pixel,

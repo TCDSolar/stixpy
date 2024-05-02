@@ -2,6 +2,7 @@ from pathlib import Path
 
 import numpy as np
 
+from stixpy.calibration.detector import get_sci_channels
 from stixpy.io.readers import read_elut, read_elut_index
 from stixpy.product import Product
 from stixpy.utils.rebining import rebin_proportional
@@ -19,7 +20,8 @@ def get_elut(date):
     elif len(elut_info) > 1:
         raise ValueError(f"Multiple ELUTs for for date {date}")
     start_date, end_date, elut_file = list(elut_info)[0]
-    elut_table = read_elut(elut_file)
+    sci_channels = get_sci_channels(date)
+    elut_table = read_elut(elut_file, sci_channels)
 
     return elut_table
 

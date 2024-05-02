@@ -16,6 +16,9 @@ import logging
 import astropy.units as u
 import matplotlib.pyplot as plt
 import numpy as np
+from astropy.time import Time
+from sunpy.coordinates import HeliographicStonyhurst, Helioprojective
+from sunpy.map import Map, make_fitswcs_header
 from xrayvision.clean import vis_clean
 from xrayvision.imaging import vis_to_image, vis_to_map
 from xrayvision.mem import mem
@@ -27,6 +30,8 @@ from stixpy.calibration.visibility import (
     create_visibility,
     get_uv_points_data,
 )
+from stixpy.coordinates.frames import STIXImaging
+from stixpy.coordinates.transforms import get_hpc_info
 from stixpy.imaging.em import em
 from stixpy.product import Product
 
@@ -38,6 +43,7 @@ logger.setLevel("DEBUG")
 
 cpd_sci = Product(
     "http://pub099.cs.technik.fhnw.ch/fits/L1/2021/09/23/SCI/solo_L1_stix-sci-xray-cpd_20210923T152015-20210923T152639_V02_2109230030-62447.fits"
+    # 'http://pub099.cs.technik.fhnw.ch/fits/L1/2022/08/24/SCI/solo_L1_stix-sci-xray-cpd_20220824T140037-20220824T145017_V02_2208242079-61784.fits'
 )
 cpd_sci
 
@@ -114,10 +120,31 @@ pixel = [10, 10] * u.arcsec  # pixel size in aresec
 ###############################################################################
 # Make a full disk back projection (inverse transform) map
 
-fd_bp_map = vis_to_map(stix_vis, imsize, pixel_size=pixel)
-fd_bp_map.meta["rsun_obs"] = cpd_sci.meta["rsun_arc"]
+bp_image = vis_to_image(stix_vis, imsize, pixel_size=pixel)
+
+date_avg = Time('2021-09-23T15:22:30')
+roll, solo_xyz, pointing = get_hpc_info(date_avg)
+
+solo = HeliographicStonyhurst(*solo_xyz, obstime=date_avg, representation_type='cartesian')
+coord = STIXImaging(0*u.arcsec, 0*u.arcsec, obstime='2021-09-23T15:22:30', observer=solo)
+header = make_fitswcs_header(bp_image, coord, telescope='STIX', observatory='Solar Orbiter', scale=[10,10]*u.arcsec/u.pix)
+fd_bp_map = Map((bp_image, header))
+
+hpc_ref = Helioprojective(pointing[0], pointing[1], observer=solo, obstime=fd_bp_map.date)
+header_hp = make_fitswcs_header(bp_image, hpc_ref, scale=[10,10]*u.arcsec/u.pix, rotation_angle=90*u.deg+roll)
+hp_map = Map((bp_image, header_hp))
+hp_map_rotated = hp_map.rotate()
+
+fig = plt.figure(figsize=(12, 8))
+ax0 = fig.add_subplot(1, 2, 1, projection=fd_bp_map)
+ax1 = fig.add_subplot(1, 2, 2, projection=hp_map_rotated)
+fd_bp_map.plot(axes=ax0)
 fd_bp_map.draw_limb()
-fd_bp_map.plot()
+fd_bp_map.draw_grid()
+
+hp_map_rotated.plot(axes=ax1)
+hp_map_rotated.draw_limb()
+hp_map_rotated.draw_grid()
 
 ###############################################################################
 # Estimate the flare location and plot on top of back projection map.
@@ -126,14 +153,9 @@ max_pixel = np.argwhere(fd_bp_map.data == fd_bp_map.data.max()).ravel() * u.pixe
 # because WCS axes are reverse order
 max_hpc = fd_bp_map.pixel_to_world(max_pixel[1], max_pixel[0])
 
-fig = plt.figure()
-axes = fig.add_subplot(projection=fd_bp_map)
-fd_bp_map.plot(axes=axes)
-fd_bp_map.draw_limb()
-axes.plot_coord(max_hpc, marker=".", markersize=50, fillstyle="none", color="r", markeredgewidth=2)
-axes.set_xlabel("STIX Y")
-axes.set_ylabel("STIX X")
-axes.set_title(f'STIX {" ".join(time_range_sci)} {"-".join([str(e) for e in energy_range])} keV')
+ax0.plot_coord(max_hpc, marker=".", markersize=50, fillstyle="none", color="r", markeredgewidth=2)
+ax1.plot_coord(max_hpc, marker=".", markersize=50, fillstyle="none", color="r", markeredgewidth=2)
+
 
 ################################################################################
 # Use estimated flare location to create more accurate visibilities

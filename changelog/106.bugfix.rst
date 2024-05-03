@@ -1,0 +1,1 @@
+Fix ELUT correction when the requested data has less then than 32 energy channels.

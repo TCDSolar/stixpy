@@ -1,1 +1,1 @@
-Implement background subtraction in the demo, fix ELUT correction, implement ELUT correction for background counts, implement Energy Edge Masks
+Add background subtraction step to imaging demo, update `EnergyEdgeMasks`.

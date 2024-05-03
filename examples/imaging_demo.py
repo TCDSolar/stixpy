@@ -53,8 +53,7 @@ cpd_bkg
 # Set time and energy ranges which will be considered for the science and the background file
 
 time_range_sci = ["2021-09-23T15:21:00", "2021-09-23T15:24:00"]
-# time_range_bkg = ["2021-09-23T09:59:23.757", "2021-09-23T11:35:23.757"] # Set this range larger than the actual observation time
-time_range_bkg = ["2021-09-23T09:00:00", "2021-09-23T12:00:00"]
+time_range_bkg = ["2021-09-23T09:00:00", "2021-09-23T12:00:00"]  # Set this range larger than the actual observation time
 energy_range = [28, 40]
 
 ###############################################################################

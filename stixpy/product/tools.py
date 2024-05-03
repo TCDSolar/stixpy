@@ -4,8 +4,31 @@ Analysis tools.
 
 import numpy as np
 
+ARRAY_MASK_MAP = {}
+ARRAY_MASK_MAP[np.ndarray] = np.ma.masked_array
+_NUMPY_COPY_IF_NEEDED = False if np.__version__.startswith("1.") else None
+try:
+    import dask.array
+    ARRAY_MASK_MAP[dask.array.core.Array] = dask.array.ma.masked_array
+except ImportError:
+    pass
 
-def rebin_irregular(data, axes_idx_edges, operation=np.mean):
+
+# TODO: Delete once this function is broken out in ndcube to a util and import from there
+def _convert_to_masked_array(data, mask, operation_ignores_mask):
+    m = None if (mask is None or mask is False or operation_ignores_mask) else mask
+    if m is not None:
+        for array_type, masked_type in ARRAY_MASK_MAP.items():
+            if isinstance(data, array_type):
+                break
+        else:
+            masked_type = np.ma.masked_array
+            warn_user("data and mask arrays of different or unrecognized types. Casting them into a numpy masked array.")
+        return masked_type(data, m)
+
+
+def rebin_irregular(cube, axes_idx_edges, operation=np.mean, operation_ignores_mask=False,
+                    handle_mask=np.all):
     """
     Downsample array by combining irregularly sized, but contiguous, blocks of elements into bins.
 
@@ -39,17 +62,35 @@ def rebin_irregular(data, axes_idx_edges, operation=np.mean):
        [[ 6.,  4.],
         [ 6.,  4.]]])
     """
-    # TODO: extend this function to handle NDCube, not just an array.
-    ndim = data.ndim
+    # Sanitize inputs
+    ndim = len(cube.shape)
     if len(axes_idx_edges) != ndim:
         raise ValueError(f"length of axes_idx_edges must be {ndim}")
+    # Combine data and mask and determine whether mask also needs rebinning.
+    data = _convert_to_masked_array(cube.data, cube.mask, operation_ignores_mask)
+    rebin_mask = False
+    if handle_mask is None or operation_ignores_mask:
+        mask = None
+    else:
+        mask = cube.mask
+        if not isinstance(cube.mask, (type(None), bool)):
+            rebin_mask = True
+    # Iterate through dimensions and perform rebinning operation.
     for i, edges in enumerate(axes_idx_edges):
+        # If no edge indices provided for dimension, skip to next one.
         if edges is None:
             continue
-        r = []
+        # Iterate through pixel blocks and collapse via rebinning operation.
+        tmp_data = []
+        tmp_mask = []
         item = [slice(None)] * ndim
         for j in range(len(edges)-1):
             item[i] = slice(edges[j], edges[j+1])
-            r.append(operation(data[*item], axis=i))
-        data = np.stack(r, axis=i)
-    return data
+            tmp_data.append(operation(data[*item], axis=i))
+            if rebin_mask is True:
+                tmp_mask.append(handle_mask(mask[*item], axis=i))
+        data = np.stack(tmp_data, axis=i)
+        if rebin_mask:
+            mask = np.stack(tmp_mask, axis=i)
+    data = data.data
+    return data, mask

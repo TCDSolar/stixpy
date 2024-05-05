@@ -57,35 +57,3 @@ def test_hpc_to_stx_no_sas(mock):
         # should match the offset -8, 60 added to yaw and pitch 10, 10
         assert_quantity_allclose(stix_coord.Tx, (10 - 8) * u.arcsec)
         assert_quantity_allclose(stix_coord.Ty, (10 + 60) * u.arcsec)
-
-
-def test_stix_wcs_to_frame(stix_wcs):
-    frame = stix_wcs_to_frame(stix_wcs)
-    assert isinstance(frame, STIXImaging)
-
-
-def test_stix_wcs_to_frame_none():
-    w = WCS(naxis=2)
-    w.wcs.ctype = ['ham', 'cheese']
-    frame = stix_wcs_to_frame(w)
-
-    assert frame is None
-
-
-def test_stix_frame_to_wcs(stix_frame):
-    wcs = stix_frame_to_wcs(stix_frame)
-
-    assert isinstance(wcs, WCS)
-    assert wcs.wcs.ctype[0] == 'SXLN-TAN'
-    assert wcs.wcs.cunit[0] == 'arcsec'
-    assert wcs.wcs.dateobs == '2024-01-01 00:00:00.000'
-
-    assert wcs.wcs.aux.rsun_ref == stix_frame.rsun.to_value(u.m)
-    assert wcs.wcs.aux.dsun_obs == 1.5e11
-    assert wcs.wcs.aux.hgln_obs == 10
-    assert wcs.wcs.aux.hglt_obs == 20
-
-
-def test_stix_frame_to_wcs_none():
-    wcs = stix_frame_to_wcs(Helioprojective())
-    assert wcs is None

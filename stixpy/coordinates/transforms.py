@@ -1,10 +1,9 @@
 import warnings
 
-import astropy
 import astropy.coordinates as coord
 import astropy.units as u
 import numpy as np
-from astropy.coordinates import QuantityAttribute, frame_transform_graph
+from astropy.coordinates import frame_transform_graph
 from astropy.coordinates.matrix_utilities import matrix_product, matrix_transpose, rotation_matrix
 from astropy.io import fits
 from astropy.table import QTable
@@ -157,85 +156,3 @@ def hpc_to_stixim(hpccoord, stxframe):
     stx_coord = stxframe.realize_frame(newrepr, obstime=solo_hpc_frame.obstime)
     logger.debug("STIX: %s", stx_coord)
     return stx_coord
-
-
-def stix_wcs_to_frame(wcs):
-    r"""
-    This function registers the coordinate frames to their FITS-WCS coordinate
-    type values in the `astropy.wcs.utils.wcs_to_celestial_frame` registry.
-
-    Parameters
-    ----------
-    wcs : astropy.wcs.WCS
-
-    Returns
-    -------
-    astropy.coordinates.BaseCoordinateFrame
-    """
-
-    # Not a STIX wcs bail out early
-    if set(wcs.wcs.ctype) != {'SXLN-TAN', 'SXLT-TAN'}:
-        return None
-
-    dateobs = wcs.wcs.dateavg
-
-    rsun = wcs.wcs.aux.rsun_ref
-    if rsun is not None:
-        rsun *= u.m
-
-    hgs_longitude = wcs.wcs.aux.hgln_obs
-    hgs_latitude = wcs.wcs.aux.hglt_obs
-    hgs_distance = wcs.wcs.aux.dsun_obs
-
-    observer = HeliographicStonyhurst(hgs_latitude * u.deg,
-                                      hgs_longitude * u.deg,
-                                      hgs_distance * u.m,
-                                      obstime=dateobs,
-                                      rsun=rsun)
-
-    frame_args = {'obstime': dateobs,
-                  'observer': observer,
-                  'rsun': rsun}
-    return STIXImaging(**frame_args)
-
-
-def stix_frame_to_wcs(frame):
-    r"""
-    For a given frame, this function returns the corresponding WCS object.
-    It registers the WCS coordinates types from their associated frame in the
-    `astropy.wcs.utils.celestial_frame_to_wcs` registry.
-
-    Parameters
-    ----------
-    frame : astropy.coordinates.BaseCoordinateFrame
-    projection : str, optional
-
-    Returns
-    -------
-    astropy.wcs.WCS
-    """
-    # Bail out early if not STIXImaging frame
-    if not isinstance(frame, STIXImaging):
-        return None
-
-    wcs = WCS(naxis=2)
-    wcs.wcs.aux.rsun_ref = frame.rsun.to_value(u.m)
-
-    # Sometimes obs_coord can be a SkyCoord, so convert down to a frame
-    obs_frame = frame.observer
-    if hasattr(obs_frame, 'frame'):
-        obs_frame = frame.observer.frame
-
-    wcs.wcs.aux.hgln_obs = obs_frame.lon.to_value(u.deg)
-    wcs.wcs.aux.hglt_obs = obs_frame.lat.to_value(u.deg)
-    wcs.wcs.aux.dsun_obs = obs_frame.radius.to_value(u.m)
-
-    wcs.wcs.dateobs = frame.obstime.utc.iso
-    wcs.wcs.cunit = ['arcsec', 'arcsec']
-    wcs.wcs.ctype = ['SXLN-TAN', 'SXLT-TAN']
-
-    return wcs
-
-
-astropy.wcs.utils.WCS_FRAME_MAPPINGS.append([stix_wcs_to_frame])
-astropy.wcs.utils.FRAME_WCS_MAPPINGS.append([stix_frame_to_wcs])

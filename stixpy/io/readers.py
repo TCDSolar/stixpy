@@ -108,6 +108,8 @@ def read_elut(elut_file, sci_channels):
     elut.e_actual = (elut.adc - elut.offset[..., None]) * elut.gain[..., None]
     elut.e_width_actual = elut.e_actual[..., 1:] - elut.e_actual[..., :-1]
 
+    # TODO remove after updating elut correction
+    elut.e = sci_channels["Elower"]
     elut.e_sci_low = sci_channels["Elower"]
     elut.e_sci_high = sci_channels["Eupper"]
     elut.e_width = sci_channels["Eupper"] - sci_channels["Elower"]

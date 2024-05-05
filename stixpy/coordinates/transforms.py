@@ -4,7 +4,7 @@ import astropy.coordinates as coord
 import astropy.units as u
 import numpy as np
 from astropy.coordinates import frame_transform_graph
-from astropy.coordinates.matrix_utilities import matrix_product, matrix_transpose, rotation_matrix
+from astropy.coordinates.matrix_utilities import matrix_transpose, rotation_matrix
 from astropy.io import fits
 from astropy.table import QTable
 from astropy.time import Time
@@ -44,7 +44,7 @@ def _get_rotation_matrix_and_position(obstime):
     C = rotation_matrix(-1 * spacecraft_pointing[0], "z")
 
     # Will be applied right to left
-    rmatrix = matrix_product(A, B, C, rot_to_solo)
+    rmatrix = A @ B @ C @ rot_to_solo
 
     return rmatrix, solo_position_heeq
 
@@ -127,7 +127,8 @@ def stixim_to_hpc(stxcoord, hpcframe):
 
     # Create SOLO HPC
     solo_hpc = Helioprojective(
-        newrepr, obstime=stxcoord.obstime, observer=solo_heeq.transform_to(HeliographicStonyhurst)
+        newrepr, obstime=stxcoord.obstime,
+        observer=solo_heeq.transform_to(HeliographicStonyhurst(obstime=stxcoord.obstime))
     )
     logger.debug("SOLO HPC: %s", solo_hpc)
 

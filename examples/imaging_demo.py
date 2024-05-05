@@ -33,17 +33,16 @@ from stixpy.calibration.visibility import (
 from stixpy.coordinates.frames import STIXImaging
 from stixpy.coordinates.transforms import get_hpc_info
 from stixpy.imaging.em import em
+from stixpy.map.stix import STIXMap  # noqa
 from stixpy.product import Product
 
 logger = logging.getLogger(__name__)
-logger.setLevel("DEBUG")
 
 #############################################################################
 # Read science file as Product
 
 cpd_sci = Product(
     "http://pub099.cs.technik.fhnw.ch/fits/L1/2021/09/23/SCI/solo_L1_stix-sci-xray-cpd_20210923T152015-20210923T152639_V02_2109230030-62447.fits"
-    # 'http://pub099.cs.technik.fhnw.ch/fits/L1/2022/08/24/SCI/solo_L1_stix-sci-xray-cpd_20220824T140037-20220824T145017_V02_2208242079-61784.fits'
 )
 cpd_sci
 
@@ -131,7 +130,7 @@ header = make_fitswcs_header(bp_image, coord, telescope='STIX', observatory='Sol
 fd_bp_map = Map((bp_image, header))
 
 hpc_ref = Helioprojective(pointing[0], pointing[1], observer=solo, obstime=fd_bp_map.date)
-header_hp = make_fitswcs_header(bp_image, hpc_ref, scale=[10,10]*u.arcsec/u.pix, rotation_angle=90*u.deg+roll)
+header_hp = make_fitswcs_header(bp_image, hpc_ref, scale=[10, 10]*u.arcsec/u.pix, rotation_angle=90*u.deg+roll)
 hp_map = Map((bp_image, header_hp))
 hp_map_rotated = hp_map.rotate()
 
@@ -204,13 +203,11 @@ pixel = [2, 2] * u.arcsec  # pixel size in arcsec
 # Create a back projection image with natural weighting
 
 bp_nat = vis_to_image(stix_vis1, imsize, pixel_size=pixel)
-plt.imshow(bp_nat.value)
 
 ###############################################################################
 # Create a back projection image with uniform weighting
 
 bp_uni = vis_to_image(stix_vis1, imsize, pixel_size=pixel, natural=False)
-plt.imshow(bp_uni.value)
 
 ###############################################################################
 # Create a `sunpy.map.Map` with back projection

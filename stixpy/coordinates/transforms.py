@@ -12,7 +12,10 @@ from sunpy.coordinates import HeliographicStonyhurst, Helioprojective
 from sunpy.net import Fido
 from sunpy.net import attrs as a
 
-from stixpy.coordinates.frames import STIX_X_OFFSET, STIX_X_SHIFT, STIX_Y_OFFSET, STIX_Y_SHIFT, STIXImaging, logger
+from stixpy.coordinates.frames import STIX_X_OFFSET, STIX_X_SHIFT, STIX_Y_OFFSET, STIX_Y_SHIFT, STIXImaging
+from stixpy.utils.logging import get_logger
+
+logger = get_logger(__name__)
 
 __all__ = ['get_hpc_info', 'stixim_to_hpc', 'hpc_to_stixim']
 
@@ -154,5 +157,5 @@ def hpc_to_stixim(hpccoord, stxframe):
     # Transform from SOLO HPC to STIX imaging
     newrepr = solo_hpc_coord.cartesian.transform(matrix_transpose(rmatrix))
     stx_coord = stxframe.realize_frame(newrepr, obstime=solo_hpc_frame.obstime)
-    logger.debug("STIX: %s", stx_coord)
+    logger.debug("STIX: %s", newrepr)
     return stx_coord

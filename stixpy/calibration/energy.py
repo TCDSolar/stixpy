@@ -9,7 +9,22 @@ from stixpy.utils.rebining import rebin_proportional
 
 __all__ = ['get_elut','correct_counts']
 
+
 def get_elut(date):
+    r"""
+    Get the energy lookup table (ELUT) for the given date
+
+    Combines the ELUT with the science energy channels for the same date.
+
+    Parameters
+    ----------
+    date `astropy.time.Time`
+        Date to look up the ELUT.
+
+    Returns
+    -------
+
+    """
     root = Path(__file__).parent.parent
     elut_index_file = Path(root, *["config", "data", "elut", "elut_index.csv"])
 

@@ -5,6 +5,7 @@ Analysis tools.
 import astropy.nddata
 import numpy as np
 from ndcube.utils.cube import propagate_rebin_uncertainties
+from ndcube.utils.wcs import convert_between_array_and_pixel_axes, physical_type_to_pixel_axes
 
 ARRAY_MASK_MAP = {}
 ARRAY_MASK_MAP[np.ndarray] = np.ma.masked_array
@@ -65,10 +66,16 @@ def rebin_irregular(cube, axes_idx_edges, operation=np.mean, operation_ignores_m
         [ 6.,  4.]]])
     """
     # Sanitize inputs
-    ndim = len(cube.shape)
+    ndim = len(cube.data.shape)
     if len(axes_idx_edges) != ndim:
         raise ValueError(f"length of axes_idx_edges must be {ndim}")
 
+    # Extract coordinate grids for rebinning.
+    new_coord_values = list(cube.axis_world_coords_values())
+    wc_arr_idxs = [
+        convert_between_array_and_pixel_axes(physical_type_to_pixel_axes(physical_type, cube.wcs),
+                                             len(cube.dimensions))
+        for physical_type in cube.wcs.world_axis_physical_types][::-1]
     # Combine data and mask and determine whether mask also needs rebinning.
     new_data = _convert_to_masked_array(cube.data, cube.mask, operation_ignores_mask)
     rebin_mask = False
@@ -112,7 +119,9 @@ def rebin_irregular(cube, axes_idx_edges, operation=np.mean, operation_ignores_m
         tmp_data = []
         tmp_mask = []
         tmp_uncertainties = []
+        tmp_coords = [[]] * len(new_coord_values)
         item = [slice(None)] * ndim
+        coord_item = np.array([slice(None)] * ndim)
         for j in range(len(edges)-1):
             # Rebin data
             item[i] = slice(edges[j], edges[j+1])
@@ -132,11 +141,21 @@ def rebin_irregular(cube, axes_idx_edges, operation=np.mean, operation_ignores_m
                                                                 operation_ignores_mask=operation_ignores_mask,
                                                                 handle_mask=handle_mask, new_unit=new_unit, **kwargs)
                 tmp_uncertainties.append(tmp_uncertainty.array)
+            # Rebin coordinates
+            coord_item[i] = np.array([edges[j], edges[j+1]-1])
+            for k, (coord, coord_arr_idx) in enumerate(zip(new_coord_values, wc_arr_idxs)):
+                if i in coord_arr_idx:
+                    l = np.where(coord_arr_idx == i)[0][0]
+                    tmp_coords[k].append(np.mean(coord[coord_item[*coord_arr_idx]], axis=l))
         # Restore rebinned axes.
         if rebin_mask:
             new_mask = np.stack(tmp_mask, axis=i)
         new_data = np.ma.masked_array(np.stack(tmp_data, axis=i).data, mask=new_mask)
         if propagate_uncertainties:
             new_uncertainty = type(new_uncertainty)(np.stack(tmp_uncertainties, axis=i),unit=new_uncertainty.unit)
+        for k, coord_arr_idx in enumerate(wc_arr_idxs):
+            if i in coord_arr_idx:
+                l = np.where(coord_arr_idx == i)[0][0]
+                new_coord_values[k] = np.stack(tmp_coords[k], axis=l)
 
-    return new_data.data, new_mask, new_uncertainty
+    return new_data.data, new_mask, new_uncertainty, new_coord_values

@@ -93,11 +93,7 @@ def read_elut_index(elut_index):
     return elut_it
 
 
-def read_elut(elut_file):
-    root = Path(__file__).parent.parent
-    sci_channels = read_sci_energy_channels(
-        Path(root, *["config", "data", "detector", "ScienceEnergyChannels_1000.csv"])
-    )
+def read_elut(elut_file, sci_channels):
     elut_table = Table.read(elut_file, header_start=2)
 
     elut = type("ELUT", (object,), dict())
@@ -112,7 +108,10 @@ def read_elut(elut_file):
     elut.e_actual = (elut.adc - elut.offset[..., None]) * elut.gain[..., None]
     elut.e_width_actual = elut.e_actual[..., 1:] - elut.e_actual[..., :-1]
 
+    # TODO remove after updating elut correction
     elut.e = sci_channels["Elower"]
+    elut.e_sci_low = sci_channels["Elower"]
+    elut.e_sci_high = sci_channels["Eupper"]
     elut.e_width = sci_channels["Eupper"] - sci_channels["Elower"]
 
     return elut

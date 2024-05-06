@@ -56,11 +56,12 @@ def get_pixel_srm():
 
 def get_sci_channels(date):
     r"""
-    Get the science energy channel info for given date
+    Get the science energy channels for given date.
 
     Parameters
     ----------
     date : `datetime.datetime`
+        Date to lookup science energy channels.
 
     Returns
     -------

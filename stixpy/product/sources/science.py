@@ -28,7 +28,7 @@ __all__ = [
     "IndexMasks",
     "DetectorMasks",
     "PixelMasks",
-    "EnergyMasks",
+    "EnergyEdgeMasks",
 ]
 
 
@@ -90,12 +90,24 @@ class DetectorMasks(IndexMasks):
     pass
 
 
-class EnergyMasks(IndexMasks):
+class EnergyEdgeMasks(IndexMasks):
     """
-    Energy Index Mask
+    Energy Edges Mask
     """
+    @property
+    def energy_mask(self):
+        """
+        Return mask of energy channels from mask of energy edges.
 
-    pass
+        Returns
+        -------
+        `np.array`
+        """
+        energy_bin_mask = (self.masks & np.roll(self.masks, 1))[0,1:]
+        indices = np.where(energy_bin_mask == 1)
+        energy_bin_mask[indices[0][0]: indices[0][-1] + 1] = 1
+        return energy_bin_mask
+
 
 
 class PixelMasks(PPrintMixin):
@@ -463,7 +475,7 @@ class ScienceData(L1Product):
         if "pixel_masks" in self.data.colnames:
             self.pixel_masks = PixelMasks(self.data["pixel_masks"])
         if "energy_bin_edge_mask" in self.control.colnames:
-            self.energy_masks = EnergyMasks(self.control["energy_bin_edge_mask"])
+            self.energy_masks = EnergyEdgeMasks(self.control["energy_bin_edge_mask"])
             self.dE = energies["e_high"] - energies["e_low"]
 
     @property
@@ -739,7 +751,7 @@ class RawPixelData(ScienceData, PixelPlotMixin, TimesSeriesPlotMixin, Spectrogra
         PixelMasks
         [0...4]: [['1' '1' '1' '1' '1' '1' '1' '1' '1' '1' '1' '1']]
     <BLANKLINE>
-        EnergyMasks
+        EnergyEdgeMasks
         [0]: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32]
     <BLANKLINE>
     """
@@ -778,7 +790,7 @@ class CompressedPixelData(ScienceData, PixelPlotMixin, TimesSeriesPlotMixin, Spe
         PixelMasks
         [0...4]: [['1' '1' '1' '1' '1' '1' '1' '1' '1' '1' '1' '1']]
     <BLANKLINE>
-        EnergyMasks
+        EnergyEdgeMasks
         [0]: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32]
     """
 
@@ -819,7 +831,7 @@ class SummedCompressedPixelData(ScienceData, PixelPlotMixin, TimesSeriesPlotMixi
      ['0' '1' '0' '0' '0' '1' '0' '0' '0' '1' '0' '0']
      ['1' '0' '0' '0' '1' '0' '0' '0' '1' '0' '0' '0']]]
     <BLANKLINE>
-        EnergyMasks
+        EnergyEdgeMasks
         [0]: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32]
     """
 
@@ -917,7 +929,7 @@ class Visibility(ScienceData):
     #  ['0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '1.0' '0.0']
     #  ['0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '0.0' '1.0']]]
     # <BLANKLINE>
-    #     EnergyMasks
+    #     EnergyEdgeMasks
     #     [0]: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31]
     # <BLANKLINE>
     """
@@ -971,7 +983,7 @@ class Spectrogram(ScienceData, TimesSeriesPlotMixin, SpectrogramPlotMixin):
         PixelMasks
         [0...4]: [['0' '0' '0' '0' '0' '0' '0' '0' '0' '0' '0' '0']]
     <BLANKLINE>
-        EnergyMasks
+        EnergyEdgeMasks
         [0]: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32]
     <BLANKLINE>
     """
@@ -990,7 +1002,7 @@ class Spectrogram(ScienceData, TimesSeriesPlotMixin, SpectrogramPlotMixin):
         self.count_type = "rate"
         self.detector_masks = DetectorMasks(self.control["detector_masks"])
         self.pixel_masks = PixelMasks(self.data["pixel_masks"])
-        # self.energy_masks = EnergyMasks(self.control['energy_bin_edge_mask'])
+        # self.energy_masks = EnergyEdgeMasks(self.control['energy_bin_edge_mask'])
         # self.dE = (energies['e_high'] - energies['e_low'])[self.energy_masks.masks[0] == 1]
         # self.dE = np.hstack([[1], np.diff(energies['e_low'][1:]).value, [1]]) * u.keV
 

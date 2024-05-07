@@ -10,7 +10,7 @@ from sunpy.sun.constants import radius as _RSUN
 from stixpy.net.client import STIXClient  # noqa
 from stixpy.utils.logging import get_logger
 
-logger = get_logger(__name__, "DEBUG")
+logger = get_logger(__name__)
 
 __all__ = ["STIXImaging"]
 

@@ -1,10 +1,10 @@
 import warnings
 
+import astropy.coordinates as coord
+import astropy.units as u
 import numpy as np
-from astropy import coordinates as coord
-from astropy import units as u
 from astropy.coordinates import frame_transform_graph
-from astropy.coordinates.matrix_utilities import matrix_product, matrix_transpose, rotation_matrix
+from astropy.coordinates.matrix_utilities import matrix_transpose, rotation_matrix
 from astropy.io import fits
 from astropy.table import QTable
 from astropy.time import Time
@@ -12,7 +12,10 @@ from sunpy.coordinates import HeliographicStonyhurst, Helioprojective
 from sunpy.net import Fido
 from sunpy.net import attrs as a
 
-from stixpy.coordinates.frames import STIX_X_OFFSET, STIX_X_SHIFT, STIX_Y_OFFSET, STIX_Y_SHIFT, STIXImaging, logger
+from stixpy.coordinates.frames import STIX_X_OFFSET, STIX_X_SHIFT, STIX_Y_OFFSET, STIX_Y_SHIFT, STIXImaging
+from stixpy.utils.logging import get_logger
+
+logger = get_logger(__name__)
 
 __all__ = ['get_hpc_info', 'stixim_to_hpc', 'hpc_to_stixim']
 
@@ -41,7 +44,7 @@ def _get_rotation_matrix_and_position(obstime):
     C = rotation_matrix(-1 * spacecraft_pointing[0], "z")
 
     # Will be applied right to left
-    rmatrix = matrix_product(A, B, C, rot_to_solo)
+    rmatrix = A @ B @ C @ rot_to_solo
 
     return rmatrix, solo_position_heeq
 
@@ -124,7 +127,8 @@ def stixim_to_hpc(stxcoord, hpcframe):
 
     # Create SOLO HPC
     solo_hpc = Helioprojective(
-        newrepr, obstime=stxcoord.obstime, observer=solo_heeq.transform_to(HeliographicStonyhurst)
+        newrepr, obstime=stxcoord.obstime,
+        observer=solo_heeq.transform_to(HeliographicStonyhurst(obstime=stxcoord.obstime))
     )
     logger.debug("SOLO HPC: %s", solo_hpc)
 
@@ -154,5 +158,5 @@ def hpc_to_stixim(hpccoord, stxframe):
     # Transform from SOLO HPC to STIX imaging
     newrepr = solo_hpc_coord.cartesian.transform(matrix_transpose(rmatrix))
     stx_coord = stxframe.realize_frame(newrepr, obstime=solo_hpc_frame.obstime)
-    logger.debug("STIX: %s", stx_coord)
+    logger.debug("STIX: %s", newrepr)
     return stx_coord

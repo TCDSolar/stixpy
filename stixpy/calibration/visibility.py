@@ -88,7 +88,7 @@ def create_meta_pixels(pixel_data, time_range, energy_range, phase_center, no_sh
     energy_range
         Start and end energies
     phase_center
-        The coordinates of the phase center
+        The coordinates of the center
     no_shadowing : bool optional
         If set to True turn grid shadowing correction off
     Returns
@@ -157,38 +157,29 @@ def create_meta_pixels(pixel_data, time_range, energy_range, phase_center, no_sh
 
     pixel_data.data["livefrac"] = livefrac
 
-    elut = get_elut(pixel_data.time_range.center)
-    ebin_edges_low = elut.e_actual[..., 0:-1]
-    ebin_edges_high = elut.e_actual[..., 1:]
-    ebin_widths = ebin_edges_high - ebin_edges_low
+    e_cor_high, e_cor_low = get_elut_correction(e_ind, pixel_data)
 
-    e_cor_low = (ebin_edges_high[..., e_ind[0]] - elut.e[..., e_ind[0] + 1].value) / ebin_widths[..., e_ind[0]]
-    e_cor_high = (elut.e[..., e_ind[-1] + 2].value - ebin_edges_high[..., e_ind[-1] - 1]) / ebin_widths[..., e_ind[-1]]
-
-    e_cor = (  # noqa
-        (ebin_edges_high[..., e_ind[-1]] - ebin_edges_low[..., e_ind[0]])
-        * u.keV
-        / (elut.e[e_ind[-1] + 1] - elut.e[e_ind[0]])
-    )
-
-    counts = pixel_data.data["counts"]
-    ct = counts[t_ind][..., e_ind].astype(float)
+    counts = pixel_data.data["counts"].astype(float)
+    count_errors = np.sqrt(pixel_data.data["counts_comp_err"].astype(float).value**2 + counts.value) * u.ct
+    ct = counts[t_ind][..., e_ind]
     ct[..., 0:8, 0] = ct[..., 0:8, 0] * e_cor_low[..., 0:8]
     ct[..., 0:8, -1] = ct[..., 0:8, -1] * e_cor_high[..., 0:8]
+    ct_error = count_errors[t_ind][..., e_ind]
+    ct_error[..., 0:8, 0] = ct_error[..., 0:8, 0] * e_cor_low[..., 0:8]
+    ct_error[..., 0:8, -1] = ct_error[..., 0:8, -1] * e_cor_high[..., 0:8]
 
     lt = (livefrac * pixel_data.data["timedel"].reshape(-1, 1).to("s"))[t_ind].sum(axis=0)
 
-    ct_sumed = ct.sum(axis=(0, 3)).astype(float)
-
-    err_sumed = (np.sqrt(ct.sum(axis=(0, 3)).value)) * u.ct
+    ct_summed = ct.sum(axis=(0, 3))#.astype(float)
+    ct_error_summed = np.sqrt(np.sum(ct_error**2, axis=(0, 3)))
 
     if not no_shadowing:
         grid_shadowing = get_grid_transmission(phase_center)
-        ct_sumed = ct_sumed / grid_shadowing.reshape(-1, 1) / 4  # transmission grid ~ 0.5*0.5 = .25
-        err_sumed = err_sumed / grid_shadowing.reshape(-1, 1) / 4
+        ct_summed = ct_summed / grid_shadowing.reshape(-1, 1) / 4  # transmission grid ~ 0.5*0.5 = .25
+        ct_error_summed = ct_error_summed / grid_shadowing.reshape(-1, 1) / 4
 
-    abcd_counts = ct_sumed.reshape(ct_sumed.shape[0], -1, 4)[:, [0, 1], :].sum(axis=1)
-    abcd_count_errors = np.sqrt((err_sumed.reshape(ct_sumed.shape[0], -1, 4)[:, [0, 1], :] ** 2).sum(axis=1))
+    abcd_counts = ct_summed.reshape(ct_summed.shape[0], -1, 4)[:, [0, 1], :].sum(axis=1)
+    abcd_count_errors = np.sqrt((ct_error_summed.reshape(ct_error_summed.shape[0], -1, 4)[:, [0, 1], :] ** 2).sum(axis=1))
 
     abcd_rate = abcd_counts / lt.reshape(-1, 1)
     abcd_rate_error = abcd_count_errors / lt.reshape(-1, 1)
@@ -213,11 +204,47 @@ def create_meta_pixels(pixel_data, time_range, energy_range, phase_center, no_sh
         0.010009999,
     ] * u.cm**2
 
-    areas = np.array(pixel_areas).reshape(-1, 4)[0:2].sum(axis=0)
+    areas = pixel_areas.reshape(-1, 4)[0:2].sum(axis=0)
 
     meta_pixels = {"abcd_rate_kev_cm": abcd_rate_kev / areas, "abcd_rate_error_kev_cm": abcd_rate_error_kev / areas}
 
     return meta_pixels
+
+
+def get_elut_correction(e_ind, pixel_data):
+    r"""
+    Get ELUT correction factors
+
+    Only correct the low and high energy edges as internal bins are contiguous.
+
+    Parameters
+    ----------
+    e_ind : `np.ndarray`
+        Energy channel indices
+    pixel_data : `~stixpy.products.sources.CompressedPixelData`
+        Pixel data
+
+    Returns
+    -------
+
+    """
+    energy_mask = pixel_data.energy_masks.energy_mask.astype(bool)
+    elut = get_elut(pixel_data.time_range.center)
+    ebin_edges_low = np.zeros((32, 12, 32), dtype=float)
+    ebin_edges_low[..., 1:] = elut.e_actual
+    ebin_edges_low = ebin_edges_low[..., energy_mask]
+    ebin_edges_high = np.zeros((32, 12, 32), dtype=float)
+    ebin_edges_high[..., 0:-1] = elut.e_actual
+    ebin_edges_high[..., -1] = np.nan
+    ebin_edges_high = ebin_edges_high[..., energy_mask]
+    ebin_widths = ebin_edges_high - ebin_edges_low
+    ebin_sci_edges_low = elut.e[..., 0:-1].value
+    ebin_sci_edges_low = ebin_sci_edges_low[..., energy_mask]
+    ebin_sci_edges_high = elut.e[..., 1:].value
+    ebin_sci_edges_high = ebin_sci_edges_high[..., energy_mask]
+    e_cor_low = (ebin_edges_high[..., e_ind[0]] - ebin_sci_edges_low[..., e_ind[0]]) / ebin_widths[..., e_ind[0]]
+    e_cor_high = (ebin_sci_edges_high[..., e_ind[-1]] - ebin_edges_low[..., e_ind[-1]]) / ebin_widths[..., e_ind[-1]]
+    return e_cor_high, e_cor_low
 
 
 def create_visibility(meta_pixels):
@@ -270,9 +297,9 @@ def create_visibility(meta_pixels):
 
 
 @u.quantity_input
-def get_uv_points_data(d_det: u.Quantity[u.mm]=47.78 * u.mm, d_sep:u.Quantity[u.mm]=545.30 * u.mm):
+def get_uv_points_data(d_det: u.Quantity[u.mm] = 47.78 * u.mm, d_sep:u.Quantity[u.mm] = 545.30 * u.mm):
     r"""
-    Returns the STIX (u,v) points coordinates defined in [1]. The coordinates are ordered with respect to the detector index.
+    Return the STIX (u,v) points coordinates defined in [1], ordered with respect to the detector index.
 
     Parameters
     ----------

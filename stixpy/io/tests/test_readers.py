@@ -33,7 +33,10 @@ def test_read_elut_index(moc_table):
 def test_read_elut():
     root = Path(__file__).parent.parent.parent
     elut_file = Path(root, *["config", "data", "elut", "elut_table_20201204.csv"])
-    elut = read_elut(elut_file)
+    sci_file = root / 'config' / 'data' / 'detector' / 'ScienceEnergyChannels_1000.csv'
+
+    sci_channels = read_sci_energy_channels(sci_file)
+    elut = read_elut(elut_file, sci_channels)
 
     # make sure a few values are as expected
     assert elut.offset[0, 0] == 897.7778

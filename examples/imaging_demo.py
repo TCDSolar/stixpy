@@ -129,7 +129,7 @@ coord = STIXImaging(0*u.arcsec, 0*u.arcsec, obstime='2021-09-23T15:22:30', obser
 header = make_fitswcs_header(bp_image, coord, telescope='STIX', observatory='Solar Orbiter', scale=[10,10]*u.arcsec/u.pix)
 fd_bp_map = Map((bp_image, header))
 
-hpc_ref = Helioprojective(pointing[0], pointing[1], observer=solo, obstime=fd_bp_map.date)
+hpc_ref = coord.transform_to(Helioprojective(observer=solo, obstime=fd_bp_map.date))  # Center of STIX pointing in HPC
 header_hp = make_fitswcs_header(bp_image, hpc_ref, scale=[10, 10]*u.arcsec/u.pix, rotation_angle=90*u.deg+roll)
 hp_map = Map((bp_image, header_hp))
 hp_map_rotated = hp_map.rotate()

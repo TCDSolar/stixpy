@@ -14,10 +14,6 @@ logger = get_logger(__name__)
 
 __all__ = ["STIXImaging"]
 
-STIX_X_SHIFT = 26.1 * u.arcsec  # fall back to this when non sas solution available
-STIX_Y_SHIFT = 58.2 * u.arcsec  # fall back to this when non sas solution available
-STIX_X_OFFSET = 60.0 * u.arcsec  # remaining offset after SAS solution
-STIX_Y_OFFSET = 8.0 * u.arcsec  # remaining offset after SAS solution
 
 STIX_X_CTYPE = "SXLN-TAN"
 STIX_Y_CTYPE = "SXLT-TAN"

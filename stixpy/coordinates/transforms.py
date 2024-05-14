@@ -1,4 +1,5 @@
 import warnings
+from functools import lru_cache
 
 import astropy.coordinates as coord
 import astropy.units as u
@@ -6,14 +7,19 @@ import numpy as np
 from astropy.coordinates import frame_transform_graph
 from astropy.coordinates.matrix_utilities import matrix_transpose, rotation_matrix
 from astropy.io import fits
-from astropy.table import QTable
+from astropy.table import QTable, vstack
 from astropy.time import Time
 from sunpy.coordinates import HeliographicStonyhurst, Helioprojective
 from sunpy.net import Fido
 from sunpy.net import attrs as a
 
-from stixpy.coordinates.frames import STIX_X_OFFSET, STIX_X_SHIFT, STIX_Y_OFFSET, STIX_Y_SHIFT, STIXImaging
+from stixpy.coordinates.frames import STIXImaging
 from stixpy.utils.logging import get_logger
+
+STIX_X_SHIFT = 26.1 * u.arcsec  # fall back to this when non sas solution available
+STIX_Y_SHIFT = 58.2 * u.arcsec  # fall back to this when non sas solution available
+STIX_X_OFFSET = 60.0 * u.arcsec  # remaining offset after SAS solution
+STIX_Y_OFFSET = 8.0 * u.arcsec  # remaining offset after SAS solution
 
 logger = get_logger(__name__)
 
@@ -49,67 +55,145 @@ def _get_rotation_matrix_and_position(obstime):
     return rmatrix, solo_position_heeq
 
 
-def get_hpc_info(obstime):
-    roll, pitch, yaw, sas_x, sas_y, solo_position_heeq = _get_aux_data(obstime)
-    if np.isnan(sas_x) or np.isnan(sas_y):
-        warnings.warn("SAS solution not available using spacecraft pointing and average SAS offset")
-        sas_x = yaw
-        sas_y = pitch
+def get_hpc_info(start_time, end_time=None):
+    r"""
+    Get STIX pointing and SO location from L2 aspect files.
+
+    Parameters
+    ----------
+    start_time : `astropy.time.Time`
+        Time or start of a time interval.
+    end_time : `astropy.time.Time`, optional
+        End of time interval
+
+    Returns
+    -------
+
+    """
+    aux = _get_aux_data(start_time, end_time=end_time)
+    if end_time is None:
+        end_time = start_time
+    indices = np.argwhere((aux['time'] >= start_time) & (aux['time'] <= end_time))
+    indices = indices.flatten()
+
+    if indices.size < 2:
+        logger.info('Only one data point found interpolating between two closest times.')
+        # Times contained in one time bin have to interpolate
+        time_center = start_time + (end_time - start_time) * 0.5
+        diff_center = (aux['time']-time_center).to('s')
+        closest_index = np.argmin(np.abs(diff_center))
+
+        if diff_center[closest_index] > 0:
+            start_ind = closest_index-1
+            end_ind = closest_index + 1
+        else:
+            start_ind = closest_index
+            end_ind = closest_index + 2
+
+        interp = slice(start_ind, end_ind)
+        dt = np.diff(aux[start_ind:end_ind]['time'])[0].to(u.s)
+
+        roll, pitch, yaw = (aux[start_ind:start_ind+1]['roll_angle_rpy']
+                            + (np.diff(aux[interp]['roll_angle_rpy'], axis=0) / dt) * diff_center[closest_index])[0]
+        solo_heeq = (aux[start_ind:start_ind+1]['solo_loc_heeq_zxy']
+                     + (np.diff(aux[interp]['solo_loc_heeq_zxy'], axis=0) / dt) * diff_center[closest_index])[0]
+        sas_x = (aux[start_ind:start_ind+1]['y_srf']
+                 + (np.diff(aux[interp]['y_srf']) / dt) * diff_center[closest_index])[0]
+        sas_y = (aux[start_ind:start_ind+1]['z_srf']
+                 + (np.diff(aux[interp]['z_srf']) / dt) * diff_center[closest_index])[0]
+
+        good_solution = np.where(aux[interp]['sas_ok'] == 1)
+        good_sas = aux[good_solution]
+    else:
+        # average over
+        aux = aux[indices]
+
+        roll, pitch, yaw = np.mean(aux['roll_angle_rpy'], axis=0)
+        solo_heeq = np.mean(aux['solo_loc_heeq_zxy'], axis=0)
+
+        good_solution = np.where(aux['sas_ok'] == 1)
+        good_sas = aux[good_solution]
+
+        if len(good_sas) == 0:
+            warnings.warn(f"No good SAS solution found for time range: {start_time} to {end_time}.")
+            sas_x = 0
+            sas_y = 0
+        else:
+            sas_x = np.mean(good_sas["y_srf"])
+            sas_y = np.mean(good_sas["z_srf"])
+            sigma_x = np.std(good_sas["y_srf"])
+            sigma_y = np.std(good_sas["z_srf"])
+            tolerance = 3*u.arcsec
+            if sigma_x > tolerance or sigma_y > tolerance:
+                warnings.warn(f"Pointing unstable: StD(X) = {sigma_x}, StD(Y) = {sigma_y}.")
+
     # Convert the spacecraft pointing to STIX frame
     rotated_yaw = -yaw * np.cos(roll) + pitch * np.sin(roll)
     rotated_pitch = yaw * np.sin(roll) + pitch * np.cos(roll)
     spacecraft_pointing = np.hstack([STIX_X_SHIFT + rotated_yaw, STIX_Y_SHIFT + rotated_pitch])
+    stix_pointing = spacecraft_pointing
     sas_pointing = np.hstack([sas_x + STIX_X_OFFSET, -1 * sas_y + STIX_Y_OFFSET])
+
     pointing_diff = np.linalg.norm(spacecraft_pointing - sas_pointing)
-    if pointing_diff < 200 * u.arcsec:
-        logger.debug(f"Using SAS pointing {sas_pointing}")
-        spacecraft_pointing = sas_pointing
+    if np.all(np.isfinite(sas_pointing)) and len(good_sas) > 0:
+
+        if pointing_diff < 200 * u.arcsec:
+            logger.info(f"Using SAS pointing: {sas_pointing}")
+            stix_pointing = sas_pointing
+        else:
+            warnings.warn(f"Using spacecraft pointing: {spacecraft_pointing}"
+                          f" large difference between SAS and spacecraft.")
     else:
-        logger.debug(f"Using spacecraft pointing {spacecraft_pointing}")
-        warnings.warn(
-            f"Using spacecraft pointing large difference between "
-            f"SAS {sas_pointing} and spacecraft {spacecraft_pointing}."
-        )
-    return roll, solo_position_heeq, spacecraft_pointing
+        warnings.warn(f"SAS solution not available using spacecraft pointing: {stix_pointing}.")
+
+    return roll, solo_heeq, stix_pointing
 
 
-def _get_aux_data(obstime):
+@lru_cache
+def _get_aux_data(start_time, end_time=None):
+    r"""
+    Search, download and read L2 pointing data.
+
+    Parameters
+    ----------
+    start_time : `astropy.time.Time`
+        Time or start of a time interval.
+    end_time : `astropy.time.Time`, optional
+        End of time interval
+
+    Returns
+    -------
+
+    """
     # Find, download, read aux file with pointing, sas and position information
-    logger.debug("Searching for AUX data")
+    if end_time is None:
+        end_time = start_time
+    logger.debug(f"Searching for AUX data: {start_time} - {end_time}")
     query = Fido.search(
-        a.Time(obstime, obstime), a.Instrument.stix, a.Level.l2, a.stix.DataType.aux, a.stix.DataProduct.aux_ephemeris
+        a.Time(start_time, end_time), a.Instrument.stix, a.Level.l2, a.stix.DataType.aux, a.stix.DataProduct.aux_ephemeris
     )
-    if len(query["stix"]) != 1:
-        raise ValueError("Exactly one AUX file should be found but %d were found.", len(query["stix"]))
-    logger.debug("Downloading AUX data")
-    files = Fido.fetch(query)
-    if len(files.errors) > 0:
+    if len(query['stix']) == 0:
+        raise ValueError(f'No STIX pointing data found for time range {start_time} to {end_time}.')
+
+    logger.debug(f"Downloading {len(query['stix'])} AUX files")
+    aux_files = Fido.fetch(query['stix'])
+    if len(aux_files.errors) > 0:
         raise ValueError("There were errors downloading the data.")
     # Read and extract data
     logger.debug("Loading and extracting AUX data")
-    hdu = fits.getheader(files[0], ext=0)
-    aux = QTable.read(files[0], hdu=2)
-    start_time = Time(hdu.get("DATE-BEG"))
-    rel_date = (obstime - start_time).to("s")
-    idx = np.argmin(np.abs(rel_date - aux["time"]))
-    sas_x, sas_y = aux[idx][["y_srf", "z_srf"]]
-    roll, pitch, yaw = aux[idx]["roll_angle_rpy"]
-    solo_position_heeq = aux[idx]["solo_loc_heeq_zxy"]
-    logger.debug(
-        "SAS: %s, %s, Orientation: %s, %s, %s, Position: %s",
-        sas_x,
-        sas_y,
-        roll,
-        yaw.to("arcsec"),
-        pitch.to("arcsec"),
-        solo_position_heeq,
-    )
 
-    # roll, pitch, yaw = np.mean(aux[1219:1222]['roll_angle_rpy'], axis=0)
-    # sas_x = np.mean(aux[1219:1222]['y_srf'])
-    # sas_y = np.mean(aux[1219:1222]['z_srf'])
+    aux_data = []
+    for aux_file in aux_files:
+        hdu = fits.getheader(aux_file, ext=0)
+        aux = QTable.read(aux_file, hdu=2)
+        date_beg = Time(hdu.get("DATE-BEG"))
+        aux['time'] = date_beg + aux['time'] - 32*u.s  # Shift AUX data by half a time bin (starting time vs. bin centre)
+        aux_data.append(aux)
 
-    return roll, pitch, yaw, sas_x, sas_y, solo_position_heeq
+    aux = vstack(aux_data)
+    aux.sort(keys=['time'])
+
+    return aux
 
 
 @frame_transform_graph.transform(coord.FunctionTransform, STIXImaging, Helioprojective)

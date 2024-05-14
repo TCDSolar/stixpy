@@ -6,6 +6,7 @@ import astropy.nddata
 import numpy as np
 from ndcube.utils.cube import propagate_rebin_uncertainties
 from ndcube.utils.wcs import convert_between_array_and_pixel_axes, physical_type_to_pixel_axes
+from sunpy.util import warn_user
 
 ARRAY_MASK_MAP = {}
 ARRAY_MASK_MAP[np.ndarray] = np.ma.masked_array
@@ -46,7 +47,7 @@ def rebin_irregular(cube, axes_idx_edges, operation=np.mean, operation_ignores_m
 
     operation: func
         The operation defining how the elements in each block should be combined.
-        Must be able to be applied over a specfic axis via an axis= kwarg.
+        Must be able to be applied over a specific axis via an axis= kwarg.
         Defealt=`numpy.mean`
 
     Returns

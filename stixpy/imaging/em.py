@@ -150,6 +150,5 @@ def em(countrates, vis, shape, pixel_size, maxiter=5000, tolerance=0.001, *, fla
                 break
     m, n = shape.to_value("pix").astype(int)
     # Note the order keyword here to match `y.flatten(order='F')` above at line 108
-    # TODO investigate why .T is needed probably because of fortran ordering
     x_im = x.reshape(m, n, order="F")
     return x_im

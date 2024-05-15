@@ -58,12 +58,9 @@ def get_transmission_matrix(u, v, shape=[64, 64] * apu.pix, pixel_size=[4.0, 4.0
     idx = [6, 28, 0, 24, 4, 22, 5, 29, 1, 14, 26, 30, 23, 7, 27, 20, 25, 3, 15, 13, 31, 2, 19, 21]
     phase_cor = phase_cor[idx]
 
-    m, n = shape.to_value("pix")
+    x = generate_xy(shape[0], pixel_size=pixel_size[0], phase_centre=center[0])
+    y = generate_xy(shape[1], pixel_size=pixel_size[1], phase_centre=center[1])
 
-    # center = center - [26.1, 58.2] * apu.arcsec
-
-    y = generate_xy(m, pixel_size=pixel_size[1], center=center[1])
-    x = generate_xy(n, pixel_size=pixel_size[0], center=center[0])
     x, y = np.meshgrid(x, y)
     # Check apu are correct for exp need to be dimensionless and then remove apu for speed
     if (u[0] * x[0, 0]).unit == apu.dimensionless_unscaled and (v[0] * y[0, 0]).unit == apu.dimensionless_unscaled:
@@ -154,5 +151,5 @@ def em(countrates, vis, shape, pixel_size, maxiter=5000, tolerance=0.001, *, fla
     m, n = shape.to_value("pix").astype(int)
     # Note the order keyword here to match `y.flatten(order='F')` above at line 108
     # TODO investigate why .T is needed probably because of fortran ordering
-    x_im = x.reshape(m, n, order="F").T
+    x_im = x.reshape(m, n, order="F")
     return x_im

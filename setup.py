@@ -5,6 +5,7 @@ import os
 from itertools import chain
 
 from setuptools import setup  # isort:skip
+
 try:
     # Recommended for setuptools 61.0.0+
     # (though may disappear in the future)

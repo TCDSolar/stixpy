@@ -58,7 +58,10 @@ cpd_bkg
 # Set time and energy ranges which will be considered for the science and the background file
 
 time_range_sci = ["2021-09-23T15:21:00", "2021-09-23T15:24:00"]
-time_range_bkg = ["2021-09-23T09:00:00", "2021-09-23T12:00:00"]  # Set this range larger than the actual observation time
+time_range_bkg = [
+    "2021-09-23T09:00:00",
+    "2021-09-23T12:00:00",
+]  # Set this range larger than the actual observation time
 energy_range = [28, 40]
 
 ###############################################################################
@@ -75,9 +78,12 @@ meta_pixels_bkg = create_meta_pixels(
 ###############################################################################
 # Perform background subtraction
 
-meta_pixels_bkg_subtracted = {"abcd_rate_kev_cm": meta_pixels_sci["abcd_rate_kev_cm"] - meta_pixels_bkg["abcd_rate_kev_cm"],
-                              "abcd_rate_error_kev_cm": np.sqrt( meta_pixels_sci["abcd_rate_error_kev_cm"]**2 +
-                                                                 meta_pixels_bkg["abcd_rate_error_kev_cm"]**2)}
+meta_pixels_bkg_subtracted = {
+    "abcd_rate_kev_cm": meta_pixels_sci["abcd_rate_kev_cm"] - meta_pixels_bkg["abcd_rate_kev_cm"],
+    "abcd_rate_error_kev_cm": np.sqrt(
+        meta_pixels_sci["abcd_rate_error_kev_cm"] ** 2 + meta_pixels_bkg["abcd_rate_error_kev_cm"] ** 2
+    ),
+}
 
 ###############################################################################
 # Create visibilites from the meta pixels
@@ -89,8 +95,8 @@ vis = create_visibility(meta_pixels_bkg_subtracted)
 
 # Extra phase calibration not needed with these
 uv_data = get_uv_points_data()
-vis.u = uv_data['u']
-vis.v = uv_data['v']
+vis.u = uv_data["u"]
+vis.v = uv_data["v"]
 
 cal_vis = calibrate_visibility(vis)
 
@@ -121,16 +127,18 @@ pixel = [10, 10] * u.arcsec  # pixel size in aresec
 
 bp_image = vis_to_image(stix_vis, imsize, pixel_size=pixel)
 
-date_avg = Time('2021-09-23T15:22:30')
+date_avg = Time("2021-09-23T15:22:30")
 roll, solo_xyz, pointing = get_hpc_info(date_avg)
 
-solo = HeliographicStonyhurst(*solo_xyz, obstime=date_avg, representation_type='cartesian')
-coord = STIXImaging(0*u.arcsec, 0*u.arcsec, obstime='2021-09-23T15:22:30', observer=solo)
-header = make_fitswcs_header(bp_image, coord, telescope='STIX', observatory='Solar Orbiter', scale=[10,10]*u.arcsec/u.pix)
+solo = HeliographicStonyhurst(*solo_xyz, obstime=date_avg, representation_type="cartesian")
+coord = STIXImaging(0 * u.arcsec, 0 * u.arcsec, obstime="2021-09-23T15:22:30", observer=solo)
+header = make_fitswcs_header(
+    bp_image, coord, telescope="STIX", observatory="Solar Orbiter", scale=[10, 10] * u.arcsec / u.pix
+)
 fd_bp_map = Map((bp_image, header))
 
 hpc_ref = coord.transform_to(Helioprojective(observer=solo, obstime=fd_bp_map.date))  # Center of STIX pointing in HPC
-header_hp = make_fitswcs_header(bp_image, hpc_ref, scale=[10, 10]*u.arcsec/u.pix, rotation_angle=90*u.deg+roll)
+header_hp = make_fitswcs_header(bp_image, hpc_ref, scale=[10, 10] * u.arcsec / u.pix, rotation_angle=90 * u.deg + roll)
 hp_map = Map((bp_image, header_hp))
 hp_map_rotated = hp_map.rotate()
 
@@ -160,17 +168,24 @@ ax1.plot_coord(max_hpc, marker=".", markersize=50, fillstyle="none", color="r", 
 # Use estimated flare location to create more accurate visibilities
 
 meta_pixels_sci = create_meta_pixels(
-    cpd_sci, time_range=time_range_sci, energy_range=energy_range, phase_center=[max_hpc.Tx, max_hpc.Ty], no_shadowing=True
+    cpd_sci,
+    time_range=time_range_sci,
+    energy_range=energy_range,
+    phase_center=[max_hpc.Tx, max_hpc.Ty],
+    no_shadowing=True,
 )
 
-meta_pixels_bkg_subtracted = {"abcd_rate_kev_cm": meta_pixels_sci["abcd_rate_kev_cm"] - meta_pixels_bkg["abcd_rate_kev_cm"],
-                              "abcd_rate_error_kev_cm": np.sqrt( meta_pixels_sci["abcd_rate_error_kev_cm"]**2 +
-                                                                 meta_pixels_bkg["abcd_rate_error_kev_cm"]**2)}
+meta_pixels_bkg_subtracted = {
+    "abcd_rate_kev_cm": meta_pixels_sci["abcd_rate_kev_cm"] - meta_pixels_bkg["abcd_rate_kev_cm"],
+    "abcd_rate_error_kev_cm": np.sqrt(
+        meta_pixels_sci["abcd_rate_error_kev_cm"] ** 2 + meta_pixels_bkg["abcd_rate_error_kev_cm"] ** 2
+    ),
+}
 
 vis = create_visibility(meta_pixels_bkg_subtracted)
 uv_data = get_uv_points_data()
-vis.u = uv_data['u']
-vis.v = uv_data['v']
+vis.u = uv_data["u"]
+vis.v = uv_data["v"]
 cal_vis = calibrate_visibility(vis, [max_hpc.Tx, max_hpc.Ty])
 
 ###############################################################################

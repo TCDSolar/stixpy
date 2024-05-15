@@ -7,7 +7,7 @@ from stixpy.io.readers import read_elut, read_elut_index
 from stixpy.product import Product
 from stixpy.utils.rebining import rebin_proportional
 
-__all__ = ['get_elut','correct_counts']
+__all__ = ["get_elut", "correct_counts"]
 
 
 def get_elut(date):

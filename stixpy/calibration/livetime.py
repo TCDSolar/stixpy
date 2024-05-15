@@ -82,13 +82,13 @@ def pileup_correction_factor():
     """
 
     subc_str = read_subc_params()
-    large_pixel_area = (subc_str['L Pixel Xsize'] * subc_str['L Pixel Ysize'])[0]
-    small_pixel_area = (subc_str['S Pixel Xsize'] * subc_str['S Pixel Ysize'])[0]
+    large_pixel_area = (subc_str["L Pixel Xsize"] * subc_str["L Pixel Ysize"])[0]
+    small_pixel_area = (subc_str["S Pixel Xsize"] * subc_str["S Pixel Ysize"])[0]
     # half a small pixel overlaps each big pixel
     large_pixel_area_corrected = large_pixel_area - 0.5 * small_pixel_area
-    detector_area = (subc_str['Detect Xsize'] * subc_str['Detect Ysize'])[0]
-    big_pixel_fraction = large_pixel_area_corrected/detector_area
-    prob_diff_pix = (2/big_pixel_fraction - 1)/(2/big_pixel_fraction)
+    detector_area = (subc_str["Detect Xsize"] * subc_str["Detect Ysize"])[0]
+    big_pixel_fraction = large_pixel_area_corrected / detector_area
+    prob_diff_pix = (2 / big_pixel_fraction - 1) / (2 / big_pixel_fraction)
 
     return prob_diff_pix
 

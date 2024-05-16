@@ -178,7 +178,7 @@ class QLBackground(GenericTimeSeries):
 
     Background monitoring is done in such way that counts from background detector are summed in five specified energy
     ranges. These QL data are double buffered into accumulators of 32bit depth. Maximum rate is approximately 30kHz and
-     one live time counter is available. Integration time is parameter with default value of 32s
+    one live time counter is available. Integration time is parameter with default value of 32s
 
     Examples
     --------

@@ -49,7 +49,7 @@ class QLLightCurve(GenericTimeSeries):
 
     _source = "stix"
 
-    def plot(self, axes=None, columns='counts', **plot_args):
+    def plot(self, axes=None, columns=None, **plot_args):
         r"""
         Show a plot of the data.
 
@@ -58,6 +58,8 @@ class QLLightCurve(GenericTimeSeries):
         axes : `~matplotlib.axes.Axes`, optional
             If provided the image will be plotted on the given axes.
             Defaults to `None`, so the current axes will be used.
+        columns : `list`, optional
+            Columns to plot, defaults to 'counts'.
         **plot_args : `dict`, optional
             Additional plot keyword arguments that are handed to
             :meth:`pandas.DataFrame.plot`.
@@ -67,7 +69,7 @@ class QLLightCurve(GenericTimeSeries):
         axes : `~matplotlib.axes.Axes`
             The plot axes.
         """
-        if columns == 'counts':
+        if columns is None:
             count_re = re.compile(r"\d+-\d+ keV$")
             columns = [column for column in self.columns if count_re.match(column)]
 
@@ -216,7 +218,7 @@ class QLBackground(GenericTimeSeries):
 
     """
 
-    def plot(self, axes=None, columns='counts', **plot_args):
+    def plot(self, axes=None, columns=None, **plot_args):
         r"""
         Show a plot of the data.
 
@@ -226,7 +228,7 @@ class QLBackground(GenericTimeSeries):
             If provided the image will be plotted on the given axes.
             Defaults to `None`, so the current axes will be used.
         columns : `str`, optional
-            Columns to plot. Defaults to 'counts'.
+            Columns to plot, defaults to 'counts'.
         **plot_args : `dict`, optional
             Additional plot keyword arguments that are handed to
             :meth:`pandas.DataFrame.plot`.
@@ -381,15 +383,18 @@ class QLVariance(GenericTimeSeries):
     [21516 rows x 4 columns]
     """
 
-    def plot(self, axes=None, columns='variance', **plot_args):
+    def plot(self, axes=None, columns=None, **plot_args):
         """
         Show a plot of the data.
 
         Parameters
         ----------
+
         axes : `~matplotlib.axes.Axes`, optional
             If provided the image will be plotted on the given axes.
             Defaults to `None`, so the current axes will be used.
+        columns :
+            Columns to plot, defaults to 'variance'.
         **plot_args : `dict`, optional
             Additional plot keyword arguments that are handed to
             :meth:`pandas.DataFrame.plot`.
@@ -399,7 +404,7 @@ class QLVariance(GenericTimeSeries):
         axes : `~matplotlib.axes.Axes`
             The plot axes.
         """
-        if columns == 'variance':
+        if columns is None:
             count_re = re.compile(r"\d+-\d+ keV$")
             columns = [column for column in self.columns if count_re.match(column)]
 

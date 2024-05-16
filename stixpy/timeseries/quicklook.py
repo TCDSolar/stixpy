@@ -31,7 +31,9 @@ def _hdu_to_qtable(hdupair):
 
     """
     header = hdupair.header
-    header.pop('KEYCOMMENTS')
+    # TODD remove when python 3.9 and astropy 5.3.4 dropped
+    header.pop('keycomments')
+    header.pop('comment')
     bintable = BinTableHDU(hdupair.data, header=Header(cards=header))
     table = read_table_fits(bintable)
     qtable = QTable(table)

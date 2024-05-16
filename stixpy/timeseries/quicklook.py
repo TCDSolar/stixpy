@@ -2,7 +2,6 @@ import re
 from collections import OrderedDict
 
 import astropy.units as u
-import numpy as np
 from astropy.io import fits
 from astropy.io.fits import BinTableHDU, Header
 from astropy.io.fits.connect import read_table_fits
@@ -10,16 +9,14 @@ from astropy.table import QTable, Table
 from astropy.time.core import Time, TimeDelta
 from sunpy.timeseries.timeseriesbase import GenericTimeSeries
 
+from stixpy.calibration.livetime import get_livetime_fraction
+
 __all__ = ["QLLightCurve", "QLBackground", "QLVariance", "HKMaxi"]
-
-
-eta = 2.5 * u.us
-tau = 12.5 * u.us
 
 
 def _hdu_to_qtable(hdupair):
     r"""
-
+    Given a HDU pair, convert it to a QTable
 
     Parameters
     ----------
@@ -28,20 +25,16 @@ def _hdu_to_qtable(hdupair):
 
     Returns
     -------
-
+    QTable
     """
     header = hdupair.header
-    # TODD remove when python 3.9 and astropy 5.3.4 dropped
+    # TODD remove when python 3.9 and astropy 5.3.4 are dropped weird non-ascii error
     header.pop('keycomments')
     header.pop('comment')
     bintable = BinTableHDU(hdupair.data, header=Header(cards=header))
     table = read_table_fits(bintable)
     qtable = QTable(table)
     return qtable
-
-def _lfrac(trigger_rate):
-    nin = trigger_rate / (1 - (trigger_rate * (tau+eta)))
-    return np.exp(-eta * nin) / (1 + tau * nin)
 
 
 class QLLightCurve(GenericTimeSeries):
@@ -143,9 +136,9 @@ class QLLightCurve(GenericTimeSeries):
         energies = _hdu_to_qtable(hdulist[4])
         energy_delta = energies["e_high"] - energies["e_low"]
 
-        live_time = _lfrac(data["triggers"].reshape(-1) / (16 * data["timedel"]))
+        live_frac, *_ = get_livetime_fraction(data["triggers"].reshape(-1) / (16 * data["timedel"]))
 
-        data["counts"] = data["counts"] / ((data['timedel'].to(u.s)*live_time).reshape(-1, 1)*energy_delta * energy_delta)
+        data["counts"] = data["counts"] / ((data['timedel'].to(u.s) * live_frac).reshape(-1, 1) * energy_delta)
 
         names = [
             f"{energies['e_low'][i].value.astype(int)}-{energies['e_high'][i].value.astype(int)} {energies['e_high'].unit}" for i in range(5)]
@@ -161,8 +154,7 @@ class QLLightCurve(GenericTimeSeries):
             data["time"] = Time(header["date-obs"]) + TimeDelta(data["time"])
 
         units = OrderedDict((c.info.name, c.unit) for c in data.itercols() if c.info.name != 'time')
-        units.update([(name, u.ct / (u.s * u.keV)) for name in names])
-        units.update([(f"{name}_comp_err", u.ct/(u.s * u.keV)) for name in names])
+        units.update([(f"{name}_comp_err", units[name]) for name in names])
 
         data["triggers"] = data["triggers"].reshape(-1)
         data["triggers_comp_err"] = data["triggers_comp_err"].reshape(-1)
@@ -172,8 +164,6 @@ class QLLightCurve(GenericTimeSeries):
         data_df.drop(columns="time", inplace=True)
 
         return data_df, header, units
-
-
 
     @classmethod
     def is_datasource_for(cls, **kwargs):
@@ -274,9 +264,9 @@ class QLBackground(GenericTimeSeries):
             # label to the y-axis.
             unit = u.Unit(list(units)[0])
             axes.set_ylabel(unit.to_string())
+            axes.set_yscale("log")
 
         axes.set_title("STIX QL Background")
-        axes.set_yscale("log")
         axes.legend()
         self._setup_x_axis(axes)
         return axes
@@ -310,9 +300,9 @@ class QLBackground(GenericTimeSeries):
         energies = _hdu_to_qtable(hdulist[4])
         energy_delta = energies["e_high"] - energies["e_low"]
 
-        live_time = _lfrac(data["triggers"].reshape(-1) / data["timedel"])
+        live_frac, *_ = get_livetime_fraction(data["triggers"].reshape(-1) / data["timedel"])
 
-        data["counts"] = data["counts"] / ((data['timedel'].to(u.s)*live_time).reshape(-1, 1) * energy_delta)
+        data["counts"] = data["counts"] / ((data['timedel'].to(u.s) * live_frac).reshape(-1, 1) * energy_delta)
 
         names = [f'{energies["e_low"][i].value.astype(int)}-{energies["e_high"][i].value.astype(int)} {energies["e_high"].unit}' for i in range(5)]
 
@@ -328,8 +318,7 @@ class QLBackground(GenericTimeSeries):
             data["time"] = Time(header["date-obs"]) + TimeDelta(data["time"])
 
         units = OrderedDict((c.info.name, c.unit) for c in data.itercols() if c.info.name != 'time')
-        units.update([(name, u.ct/(u.s * u.keV)) for name in names])
-        units.update([(f"{name}_comp_err", u.ct/(u.s * u.keV)) for name in names])
+        units.update([(f"{name}_comp_err", units[name]) for name in names])
 
         data["triggers"] = data["triggers"].reshape(-1)
         data["triggers_comp_err"] = data["triggers_comp_err"].reshape(-1)

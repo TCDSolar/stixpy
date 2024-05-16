@@ -7,7 +7,6 @@ from astropy.io import fits
 from astropy.table import QTable, Table
 from astropy.time.core import Time, TimeDelta
 from sunpy.timeseries.timeseriesbase import GenericTimeSeries
-from sunpy.visualization import peek_show
 
 __all__ = ["QLLightCurve", "QLBackground", "QLVariance", "HKMaxi"]
 
@@ -50,23 +49,6 @@ class QLLightCurve(GenericTimeSeries):
 
     _source = "stix"
 
-    @peek_show
-    def peek(self, **kwargs):
-        r"""
-        Displays a graphical overview of the data in this object for user evaluation.
-        For the creation of plots, users should instead use the
-        `.plot` method and Matplotlib's pyplot framework.
-
-        Parameters
-        ----------
-        **kwargs : `dict`
-            Any additional plot arguments that should be used when plotting.
-        """
-
-        # Check we have a timeseries valid for plotting
-        self._validate_data_for_plotting()
-        self.plot(**kwargs)
-
     def plot(self, axes=None, columns='counts', **plot_args):
         r"""
         Show a plot of the data.
@@ -94,7 +76,7 @@ class QLLightCurve(GenericTimeSeries):
         axes = self._data[columns].plot(ax=axes, **plot_args)
 
         units = set([self.units[col] for col in columns])
-        if len(units) == 1:
+        if len(units) == 1 and list(units)[0] is not None:
             # If units of all columns being plotted are the same, add a unit
             # label to the y-axis.
             unit = u.Unit(list(units)[0])
@@ -234,23 +216,6 @@ class QLBackground(GenericTimeSeries):
 
     """
 
-    @peek_show
-    def peek(self, **kwargs):
-        r"""
-        Displays a graphical overview of the data in this object for user evaluation.
-        For the creation of plots, users should instead use the
-        `.plot` method and Matplotlib's pyplot framework.
-
-        Parameters
-        ----------
-        **kwargs : `dict`
-            Any additional plot arguments that should be used when plotting.
-        """
-
-        # Check we have a timeseries valid for plotting
-        self._validate_data_for_plotting()
-        self.plot(**kwargs)
-
     def plot(self, axes=None, columns='counts', **plot_args):
         r"""
         Show a plot of the data.
@@ -280,7 +245,7 @@ class QLBackground(GenericTimeSeries):
         axes = self._data[columns].plot(ax=axes, **plot_args)
 
         units = set([self.units[col] for col in columns])
-        if len(units) == 1:
+        if len(units) == 1 and list(units)[0] is not None:
             # If units of all columns being plotted are the same, add a unit
             # label to the y-axis.
             unit = u.Unit(list(units)[0])
@@ -439,11 +404,10 @@ class QLVariance(GenericTimeSeries):
             columns = [column for column in self.columns if count_re.match(column)]
 
         axes, columns = self._setup_axes_columns(axes, columns)
-
         axes = self._data[columns].plot(ax=axes, **plot_args)
 
         units = set([self.units[col] for col in columns])
-        if len(units) == 1:
+        if len(units) == 1 and list(units)[0] is not None:
             # If units of all columns being plotted are the same, add a unit
             # label to the y-axis.
             unit = u.Unit(list(units)[0])

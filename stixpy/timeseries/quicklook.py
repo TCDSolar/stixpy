@@ -83,9 +83,10 @@ class QLLightCurve(GenericTimeSeries):
             # label to the y-axis.
             unit = u.Unit(list(units)[0])
             axes.set_ylabel(unit.to_string())
+            if unit == u.ct/(u.s * u.keV):
+                axes.set_yscale("log")
 
         axes.set_title("STIX QL Light Curve")
-        axes.set_yscale("log")
         axes.legend()
         self._setup_x_axis(axes)
         return axes
@@ -119,7 +120,7 @@ class QLLightCurve(GenericTimeSeries):
         energies = QTable(hdulist[4].data)
         energy_delta = energies["e_high"] - energies["e_low"] << u.keV
 
-        live_time = _lfrac(data["triggers"].reshape(-1) / (16 * data["timedel"] * u.s))
+        live_time = _lfrac(data["triggers"].reshape(-1) / (16 * data["timedel"] * u.cs))
 
         data["counts"] = data["counts"] / (live_time.reshape(-1, 1) * energy_delta)
 
@@ -139,7 +140,7 @@ class QLLightCurve(GenericTimeSeries):
             data["time"] = Time(header["date-obs"]) + TimeDelta(data["time"] * u.cs)
 
         units = OrderedDict(
-            [("control_index", None), ("timedel", u.s), ("triggers", None), ("triggers_comp_err", None), ("rcr", None)]
+            [("control_index", None), ("timedel", u.cs), ("triggers", None), ("triggers_comp_err", None), ("rcr", None)]
         )
         units.update([(name, u.ct / (u.s * u.keV)) for name in names])
         units.update([(f"{name}_comp_err", u.ct/(u.s * u.keV)) for name in names])
@@ -308,7 +309,7 @@ class QLBackground(GenericTimeSeries):
             data["time"] = Time(header["date-obs"]) + TimeDelta(data["time"] * u.s)
 
         units = OrderedDict(
-            [("control_index", None), ("timedel", u.s), ("triggers", None), ("triggers_comp_err", None), ("rcr", None)]
+            [("control_index", None), ("timedel", u.cs), ("triggers", None), ("triggers_comp_err", None), ("rcr", None)]
         )
         units.update([(name, u.ct/(u.s * u.keV)) for name in names])
         units.update([(f"{name}_comp_err", u.ct/(u.s * u.keV)) for name in names])
@@ -473,7 +474,7 @@ class QLVariance(GenericTimeSeries):
         data.add_column(data["variance_comp_err"], name=f"{name}_comp_err")
         data.remove_column("variance_comp_err")
 
-        units = OrderedDict([("control_index", None), ("timedel", u.s),
+        units = OrderedDict([("control_index", None), ("timedel", u.cs),
                              (name, u.ct/(u.s * u.keV)), (f"{name}_comp_err", u.ct/(u.s * u.keV))])
 
         data[name] = data[name].reshape(-1)
@@ -596,9 +597,9 @@ class HKMaxi(GenericTimeSeries):
         data = Table(hdulist[2].data)
 
         try:
-            data["time"] = Time(header["date_obs"]) + TimeDelta(data["time"] * u.s)
+            data["time"] = Time(header["date_obs"]) + TimeDelta(data["time"] * u.cs)
         except KeyError:
-            data["time"] = Time(header["date-obs"]) + TimeDelta(data["time"] * u.s)
+            data["time"] = Time(header["date-obs"]) + TimeDelta(data["time"] * u.cs)
 
         data_df = data.to_pandas()
         data_df.index = data_df["time"]

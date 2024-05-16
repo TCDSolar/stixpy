@@ -4,6 +4,8 @@ from collections import OrderedDict
 import astropy.units as u
 import numpy as np
 from astropy.io import fits
+from astropy.io.fits import BinTableHDU, Header
+from astropy.io.fits.connect import read_table_fits
 from astropy.table import QTable, Table
 from astropy.time.core import Time, TimeDelta
 from sunpy.timeseries.timeseriesbase import GenericTimeSeries
@@ -14,6 +16,26 @@ __all__ = ["QLLightCurve", "QLBackground", "QLVariance", "HKMaxi"]
 eta = 2.5 * u.us
 tau = 12.5 * u.us
 
+
+def _hdu_to_qtable(hdupair):
+    r"""
+
+
+    Parameters
+    ----------
+    hdupair
+        HDU, header pair
+
+    Returns
+    -------
+
+    """
+    header = hdupair.header
+    header.pop('KEYCOMMENTS')
+    bintable = BinTableHDU(hdupair.data, header=Header(cards=header))
+    table = read_table_fits(bintable)
+    qtable = QTable(table)
+    return qtable
 
 def _lfrac(trigger_rate):
     nin = trigger_rate / (1 - (trigger_rate * (tau+eta)))
@@ -114,20 +136,17 @@ class QLLightCurve(GenericTimeSeries):
         hdulist :
         """
         header = hdulist[0].header
-        control = QTable(hdulist[1].data)
-        header["control"] = control
-        data = QTable(hdulist[2].data)
-        energies = QTable(hdulist[4].data)
-        energy_delta = energies["e_high"] - energies["e_low"] << u.keV
+        # control = _hdu_to_qtable(hdulist[1])
+        data = _hdu_to_qtable(hdulist[2])
+        energies = _hdu_to_qtable(hdulist[4])
+        energy_delta = energies["e_high"] - energies["e_low"]
 
-        live_time = _lfrac(data["triggers"].reshape(-1) / (16 * data["timedel"] * u.cs))
+        live_time = _lfrac(data["triggers"].reshape(-1) / (16 * data["timedel"]))
 
-        data["counts"] = data["counts"] / (live_time.reshape(-1, 1) * energy_delta)
+        data["counts"] = data["counts"] / ((data['timedel'].to(u.s)*live_time).reshape(-1, 1)*energy_delta * energy_delta)
 
         names = [
-            "{:d}-{:d} keV".format(energies["e_low"][i].astype(int), energies["e_high"][i].astype(int))
-            for i in range(5)
-        ]
+            f"{energies['e_low'][i].value.astype(int)}-{energies['e_high'][i].value.astype(int)} {energies['e_high'].unit}" for i in range(5)]
 
         [data.add_column(data["counts"][:, i], name=names[i]) for i in range(5)]
         data.remove_column("counts")
@@ -135,13 +154,11 @@ class QLLightCurve(GenericTimeSeries):
         data.remove_column("counts_comp_err")
 
         try:
-            data["time"] = Time(header["date_obs"]) + data["time"] * u.cs
+            data["time"] = Time(header["date_obs"]) + data["time"]
         except KeyError:
-            data["time"] = Time(header["date-obs"]) + TimeDelta(data["time"] * u.cs)
+            data["time"] = Time(header["date-obs"]) + TimeDelta(data["time"])
 
-        units = OrderedDict(
-            [("control_index", None), ("timedel", u.cs), ("triggers", None), ("triggers_comp_err", None), ("rcr", None)]
-        )
+        units = OrderedDict((c.info.name, c.unit) for c in data.itercols() if c.info.name != 'time')
         units.update([(name, u.ct / (u.s * u.keV)) for name in names])
         units.update([(f"{name}_comp_err", u.ct/(u.s * u.keV)) for name in names])
 
@@ -153,6 +170,8 @@ class QLLightCurve(GenericTimeSeries):
         data_df.drop(columns="time", inplace=True)
 
         return data_df, header, units
+
+
 
     @classmethod
     def is_datasource_for(cls, **kwargs):
@@ -239,7 +258,7 @@ class QLBackground(GenericTimeSeries):
         axes : `~matplotlib.axes.Axes`
             The plot axes.
         """
-        if columns == 'counts':
+        if columns is None:
             count_re = re.compile(r"\d+-\d+ keV$")
             columns = [column for column in self.columns if count_re.match(column)]
 
@@ -284,18 +303,16 @@ class QLBackground(GenericTimeSeries):
             The path to the file you want to parse.
         """
         header = hdulist[0].header
-        control = Table(hdulist[1].data)
-        header["control"] = control
-        data = Table(hdulist[2].data)
-        energies = Table(hdulist[4].data)
+        # control = _hdu_to_qtable(hdulist[1])
+        data = _hdu_to_qtable(hdulist[2])
+        energies = _hdu_to_qtable(hdulist[4])
+        energy_delta = energies["e_high"] - energies["e_low"]
 
-        energy_delta = energies["e_high"] - energies["e_low"] << u.keV
+        live_time = _lfrac(data["triggers"].reshape(-1) / data["timedel"])
 
-        live_time = _lfrac(data["triggers"].reshape(-1) / (16 * data["timedel"] * u.s))
+        data["counts"] = data["counts"] / ((data['timedel'].to(u.s)*live_time).reshape(-1, 1) * energy_delta)
 
-        data["counts"] = data["counts"] / (live_time.reshape(-1, 1) * energy_delta)
-
-        names = [f'{energies["e_low"][i].astype(int)}-{energies["e_high"][i].astype(int)} keV' for i in range(5)]
+        names = [f'{energies["e_low"][i].value.astype(int)}-{energies["e_high"][i].value.astype(int)} {energies["e_high"].unit}' for i in range(5)]
 
         [data.add_column(data["counts"][:, i], name=names[i]) for i in range(5)]
         data.remove_column("counts")
@@ -304,13 +321,11 @@ class QLBackground(GenericTimeSeries):
         data.remove_column("counts_comp_err")
 
         try:
-            data["time"] = Time(header["date_obs"]) + TimeDelta(data["time"] * u.s)
+            data["time"] = Time(header["date_obs"]) + TimeDelta(data["time"])
         except KeyError:
-            data["time"] = Time(header["date-obs"]) + TimeDelta(data["time"] * u.s)
+            data["time"] = Time(header["date-obs"]) + TimeDelta(data["time"])
 
-        units = OrderedDict(
-            [("control_index", None), ("timedel", u.cs), ("triggers", None), ("triggers_comp_err", None), ("rcr", None)]
-        )
+        units = OrderedDict((c.info.name, c.unit) for c in data.itercols() if c.info.name != 'time')
         units.update([(name, u.ct/(u.s * u.keV)) for name in names])
         units.update([(f"{name}_comp_err", u.ct/(u.s * u.keV)) for name in names])
 
@@ -418,9 +433,9 @@ class QLVariance(GenericTimeSeries):
             # label to the y-axis.
             unit = u.Unit(list(units)[0])
             axes.set_ylabel(unit.to_string())
+            axes.set_yscale("log")
 
         axes.set_title("STIX QL Variance")
-        axes.set_yscale("log")
         axes.legend()
         self._setup_x_axis(axes)
         return axes
@@ -449,33 +464,31 @@ class QLVariance(GenericTimeSeries):
             The path to the file you want to parse.
         """
         header = hdulist[0].header
-        control = Table(hdulist[1].data)
-        header["control"] = control
-        data = Table(hdulist[2].data)
-        energies = Table(hdulist[4].data)
-        dE = (
+        control = _hdu_to_qtable(hdulist[1])
+        data = _hdu_to_qtable(hdulist[2])
+        energies = _hdu_to_qtable(hdulist[4])
+        delta_energy = (
             energies[control["energy_bin_mask"][0]]["e_high"][-1] - energies[control["energy_bin_mask"][0]]["e_low"][0]
-            << u.keV
         )
         name = (
-            f'{energies[control["energy_bin_mask"][0]]["e_low"][0].astype(int)}'
-            f'-{energies[control["energy_bin_mask"][0]]["e_high"][-1].astype(int)} keV'
+            f'{energies[control["energy_bin_mask"][0]]["e_low"][0].value.astype(int)}'
+            f'-{energies[control["energy_bin_mask"][0]]["e_high"][-1].value.astype(int)} {energies["e_high"].unit}'
         )
 
         try:
-            data["time"] = Time(header["date_obs"]) + TimeDelta(data["time"] * u.s)
+            data["time"] = Time(header["date_obs"]) + TimeDelta(data["time"])
         except KeyError:
-            data["time"] = Time(header["date-obs"]) + TimeDelta(data["time"] * u.s)
+            data["time"] = Time(header["date-obs"]) + TimeDelta(data["time"])
 
-        data["variance"] = data["variance"].reshape(-1) / (dE * data["timedel"])
+        data["variance"] = data["variance"].reshape(-1) * u.ct / (delta_energy * data["timedel"].to(u.s))
 
         data.add_column(data["variance"], name=name)
         data.remove_column("variance")
         data.add_column(data["variance_comp_err"], name=f"{name}_comp_err")
         data.remove_column("variance_comp_err")
 
-        units = OrderedDict([("control_index", None), ("timedel", u.cs),
-                             (name, u.ct/(u.s * u.keV)), (f"{name}_comp_err", u.ct/(u.s * u.keV))])
+        units = OrderedDict((c.info.name, c.unit) for c in data.itercols() if c.info.name != 'time')
+        units[f"{name}_comp_err"]  = u.ct/(u.s * u.keV)
 
         data[name] = data[name].reshape(-1)
         data[f"{name}_comp_err"] = data[f"{name}_comp_err"].reshape(-1)

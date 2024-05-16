@@ -1,12 +1,11 @@
+import re
 from collections import OrderedDict
 
 import astropy.units as u
-import matplotlib.dates
 import numpy as np
 from astropy.io import fits
 from astropy.table import QTable, Table
 from astropy.time.core import Time, TimeDelta
-from astropy.visualization import quantity_support
 from sunpy.timeseries.timeseriesbase import GenericTimeSeries
 from sunpy.visualization import peek_show
 
@@ -23,10 +22,12 @@ def _lfrac(trigger_rate):
 
 
 class QLLightCurve(GenericTimeSeries):
-    """
+    r"""
     Quicklook X-ray time series.
 
-    Nominally in 5 energy bands from 4 - 150 kev
+    Nominally in five energy bands from 4-150 keV which are obtained by summing counts for all masked detectors and
+    pixels into five predefined energy ranges. They are double buffered with default integration time of 4s and depth
+    of 32 bits. Maximum rate is approximately 1MHz with one summed live time counter for the appropriate detectors.
 
     Examples
     --------
@@ -51,7 +52,7 @@ class QLLightCurve(GenericTimeSeries):
 
     @peek_show
     def peek(self, **kwargs):
-        """
+        r"""
         Displays a graphical overview of the data in this object for user evaluation.
         For the creation of plots, users should instead use the
         `.plot` method and Matplotlib's pyplot framework.
@@ -66,8 +67,8 @@ class QLLightCurve(GenericTimeSeries):
         self._validate_data_for_plotting()
         self.plot(**kwargs)
 
-    def plot(self, axes=None, **plot_args):
-        """
+    def plot(self, axes=None, columns='counts', **plot_args):
+        r"""
         Show a plot of the data.
 
         Parameters
@@ -84,50 +85,31 @@ class QLLightCurve(GenericTimeSeries):
         axes : `~matplotlib.axes.Axes`
             The plot axes.
         """
-        import matplotlib.pyplot as plt
+        if columns == 'counts':
+            count_re = re.compile(r"\d+-\d+ keV$")
+            columns = [column for column in self.columns if count_re.match(column)]
 
-        # Get current axes
-        if axes is None:
-            fig, axes = plt.subplots()
-        else:
-            fig = plt.gcf()
+        axes, columns = self._setup_axes_columns(axes, columns)
 
-        self._validate_data_for_plotting()
-        quantity_support()
+        axes = self._data[columns].plot(ax=axes, **plot_args)
 
-        dates = matplotlib.dates.date2num(self.to_dataframe().index)
+        units = set([self.units[col] for col in columns])
+        if len(units) == 1:
+            # If units of all columns being plotted are the same, add a unit
+            # label to the y-axis.
+            unit = u.Unit(list(units)[0])
+            axes.set_ylabel(unit.to_string())
 
-        labels = [f"{col}" for col in self.columns[5:]]
-
-        lines = [
-            axes.plot_date(dates, self.to_dataframe().iloc[:, 5 + i], "-", label=labels[i], **plot_args)
-            for i in range(5)
-        ]
-
-        axes.legend(loc="upper right")
-
+        axes.set_title("STIX QL Light Curve")
         axes.set_yscale("log")
-
-        axes.set_title("STIX Quick Look")
-        axes.set_ylabel("count s$^{-1}$ keV$^{-1}$")
-
-        axes.yaxis.grid(True, "major")
-        axes.xaxis.grid(False, "major")
         axes.legend()
-
-        # TODO: display better tick labels for date range (e.g. 06/01 - 06/05)
-        formatter = matplotlib.dates.DateFormatter("%d %H:%M")
-        axes.xaxis.set_major_formatter(formatter)
-
-        axes.fmt_xdata = matplotlib.dates.DateFormatter("%d %H:%M")
-        fig.autofmt_xdate()
-
-        return lines
+        self._setup_x_axis(axes)
+        return axes
 
     @classmethod
     def _parse_file(cls, filepath):
-        """
-        Parses a GOES/XRS FITS file.
+        r"""
+        Parses a STIX file.
 
         Parameters
         ----------
@@ -139,7 +121,7 @@ class QLLightCurve(GenericTimeSeries):
 
     @classmethod
     def _parse_hdus(cls, hdulist):
-        """
+        r"""
         Parses STIX FITS data files to create TimeSeries.
 
         Parameters
@@ -175,8 +157,8 @@ class QLLightCurve(GenericTimeSeries):
         units = OrderedDict(
             [("control_index", None), ("timedel", u.s), ("triggers", None), ("triggers_comp_err", None), ("rcr", None)]
         )
-        units.update([(name, u.ct) for name in names])
-        units.update([(f"{name}_comp_err", u.ct) for name in names])
+        units.update([(name, u.ct / (u.s * u.keV)) for name in names])
+        units.update([(f"{name}_comp_err", u.ct/(u.s * u.keV)) for name in names])
 
         data["triggers"] = data["triggers"].reshape(-1)
         data["triggers_comp_err"] = data["triggers_comp_err"].reshape(-1)
@@ -206,8 +188,12 @@ class QLLightCurve(GenericTimeSeries):
 
 
 class QLBackground(GenericTimeSeries):
-    """
-    Quicklook X-ray background detector time series.
+    r"""
+    Quicklook X-ray time series from the background detector.
+
+    Background monitoring is done in such way that counts from background detector are summed in five specified energy
+    ranges. These QL data are double buffered into accumulators of 32bit depth. Maximum rate is approximately 30kHz and
+     one live time counter is available. Integration time is parameter with default value of 32s
 
     Examples
     --------
@@ -250,7 +236,7 @@ class QLBackground(GenericTimeSeries):
 
     @peek_show
     def peek(self, **kwargs):
-        """
+        r"""
         Displays a graphical overview of the data in this object for user evaluation.
         For the creation of plots, users should instead use the
         `.plot` method and Matplotlib's pyplot framework.
@@ -265,8 +251,8 @@ class QLBackground(GenericTimeSeries):
         self._validate_data_for_plotting()
         self.plot(**kwargs)
 
-    def plot(self, axes=None, **plot_args):
-        """
+    def plot(self, axes=None, columns='counts', **plot_args):
+        r"""
         Show a plot of the data.
 
         Parameters
@@ -274,6 +260,8 @@ class QLBackground(GenericTimeSeries):
         axes : `~matplotlib.axes.Axes`, optional
             If provided the image will be plotted on the given axes.
             Defaults to `None`, so the current axes will be used.
+        columns : `str`, optional
+            Columns to plot. Defaults to 'counts'.
         **plot_args : `dict`, optional
             Additional plot keyword arguments that are handed to
             :meth:`pandas.DataFrame.plot`.
@@ -283,45 +271,31 @@ class QLBackground(GenericTimeSeries):
         axes : `~matplotlib.axes.Axes`
             The plot axes.
         """
-        import matplotlib.pyplot as plt
+        if columns == 'counts':
+            count_re = re.compile(r"\d+-\d+ keV$")
+            columns = [column for column in self.columns if count_re.match(column)]
 
-        # Get current axes
-        if axes is None:
-            fig, axes = plt.subplots()
+        axes, columns = self._setup_axes_columns(axes, columns)
 
-        self._validate_data_for_plotting()
-        quantity_support()
+        axes = self._data[columns].plot(ax=axes, **plot_args)
 
-        dates = matplotlib.dates.date2num(self.to_dataframe().index)
+        units = set([self.units[col] for col in columns])
+        if len(units) == 1:
+            # If units of all columns being plotted are the same, add a unit
+            # label to the y-axis.
+            unit = u.Unit(list(units)[0])
+            axes.set_ylabel(unit.to_string())
 
-        labels = [f"{col} keV" for col in self.columns[4:]]
-
-        [axes.plot_date(dates, self.to_dataframe().iloc[:, 4 + i], "-", label=labels[i], **plot_args) for i in range(5)]
-
-        axes.legend(loc="upper right")
-
+        axes.set_title("STIX QL Background")
         axes.set_yscale("log")
-
-        axes.set_title("STIX Quick Look")
-        axes.set_ylabel("count s$^{-1}$ keV$^{-1}$")
-
-        axes.yaxis.grid(True, "major")
-        axes.xaxis.grid(False, "major")
         axes.legend()
-
-        # TODO: display better tick labels for date range (e.g. 06/01 - 06/05)
-        formatter = matplotlib.dates.DateFormatter("%d %H:%M")
-        axes.xaxis.set_major_formatter(formatter)
-
-        axes.fmt_xdata = matplotlib.dates.DateFormatter("%d %H:%M")
-        fig.autofmt_xdate()
-
-        return fig
+        self._setup_x_axis(axes)
+        return axes
 
     @classmethod
     def _parse_file(cls, filepath):
         """
-        Parses a GOES/XRS FITS file.
+        Parses a STIX FITS file.
 
         Parameters
         ----------
@@ -353,7 +327,7 @@ class QLBackground(GenericTimeSeries):
 
         data["counts"] = data["counts"] / (live_time.reshape(-1, 1) * energy_delta)
 
-        names = [f'{energies["e_low"][i]}-{energies["e_high"][i]}' for i in range(5)]
+        names = [f'{energies["e_low"][i].astype(int)}-{energies["e_high"][i].astype(int)} keV' for i in range(5)]
 
         [data.add_column(data["counts"][:, i], name=names[i]) for i in range(5)]
         data.remove_column("counts")
@@ -366,13 +340,11 @@ class QLBackground(GenericTimeSeries):
         except KeyError:
             data["time"] = Time(header["date-obs"]) + TimeDelta(data["time"] * u.s)
 
-        # [f'{energies[i]["e_low"]} - {energies[i]["e_high"]} keV' for i in range(5)]
-
         units = OrderedDict(
             [("control_index", None), ("timedel", u.s), ("triggers", None), ("triggers_comp_err", None), ("rcr", None)]
         )
-        units.update([(name, u.ct) for name in names])
-        units.update([(f"{name}_comp_err", u.ct) for name in names])
+        units.update([(name, u.ct/(u.s * u.keV)) for name in names])
+        units.update([(f"{name}_comp_err", u.ct/(u.s * u.keV)) for name in names])
 
         data["triggers"] = data["triggers"].reshape(-1)
         data["triggers_comp_err"] = data["triggers_comp_err"].reshape(-1)
@@ -400,7 +372,11 @@ class QLBackground(GenericTimeSeries):
 
 class QLVariance(GenericTimeSeries):
     """
-    Quicklook X-ray background detector time series.
+    Quicklook variance time series
+
+    Variance of counts is calculated for one energy range over counts summed from selected detectors and pixels in 40
+    accumulators, each accumulating for 0.1s. These accumulators are double buffered with depth of 32bits and
+    approximate data rate of 1 Mhz.
 
     Examples
     --------
@@ -440,7 +416,7 @@ class QLVariance(GenericTimeSeries):
     [21516 rows x 4 columns]
     """
 
-    def plot(self, axes=None, **plot_args):
+    def plot(self, axes=None, columns='variance', **plot_args):
         """
         Show a plot of the data.
 
@@ -458,40 +434,26 @@ class QLVariance(GenericTimeSeries):
         axes : `~matplotlib.axes.Axes`
             The plot axes.
         """
-        import matplotlib.pyplot as plt
+        if columns == 'variance':
+            count_re = re.compile(r"\d+-\d+ keV$")
+            columns = [column for column in self.columns if count_re.match(column)]
 
-        # Get current axes
-        if axes is None:
-            fig, axes = plt.subplots()
+        axes, columns = self._setup_axes_columns(axes, columns)
 
-        self._validate_data_for_plotting()
-        quantity_support()
+        axes = self._data[columns].plot(ax=axes, **plot_args)
 
-        dates = matplotlib.dates.date2num(self.to_dataframe().index)
+        units = set([self.units[col] for col in columns])
+        if len(units) == 1:
+            # If units of all columns being plotted are the same, add a unit
+            # label to the y-axis.
+            unit = u.Unit(list(units)[0])
+            axes.set_ylabel(unit.to_string())
 
-        label = f"{self.columns[2]} keV"
-
-        axes.plot_date(dates, self.to_dataframe().iloc[:, 2], "-", label=label)  # , **plot_args)
-
-        axes.legend(loc="upper right")
-
+        axes.set_title("STIX QL Variance")
         axes.set_yscale("log")
-
-        axes.set_title("STIX Quick Look Variance")
-        axes.set_ylabel("count s$^{-1}$ keV$^{-1}$")
-
-        axes.yaxis.grid(True, "major")
-        axes.xaxis.grid(False, "major")
         axes.legend()
-
-        # TODO: display better tick labels for date range (e.g. 06/01 - 06/05)
-        formatter = matplotlib.dates.DateFormatter("%d %H:%M")
-        axes.xaxis.set_major_formatter(formatter)
-
-        axes.fmt_xdata = matplotlib.dates.DateFormatter("%d %H:%M")
-        fig.autofmt_xdate()
-
-        return fig
+        self._setup_x_axis(axes)
+        return axes
 
     @classmethod
     def _parse_file(cls, filepath):
@@ -526,8 +488,8 @@ class QLVariance(GenericTimeSeries):
             << u.keV
         )
         name = (
-            f'{energies[control["energy_bin_mask"][0]]["e_low"][0]}'
-            f'-{energies[control["energy_bin_mask"][0]]["e_high"][-1]}'
+            f'{energies[control["energy_bin_mask"][0]]["e_low"][0].astype(int)}'
+            f'-{energies[control["energy_bin_mask"][0]]["e_high"][-1].astype(int)} keV'
         )
 
         try:
@@ -542,7 +504,8 @@ class QLVariance(GenericTimeSeries):
         data.add_column(data["variance_comp_err"], name=f"{name}_comp_err")
         data.remove_column("variance_comp_err")
 
-        units = OrderedDict([("control_index", None), ("timedel", u.s), (name, u.count), (f"{name}_comp_err", u.count)])
+        units = OrderedDict([("control_index", None), ("timedel", u.s),
+                             (name, u.ct/(u.s * u.keV)), (f"{name}_comp_err", u.ct/(u.s * u.keV))])
 
         data[name] = data[name].reshape(-1)
         data[f"{name}_comp_err"] = data[f"{name}_comp_err"].reshape(-1)

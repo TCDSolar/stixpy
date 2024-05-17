@@ -5,7 +5,7 @@ import astropy.units as u
 from astropy.io import fits
 from astropy.io.fits import BinTableHDU, Header
 from astropy.io.fits.connect import read_table_fits
-from astropy.table import QTable, Table
+from astropy.table import QTable
 from astropy.time.core import Time, TimeDelta
 from sunpy.timeseries.timeseriesbase import GenericTimeSeries
 
@@ -187,7 +187,7 @@ class QLBackground(GenericTimeSeries):
     r"""
     Quicklook X-ray time series from the background detector.
 
-    Background monitoring is done in such way that counts from background detector are summed in five specified energy
+    Nominally QL background files contain counts from the background detector summed over five specified energy
     ranges. These QL data are double buffered into accumulators of 32bit depth. Maximum rate is approximately 30kHz and
     one live time counter is available. Integration time is parameter with default value of 32s
 
@@ -335,7 +335,7 @@ class QLBackground(GenericTimeSeries):
         Determines if the file corresponds to a STIX QL LightCurve
         `~sunpy.timeseries.TimeSeries`.
         """
-        # Check if source is explicitly assigned
+        # Check if a source is explicitly assigned
         if "source" in kwargs.keys():
             if kwargs.get("source", ""):
                 return kwargs.get("source", "").lower().startswith(cls._source)
@@ -496,7 +496,7 @@ class QLVariance(GenericTimeSeries):
         Determines if the file corresponds to a STIX QL LightCurve
         `~sunpy.timeseries.TimeSeries`.
         """
-        # Check if source is explicitly assigned
+        # Check if a source is explicitly assigned
         if "source" in kwargs.keys():
             if kwargs.get("source", ""):
                 return kwargs.get("source", "").lower().startswith(cls._source)
@@ -596,20 +596,22 @@ class HKMaxi(GenericTimeSeries):
             The path to the file you want to parse.
         """
         header = hdulist[0].header
-        control = Table(hdulist[1].data)
+        control = _hdu_to_qtable(hdulist[1])
         header["control"] = control
-        data = Table(hdulist[2].data)
+        data = _hdu_to_qtable(hdulist[2])
 
         try:
-            data["time"] = Time(header["date_obs"]) + TimeDelta(data["time"] * u.cs)
+            data["time"] = Time(header["date_obs"]) + TimeDelta(data["time"])
         except KeyError:
-            data["time"] = Time(header["date-obs"]) + TimeDelta(data["time"] * u.cs)
+            data["time"] = Time(header["date-obs"]) + TimeDelta(data["time"])
+
+        units = OrderedDict((c.info.name, c.unit) for c in data.itercols() if c.info.name != 'time')
 
         data_df = data.to_pandas()
         data_df.index = data_df["time"]
         data_df.drop(columns="time", inplace=True)
 
-        return data_df, header, None
+        return data_df, header, units
 
     @classmethod
     def is_datasource_for(cls, **kwargs):
@@ -617,7 +619,7 @@ class HKMaxi(GenericTimeSeries):
         Determines if the file corresponds to a STIX QL LightCurve
         `~sunpy.timeseries.TimeSeries`.
         """
-        # Check if source is explicitly assigned
+        # Check if a source is explicitly assigned
         if "source" in kwargs.keys():
             if kwargs.get("source", ""):
                 return kwargs.get("source", "").lower().startswith(cls._source)

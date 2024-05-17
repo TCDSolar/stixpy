@@ -28,7 +28,7 @@ def _hdu_to_qtable(hdupair):
     QTable
     """
     header = hdupair.header
-    # TODD remove when python 3.9 and astropy 5.3.4 are dropped weird non-ascii error
+    # TODO remove when python 3.9 and astropy 5.3.4 are dropped weird non-ascii error
     header.pop('keycomments')
     header.pop('comment')
     bintable = BinTableHDU(hdupair.data, header=Header(cards=header))

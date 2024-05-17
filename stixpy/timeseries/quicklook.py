@@ -596,8 +596,8 @@ class HKMaxi(GenericTimeSeries):
             The path to the file you want to parse.
         """
         header = hdulist[0].header
-        control = _hdu_to_qtable(hdulist[1])
-        header["control"] = control
+        # control = _hdu_to_qtable(hdulist[1])
+        # header["control"] = control
         data = _hdu_to_qtable(hdulist[2])
 
         try:

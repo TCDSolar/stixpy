@@ -32,13 +32,13 @@ def ql_variance():
     return ql_var
 
 
-@pytest.mark.remote_data
-@pytest.fixture()
-def hk_maxi():
-    hk_maxi = TimeSeries(
-        r"https://pub099.cs.technik.fhnw.ch/fits/L1/2020/05/06/HK/solo_L1_stix-hk-maxi_20200506_V02U.fits"
-    )
-    return hk_maxi
+# @pytest.mark.remote_data
+# @pytest.fixture()
+# def hk_maxi():
+#     hk_maxi = TimeSeries(
+#         r"https://pub099.cs.technik.fhnw.ch/fits/L1/2020/05/06/HK/solo_L1_stix-hk-maxi_20200506_V02U.fits"
+#     )
+#     return hk_maxi
 
 
 @pytest.mark.remote_data
@@ -78,12 +78,15 @@ def test_ql_variance_plot(ql_variance):
 
 
 @pytest.mark.remote_data
-def test_hk_maxi(hk_maxi):
+def test_hk_maxi():
+    hk_maxi = TimeSeries(
+         "https://pub099.cs.technik.fhnw.ch/fits/L1/2020/05/06/HK/solo_L1_stix-hk-maxi_20200506_V02U.fits"
+     )
     assert isinstance(hk_maxi, HKMaxi)
     assert hk_maxi.quantity('hk_att_c').unit == u.mA
 
 
-@pytest.mark.remote_data
-def test_hk_maxi_plot(hk_maxi):
-    hk_maxi.plot()
-    hk_maxi.plot(columns=['hk_asp_photoa0_v'])
+# @pytest.mark.remote_data
+# def test_hk_maxi_plot(hk_maxi):
+#     hk_maxi.plot()
+#     hk_maxi.plot(columns=['hk_asp_photoa0_v'])

@@ -41,7 +41,7 @@ class QLLightCurve(GenericTimeSeries):
     r"""
     Quicklook X-ray time series.
 
-    Nominally in five energy bands from 4-150 keV which are obtained by summing counts for all masked detectors and
+    Nominally the quicklook data files contain the STIX timeseries data in five energy bands from 4-150 keV which are obtained by summing counts for all masked detectors and
     pixels into five predefined energy ranges. They are double buffered with default integration time of 4s and depth
     of 32 bits. Maximum rate is approximately 1MHz with one summed live time counter for the appropriate detectors.
 
@@ -111,7 +111,7 @@ class QLLightCurve(GenericTimeSeries):
     @classmethod
     def _parse_file(cls, filepath):
         r"""
-        Parses a STIX file.
+        Parses a STIX QL file.
 
         Parameters
         ----------

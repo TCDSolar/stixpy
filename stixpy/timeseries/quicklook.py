@@ -29,8 +29,8 @@ def _hdu_to_qtable(hdupair):
     """
     header = hdupair.header
     # TODO remove when python 3.9 and astropy 5.3.4 are dropped weird non-ascii error
-    header.pop('keycomments')
-    header.pop('comment')
+    header.pop("keycomments")
+    header.pop("comment")
     bintable = BinTableHDU(hdupair.data, header=Header(cards=header))
     table = read_table_fits(bintable)
     qtable = QTable(table)
@@ -100,7 +100,7 @@ class QLLightCurve(GenericTimeSeries):
             # label to the y-axis.
             unit = u.Unit(list(units)[0])
             axes.set_ylabel(unit.to_string())
-            if unit == u.ct/(u.s * u.keV):
+            if unit == u.ct / (u.s * u.keV):
                 axes.set_yscale("log")
 
         axes.set_title("STIX QL Light Curve")
@@ -138,10 +138,12 @@ class QLLightCurve(GenericTimeSeries):
 
         live_frac, *_ = get_livetime_fraction(data["triggers"].reshape(-1) / (16 * data["timedel"]))
 
-        data["counts"] = data["counts"] / ((data['timedel'].to(u.s) * live_frac).reshape(-1, 1) * energy_delta)
+        data["counts"] = data["counts"] / ((data["timedel"].to(u.s) * live_frac).reshape(-1, 1) * energy_delta)
 
         names = [
-            f"{energies['e_low'][i].value.astype(int)}-{energies['e_high'][i].value.astype(int)} {energies['e_high'].unit}" for i in range(5)]
+            f"{energies['e_low'][i].value.astype(int)}-{energies['e_high'][i].value.astype(int)} {energies['e_high'].unit}"
+            for i in range(5)
+        ]
 
         [data.add_column(data["counts"][:, i], name=names[i]) for i in range(5)]
         data.remove_column("counts")
@@ -153,7 +155,7 @@ class QLLightCurve(GenericTimeSeries):
         except KeyError:
             data["time"] = Time(header["date-obs"]) + TimeDelta(data["time"])
 
-        units = OrderedDict((c.info.name, c.unit) for c in data.itercols() if c.info.name != 'time')
+        units = OrderedDict((c.info.name, c.unit) for c in data.itercols() if c.info.name != "time")
         units.update([(f"{name}_comp_err", units[name]) for name in names])
 
         data["triggers"] = data["triggers"].reshape(-1)
@@ -302,9 +304,12 @@ class QLBackground(GenericTimeSeries):
 
         live_frac, *_ = get_livetime_fraction(data["triggers"].reshape(-1) / data["timedel"])
 
-        data["counts"] = data["counts"] / ((data['timedel'].to(u.s) * live_frac).reshape(-1, 1) * energy_delta)
+        data["counts"] = data["counts"] / ((data["timedel"].to(u.s) * live_frac).reshape(-1, 1) * energy_delta)
 
-        names = [f'{energies["e_low"][i].value.astype(int)}-{energies["e_high"][i].value.astype(int)} {energies["e_high"].unit}' for i in range(5)]
+        names = [
+            f'{energies["e_low"][i].value.astype(int)}-{energies["e_high"][i].value.astype(int)} {energies["e_high"].unit}'
+            for i in range(5)
+        ]
 
         [data.add_column(data["counts"][:, i], name=names[i]) for i in range(5)]
         data.remove_column("counts")
@@ -317,7 +322,7 @@ class QLBackground(GenericTimeSeries):
         except KeyError:
             data["time"] = Time(header["date-obs"]) + TimeDelta(data["time"])
 
-        units = OrderedDict((c.info.name, c.unit) for c in data.itercols() if c.info.name != 'time')
+        units = OrderedDict((c.info.name, c.unit) for c in data.itercols() if c.info.name != "time")
         units.update([(f"{name}_comp_err", units[name]) for name in names])
 
         data["triggers"] = data["triggers"].reshape(-1)
@@ -478,8 +483,8 @@ class QLVariance(GenericTimeSeries):
         data.add_column(data["variance_comp_err"], name=f"{name}_comp_err")
         data.remove_column("variance_comp_err")
 
-        units = OrderedDict((c.info.name, c.unit) for c in data.itercols() if c.info.name != 'time')
-        units[f"{name}_comp_err"]  = u.ct/(u.s * u.keV)
+        units = OrderedDict((c.info.name, c.unit) for c in data.itercols() if c.info.name != "time")
+        units[f"{name}_comp_err"] = u.ct / (u.s * u.keV)
 
         data[name] = data[name].reshape(-1)
         data[f"{name}_comp_err"] = data[f"{name}_comp_err"].reshape(-1)
@@ -605,7 +610,7 @@ class HKMaxi(GenericTimeSeries):
         except KeyError:
             data["time"] = Time(header["date-obs"]) + TimeDelta(data["time"])
 
-        units = OrderedDict((c.info.name, c.unit) for c in data.itercols() if c.info.name != 'time')
+        units = OrderedDict((c.info.name, c.unit) for c in data.itercols() if c.info.name != "time")
 
         data_df = data.to_pandas()
         data_df.index = data_df["time"]

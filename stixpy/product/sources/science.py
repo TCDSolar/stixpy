@@ -31,8 +31,47 @@ __all__ = [
     "EnergyEdgeMasks",
 ]
 
+from stixpy.utils.time import times_to_indices
 
 quantity_support()
+
+# fmt: off
+PIXEL_MAPPING = {
+    "all": slice(0, 12),  # All pixels (top, bottom and small)
+    "big": slice(0, 8),  # All big pixel top + bot
+    "top": slice(0, 4),  # Top row pixels only
+    "bottom": slice(4, 8),  # Bottom row pixels only
+    "small": slice(8, 12),  # Small, middle row pixels only
+}
+
+
+DETECTOR_MAPPING = {
+    "all": slice(0, 32),  # all detectors
+    "imaging": [2, 19, 21, 15, 13, 31, 20, 25, 3, 23, 7, 27, 14, 26, 30, 5, 29, 1, 24, 4, 22, 6, 28, 0,],  # 30 imaging detectors (excluding BKG and CFL)
+    "imaging_24": [2, 19, 21, 15, 13, 31, 20, 25, 3, 23, 7, 27, 14, 26, 30, 5, 29, 1,],  # 24 standard (not fine) imaging detectors
+    "imaging_fine": [4, 22, 6, 28, 0],  # 6 finest imaging detectors
+    "cfl": 9,  # Only CLF detector
+    "bkg": 8,  # Only BKG detector
+}
+# fmt: on
+
+
+def parse_time(times):
+    pass
+
+
+def parse_energy():
+    pass
+
+
+def parse_detectors(detectors):
+    if isinstance(detectors, str):
+        pass
+
+
+def parse_pixels(pixels):
+    if isinstance(pixels, str):
+        return PIXEL_MAPPING.get(pixels, None)
 
 
 class PPrintMixin:
@@ -523,7 +562,13 @@ class ScienceData(L1Product):
         return self.data["timedel"]
 
     def get_data(
-        self, time_indices=None, energy_indices=None, detector_indices=None, pixel_indices=None, sum_all_times=False
+        self,
+        time=None,
+        time_indices=None,
+        energy_indices=None,
+        detector_indices=None,
+        pixel_indices=None,
+        sum_all_times=False,
     ):
         """
         Return the counts, errors, times, durations and energies for selected data.
@@ -633,6 +678,8 @@ class ScienceData(L1Product):
                 energies = QTable(energies * u.keV, names=["e_low", "e_high"])
 
         t_norm = self.data["timedel"]
+        if time is not None:
+            time_indices = times_to_indices(time, times)
         if time_indices is not None:
             time_indices = np.asarray(time_indices)
             if time_indices.ndim == 1:

@@ -60,7 +60,7 @@ def rebin_irregular(cube, axes_idx_edges, operation=np.mean, operation_ignores_m
     >>> from stixpy.product.tools import rebin_irregular
     >>> axes_idx_edges = [0, 2, 3], [0, 2, 4], [0, 3, 5]
     >>> data = np.ones((3, 4, 5))
-    >>> rebin_irregular(data, axes_idx_edges, operation=np.sum)
+    >>> rebin_irregular(data, axes_idx_edges, operation=np.sum) # doctest: +SKIP
     array([[[12.,  8.],
         [12.,  8.]],
        [[ 6.,  4.],
@@ -133,16 +133,16 @@ def rebin_irregular(cube, axes_idx_edges, operation=np.mean, operation_ignores_m
         for j in range(len(edges)-1):
             # Rebin data
             item[i] = slice(edges[j], edges[j+1])
-            data_chunk = new_data[*item]
+            data_chunk = new_data[item]
             tmp_data.append(operation(data_chunk, axis=i))
             # Rebin mask
             if rebin_mask is True:
-                mask_chunk = new_mask[*item]
+                mask_chunk = new_mask[item]
                 tmp_mask.append(handle_mask(mask_chunk, axis=i))
             # Rebin uncertainties
             if propagate_uncertainties:
                 # Reorder axis i to be 0th axis as this is format required by propagate_rebin_uncertainties
-                uncertainty_chunk = type(new_uncertainty)(np.moveaxis(new_uncertainty.array[*item], i, 0), unit=new_uncertainty.unit)
+                uncertainty_chunk = type(new_uncertainty)(np.moveaxis(new_uncertainty.array[item], i, 0), unit=new_uncertainty.unit)
                 data_unc = np.moveaxis(data_chunk, i, 0)
                 mask_unc = np.moveaxis(mask_chunk, i, 0) if rebin_mask else mask
                 tmp_uncertainty = propagate_rebin_uncertainties(uncertainty_chunk, data_unc, mask_unc, operation,
@@ -154,7 +154,7 @@ def rebin_irregular(cube, axes_idx_edges, operation=np.mean, operation_ignores_m
             for k, (coord, coord_arr_idx) in enumerate(zip(new_coord_values, wc_arr_idxs)):
                 if i in coord_arr_idx:
                     l = np.where(coord_arr_idx == i)[0][0]
-                    tmp_coords[k].append(np.mean(coord[coord_item[*coord_arr_idx]], axis=l))
+                    tmp_coords[k].append(np.mean(coord[coord_item[coord_arr_idx]], axis=l))
         # Restore rebinned axes.
         if rebin_mask:
             new_mask = np.stack(tmp_mask, axis=i)

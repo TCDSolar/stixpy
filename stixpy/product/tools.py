@@ -70,12 +70,19 @@ def rebin_irregular(cube, axes_idx_edges, operation=np.mean, operation_ignores_m
     if len(axes_idx_edges) != ndim:
         raise ValueError(f"length of axes_idx_edges must be {ndim}")
 
-    # Extract coordinate grids for rebinning.
-    new_coord_values = list(cube.axis_world_coords_values())
-    wc_arr_idxs = [
-        convert_between_array_and_pixel_axes(physical_type_to_pixel_axes(physical_type, cube.wcs),
-                                             len(cube.dimensions))
-        for physical_type in cube.wcs.world_axis_physical_types][::-1]
+    # Extract coordinate grids for rebinning and other coord info.
+    orig_wcs = cube.combined_wcs
+    new_coord_values = list(cube.axis_world_coords_values(wcs=orig_wcs))
+    new_coord_physical_types = orig_wcs.world_axis_physical_types[::-1]
+    new_coord_pix_idxs = [physical_type_to_pixel_axes(phys_type, orig_wcs)
+                          for phys_type in new_coord_physical_types]
+    new_coord_names = (
+        name if name else phys_type
+        for name, phys_type in zip(orig_wcs.world_axis_names[::-1], new_coord_physical_types))
+    new_coord_axes = (physical_type_to_pixel_axes(physical_type, orig_wcs)
+                      for physical_type in new_coord_physical_types)
+    wc_arr_idxs = [convert_between_array_and_pixel_axes(idx, ndim) for idx in new_coord_pix_idxs]
+
     # Combine data and mask and determine whether mask also needs rebinning.
     new_data = _convert_to_masked_array(cube.data, cube.mask, operation_ignores_mask)
     rebin_mask = False
@@ -158,4 +165,23 @@ def rebin_irregular(cube, axes_idx_edges, operation=np.mean, operation_ignores_m
                 l = np.where(coord_arr_idx == i)[0][0]
                 new_coord_values[k] = np.stack(tmp_coords[k], axis=l)
 
-    return new_data.data, new_mask, new_uncertainty, new_coord_values
+    # Build new WCS.
+    ec = ExtraCoords()
+    for name, axis, coord, physical_type in zip(new_coord_names, new_coord_pix_idxs,
+                                                new_coord_values, new_coord_physical_types):
+        if len(axis) != 1:
+            raise NotImplementedError("Rebinning multi-dimensional coordinates not supported.")
+        ec.add(name, axis, coord, physical_types=physical_type)
+    new_wcs = ec.wcs
+
+    # Rebin metadata if possible.
+    if hasattr(cube.meta, "__ndcube_can_rebin__") and cube.meta.__ndcube_can_rebin__:
+        new_shape = [len(ax)-1 for ax in axes_idx_edges]
+        rebinned_axes = set(tuple(ax) != tuple(range(n + 1))
+                            for ax, n in zip(axes_idx_edges, self.shape))
+        new_meta = cube.meta.rebin(rebinned_axes, new_shape)
+
+    # Build new cube.
+    new_cube = type(cube)(new_data.data, new_wcs, uncertainty=new_uncertainty, mask=new_data.mask)
+
+    return new_cube

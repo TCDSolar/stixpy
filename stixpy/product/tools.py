@@ -4,7 +4,7 @@ Analysis tools.
 
 import astropy.nddata
 import numpy as np
-from ndcube import ExtraCoords, NDCube
+from ndcube import ExtraCoords
 from ndcube.utils.cube import propagate_rebin_uncertainties
 from ndcube.utils.wcs import convert_between_array_and_pixel_axes, physical_type_to_pixel_axes
 from sunpy.util import warn_user
@@ -81,8 +81,6 @@ def rebin_irregular(cube, axes_idx_edges, operation=np.mean, operation_ignores_m
     new_coord_names = (
         name if name else phys_type
         for name, phys_type in zip(orig_wcs.world_axis_names[::-1], new_coord_physical_types))
-    new_coord_axes = (physical_type_to_pixel_axes(physical_type, orig_wcs)
-                      for physical_type in new_coord_physical_types)
     wc_arr_idxs = [convert_between_array_and_pixel_axes(idx, ndim) for idx in new_coord_pix_idxs]
 
     # Combine data and mask and determine whether mask also needs rebinning.
@@ -146,7 +144,7 @@ def rebin_irregular(cube, axes_idx_edges, operation=np.mean, operation_ignores_m
                 # Reorder axis i to be 0th axis as this is format required by propagate_rebin_uncertainties
                 uncertainty_chunk = type(new_uncertainty)(np.moveaxis(new_uncertainty.array[tuple_item], i, 0), unit=new_uncertainty.unit)
                 data_unc = np.moveaxis(data_chunk, i, 0)
-                mask_unc = np.moveaxis(mask_chunk, i, 0) if rebin_mask else mask
+                mask_unc = np.moveaxis(mask_chunk, i, 0) if rebin_mask else new_mask
                 tmp_uncertainty = propagate_rebin_uncertainties(uncertainty_chunk, data_unc, mask_unc, operation,
                                                                 operation_ignores_mask=operation_ignores_mask,
                                                                 handle_mask=handle_mask, new_unit=new_unit, **kwargs)
@@ -155,9 +153,9 @@ def rebin_irregular(cube, axes_idx_edges, operation=np.mean, operation_ignores_m
             coord_item[i] = np.array([edges[j], edges[j+1]-1])
             for k, (coord, coord_arr_idx) in enumerate(zip(new_coord_values, wc_arr_idxs)):
                 if i in coord_arr_idx:
-                    l = np.where(coord_arr_idx == i)[0][0]
+                    idx_i = np.where(coord_arr_idx == i)[0][0]
                     tmp_coords[k].append(
-                        np.mean(coord[tuple(coord_item[coord_arr_idx])], axis=l))
+                        np.mean(coord[tuple(coord_item[coord_arr_idx])], axis=idx_i))
         # Restore rebinned axes.
         if rebin_mask:
             new_mask = np.stack(tmp_mask, axis=i)
@@ -166,8 +164,8 @@ def rebin_irregular(cube, axes_idx_edges, operation=np.mean, operation_ignores_m
             new_uncertainty = type(new_uncertainty)(np.stack(tmp_uncertainties, axis=i),unit=new_uncertainty.unit)
         for k, coord_arr_idx in enumerate(wc_arr_idxs):
             if i in coord_arr_idx:
-                l = np.where(coord_arr_idx == i)[0][0]
-                new_coord_values[k] = np.stack(tmp_coords[k], axis=l)
+                idx_i = np.where(coord_arr_idx == i)[0][0]
+                new_coord_values[k] = np.stack(tmp_coords[k], axis=idx_i)
 
     # Build new WCS.
     ec = ExtraCoords()
@@ -182,10 +180,12 @@ def rebin_irregular(cube, axes_idx_edges, operation=np.mean, operation_ignores_m
     if hasattr(cube.meta, "__ndcube_can_rebin__") and cube.meta.__ndcube_can_rebin__:
         new_shape = [len(ax)-1 for ax in axes_idx_edges]
         rebinned_axes = set(tuple(ax) != tuple(range(n + 1))
-                            for ax, n in zip(axes_idx_edges, self.shape))
+                            for ax, n in zip(axes_idx_edges, cube.shape))
         new_meta = cube.meta.rebin(rebinned_axes, new_shape)
+    else:
+        new_meta = cube.meta
 
     # Build new cube.
-    new_cube = type(cube)(new_data.data, new_wcs, uncertainty=new_uncertainty, mask=new_data.mask)
+    new_cube = type(cube)(new_data.data, new_wcs, uncertainty=new_uncertainty, mask=new_data.mask, meta=new_meta)
 
     return new_cube

@@ -241,7 +241,7 @@ clean_map, model_map, resid_map = vis_clean(
 ###############################################################################
 # Crete a map using the MEM GE algorithm `mem`
 
-mem_map = mem(stix_vis1, shape=imsize, pixel=pixel)
+mem_map = mem(stix_vis1, shape=imsize, pixel_size=pixel)
 
 
 ###############################################################################

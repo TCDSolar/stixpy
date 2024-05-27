@@ -120,7 +120,7 @@ for k, v in cal_vis.__dict__.items():
 # Set up image parameters
 
 imsize = [512, 512] * u.pixel  # number of pixels of the map to reconstruct
-pixel = [10, 10] * u.arcsec/u.pixel  # pixel size in aresec
+pixel = [10, 10] * u.arcsec / u.pixel  # pixel size in aresec
 
 ###############################################################################
 # Make a full disk back projection (inverse transform) map
@@ -168,7 +168,7 @@ ax1.plot_coord(max_stix, marker=".", markersize=50, fillstyle="none", color="r",
 # Use estimated flare location to create more accurate visibilities
 
 # because WCS axes and array are reversed and all positions are expected follow array indices
-flare_pos_stix = [max_stix.Ty.to_value('arcsec'), max_stix.Tx.to_value('arcsec')]*u.arcsec
+flare_pos_stix = [max_stix.Ty.to_value("arcsec"), max_stix.Tx.to_value("arcsec")] * u.arcsec
 
 meta_pixels_sci = create_meta_pixels(
     cpd_sci, time_range=time_range_sci, energy_range=energy_range, phase_center=flare_pos_stix, no_shadowing=True
@@ -221,7 +221,7 @@ bp_nat = vis_to_image(stix_vis1, imsize, pixel_size=pixel)
 ###############################################################################
 # Create a back projection image with uniform weighting
 
-bp_uni = vis_to_image(stix_vis1, imsize, pixel_size=pixel, scheme='uniform')
+bp_uni = vis_to_image(stix_vis1, imsize, pixel_size=pixel, scheme="uniform")
 
 ###############################################################################
 # Create a `sunpy.map.Map` with back projection

@@ -32,7 +32,7 @@ def _convert_to_masked_array(data, mask, operation_ignores_mask):
         return masked_type(data, m)
 
 
-def rebin_irregular(cube, axes_idx_edges, operation=np.mean, operation_ignores_mask=False,
+def rebin_by_edges(cube, axes_idx_edges, operation=np.mean, operation_ignores_mask=False,
                     handle_mask=np.all, propagate_uncertainties=False, new_unit=None, **kwargs):
     """
     Downsample array by combining irregularly sized, but contiguous, blocks of elements into bins.
@@ -42,14 +42,14 @@ def rebin_irregular(cube, axes_idx_edges, operation=np.mean, operation_ignores_m
     data:
 
     axes_idx_edges: iterable of iterable of `int`
-        The array indices for each axis defined in the edges of the contiguous blocks
+        The array indices for each axis defining the edges of the contiguous blocks
         to rebin the data to. Each block includes the lower index and up to but not
         including the upper index.
 
     operation: func
         The operation defining how the elements in each block should be combined.
         Must be able to be applied over a specific axis via an axis= kwarg.
-        Default=`numpy.mean`
+        Default=`numpy.mean`.
 
     Returns
     -------
@@ -58,10 +58,10 @@ def rebin_irregular(cube, axes_idx_edges, operation=np.mean, operation_ignores_m
     Example
     -------
     >>> import numpy as np
-    >>> from stixpy.product.tools import rebin_irregular
+    >>> from stixpy.product.tools import rebin_by_edges
     >>> axes_idx_edges = [0, 2, 3], [0, 2, 4], [0, 3, 5]
     >>> data = np.ones((3, 4, 5))
-    >>> rebin_irregular(data, axes_idx_edges, operation=np.sum) # doctest: +SKIP
+    >>> rebin_by_edges(data, axes_idx_edges, operation=np.sum) # doctest: +SKIP
     array([[[12.,  8.],
         [12.,  8.]],
        [[ 6.,  4.],

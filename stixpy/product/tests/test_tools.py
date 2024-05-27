@@ -28,12 +28,12 @@ def cube():
     return NDCube(data=data, wcs=wcs, mask=mask, uncertainty=uncertainty)
 
 
-def test_rebin_irregular(cube):
+def test_rebin_by_edges(cube):
     # Run function.
     axes_idx_edges = [0, 2], [0, 1, 3, 5]
-    output = tools.rebin_irregular(cube, axes_idx_edges, operation=np.sum,
-                                   operation_ignores_mask=False, handle_mask=np.all,
-                                   propagate_uncertainties=True)
+    output = tools.rebin_by_edges(cube, axes_idx_edges, operation=np.sum,
+                                  operation_ignores_mask=False, handle_mask=np.all,
+                                  propagate_uncertainties=True)
     # Define expected outputs.
     data = np.array([[1., 2., 2.]])
     mask = np.zeros(data.shape, dtype=bool)

@@ -13,8 +13,10 @@ copyright = "2020, STIX Team"
 author = "STIX Team"
 
 from pathlib import Path
+
 # The full version, including alpha/beta/rc tags
 from stixpy import __version__
+
 release = __version__
 is_development = ".dev" in release
 
@@ -89,9 +91,7 @@ intersphinx_mapping = {
 html_theme = "pydata_sphinx_theme"
 
 html_theme_options = {
-    "logo": {
-        "text": "stixpy"
-    },
+    "logo": {"text": "stixpy"},
 }
 
 # Add any paths that contain custom static files (such as style sheets) here,

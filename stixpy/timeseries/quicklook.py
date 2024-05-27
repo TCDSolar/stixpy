@@ -1,32 +1,49 @@
+import re
 from collections import OrderedDict
 
 import astropy.units as u
-import matplotlib.dates
-import numpy as np
 from astropy.io import fits
-from astropy.table import QTable, Table
+from astropy.io.fits import BinTableHDU, Header
+from astropy.io.fits.connect import read_table_fits
+from astropy.table import QTable
 from astropy.time.core import Time, TimeDelta
-from astropy.visualization import quantity_support
 from sunpy.timeseries.timeseriesbase import GenericTimeSeries
-from sunpy.visualization import peek_show
+
+from stixpy.calibration.livetime import get_livetime_fraction
 
 __all__ = ["QLLightCurve", "QLBackground", "QLVariance", "HKMaxi"]
 
 
-eta = 2.5 * u.us
-tau = 12.5 * u.us
+def _hdu_to_qtable(hdupair):
+    r"""
+    Given a HDU pair, convert it to a QTable
 
+    Parameters
+    ----------
+    hdupair
+        HDU, header pair
 
-def _lfrac(trigger_rate):
-    nin = trigger_rate / (1 - (trigger_rate * (tau+eta)))
-    return np.exp(-eta * nin) / (1 + tau * nin)
+    Returns
+    -------
+    QTable
+    """
+    header = hdupair.header
+    # TODO remove when python 3.9 and astropy 5.3.4 are dropped weird non-ascii error
+    header.pop("keycomments")
+    header.pop("comment")
+    bintable = BinTableHDU(hdupair.data, header=Header(cards=header))
+    table = read_table_fits(bintable)
+    qtable = QTable(table)
+    return qtable
 
 
 class QLLightCurve(GenericTimeSeries):
-    """
+    r"""
     Quicklook X-ray time series.
 
-    Nominally in 5 energy bands from 4 - 150 kev
+    Nominally the quicklook data files contain the STIX timeseries data in five energy bands from 4-150 keV which are obtained by summing counts for all masked detectors and
+    pixels into five predefined energy ranges. They are double buffered with default integration time of 4s and depth
+    of 32 bits. Maximum rate is approximately 1MHz with one summed live time counter for the appropriate detectors.
 
     Examples
     --------
@@ -49,25 +66,8 @@ class QLLightCurve(GenericTimeSeries):
 
     _source = "stix"
 
-    @peek_show
-    def peek(self, **kwargs):
-        """
-        Displays a graphical overview of the data in this object for user evaluation.
-        For the creation of plots, users should instead use the
-        `.plot` method and Matplotlib's pyplot framework.
-
-        Parameters
-        ----------
-        **kwargs : `dict`
-            Any additional plot arguments that should be used when plotting.
-        """
-
-        # Check we have a timeseries valid for plotting
-        self._validate_data_for_plotting()
-        self.plot(**kwargs)
-
-    def plot(self, axes=None, **plot_args):
-        """
+    def plot(self, axes=None, columns=None, **plot_args):
+        r"""
         Show a plot of the data.
 
         Parameters
@@ -75,6 +75,8 @@ class QLLightCurve(GenericTimeSeries):
         axes : `~matplotlib.axes.Axes`, optional
             If provided the image will be plotted on the given axes.
             Defaults to `None`, so the current axes will be used.
+        columns : `list`, optional
+            Columns to plot, defaults to 'counts'.
         **plot_args : `dict`, optional
             Additional plot keyword arguments that are handed to
             :meth:`pandas.DataFrame.plot`.
@@ -84,50 +86,32 @@ class QLLightCurve(GenericTimeSeries):
         axes : `~matplotlib.axes.Axes`
             The plot axes.
         """
-        import matplotlib.pyplot as plt
+        if columns is None:
+            count_re = re.compile(r"\d+-\d+ keV$")
+            columns = [column for column in self.columns if count_re.match(column)]
 
-        # Get current axes
-        if axes is None:
-            fig, axes = plt.subplots()
-        else:
-            fig = plt.gcf()
+        axes, columns = self._setup_axes_columns(axes, columns)
 
-        self._validate_data_for_plotting()
-        quantity_support()
+        axes = self._data[columns].plot(ax=axes, **plot_args)
 
-        dates = matplotlib.dates.date2num(self.to_dataframe().index)
+        units = set([self.units[col] for col in columns])
+        if len(units) == 1 and list(units)[0] is not None:
+            # If units of all columns being plotted are the same, add a unit
+            # label to the y-axis.
+            unit = u.Unit(list(units)[0])
+            axes.set_ylabel(unit.to_string())
+            if unit == u.ct / (u.s * u.keV):
+                axes.set_yscale("log")
 
-        labels = [f"{col}" for col in self.columns[5:]]
-
-        lines = [
-            axes.plot_date(dates, self.to_dataframe().iloc[:, 5 + i], "-", label=labels[i], **plot_args)
-            for i in range(5)
-        ]
-
-        axes.legend(loc="upper right")
-
-        axes.set_yscale("log")
-
-        axes.set_title("STIX Quick Look")
-        axes.set_ylabel("count s$^{-1}$ keV$^{-1}$")
-
-        axes.yaxis.grid(True, "major")
-        axes.xaxis.grid(False, "major")
+        axes.set_title("STIX QL Light Curve")
         axes.legend()
-
-        # TODO: display better tick labels for date range (e.g. 06/01 - 06/05)
-        formatter = matplotlib.dates.DateFormatter("%d %H:%M")
-        axes.xaxis.set_major_formatter(formatter)
-
-        axes.fmt_xdata = matplotlib.dates.DateFormatter("%d %H:%M")
-        fig.autofmt_xdate()
-
-        return lines
+        self._setup_x_axis(axes)
+        return axes
 
     @classmethod
     def _parse_file(cls, filepath):
-        """
-        Parses a GOES/XRS FITS file.
+        r"""
+        Parses a STIX QL file.
 
         Parameters
         ----------
@@ -139,7 +123,7 @@ class QLLightCurve(GenericTimeSeries):
 
     @classmethod
     def _parse_hdus(cls, hdulist):
-        """
+        r"""
         Parses STIX FITS data files to create TimeSeries.
 
         Parameters
@@ -147,18 +131,17 @@ class QLLightCurve(GenericTimeSeries):
         hdulist :
         """
         header = hdulist[0].header
-        control = QTable(hdulist[1].data)
-        header["control"] = control
-        data = QTable(hdulist[2].data)
-        energies = QTable(hdulist[4].data)
-        energy_delta = energies["e_high"] - energies["e_low"] << u.keV
+        # control = _hdu_to_qtable(hdulist[1])
+        data = _hdu_to_qtable(hdulist[2])
+        energies = _hdu_to_qtable(hdulist[4])
+        energy_delta = energies["e_high"] - energies["e_low"]
 
-        live_time = _lfrac(data["triggers"].reshape(-1) / (16 * data["timedel"] * u.s))
+        live_frac, *_ = get_livetime_fraction(data["triggers"].reshape(-1) / (16 * data["timedel"]))
 
-        data["counts"] = data["counts"] / (live_time.reshape(-1, 1) * energy_delta)
+        data["counts"] = data["counts"] / ((data["timedel"].to(u.s) * live_frac).reshape(-1, 1) * energy_delta)
 
         names = [
-            "{:d}-{:d} keV".format(energies["e_low"][i].astype(int), energies["e_high"][i].astype(int))
+            f"{energies['e_low'][i].value.astype(int)}-{energies['e_high'][i].value.astype(int)} {energies['e_high'].unit}"
             for i in range(5)
         ]
 
@@ -168,15 +151,12 @@ class QLLightCurve(GenericTimeSeries):
         data.remove_column("counts_comp_err")
 
         try:
-            data["time"] = Time(header["date_obs"]) + data["time"] * u.cs
+            data["time"] = Time(header["date_obs"]) + data["time"]
         except KeyError:
-            data["time"] = Time(header["date-obs"]) + TimeDelta(data["time"] * u.cs)
+            data["time"] = Time(header["date-obs"]) + TimeDelta(data["time"])
 
-        units = OrderedDict(
-            [("control_index", None), ("timedel", u.s), ("triggers", None), ("triggers_comp_err", None), ("rcr", None)]
-        )
-        units.update([(name, u.ct) for name in names])
-        units.update([(f"{name}_comp_err", u.ct) for name in names])
+        units = OrderedDict((c.info.name, c.unit) for c in data.itercols() if c.info.name != "time")
+        units.update([(f"{name}_comp_err", units[name]) for name in names])
 
         data["triggers"] = data["triggers"].reshape(-1)
         data["triggers_comp_err"] = data["triggers_comp_err"].reshape(-1)
@@ -206,8 +186,12 @@ class QLLightCurve(GenericTimeSeries):
 
 
 class QLBackground(GenericTimeSeries):
-    """
-    Quicklook X-ray background detector time series.
+    r"""
+    Quicklook X-ray time series from the background detector.
+
+    Nominally QL background files contain counts from the background detector summed over five specified energy
+    ranges. These QL data are double buffered into accumulators of 32bit depth. Maximum rate is approximately 30kHz and
+    one live time counter is available. Integration time is parameter with default value of 32s
 
     Examples
     --------
@@ -248,25 +232,8 @@ class QLBackground(GenericTimeSeries):
 
     """
 
-    @peek_show
-    def peek(self, **kwargs):
-        """
-        Displays a graphical overview of the data in this object for user evaluation.
-        For the creation of plots, users should instead use the
-        `.plot` method and Matplotlib's pyplot framework.
-
-        Parameters
-        ----------
-        **kwargs : `dict`
-            Any additional plot arguments that should be used when plotting.
-        """
-
-        # Check we have a timeseries valid for plotting
-        self._validate_data_for_plotting()
-        self.plot(**kwargs)
-
-    def plot(self, axes=None, **plot_args):
-        """
+    def plot(self, axes=None, columns=None, **plot_args):
+        r"""
         Show a plot of the data.
 
         Parameters
@@ -274,6 +241,8 @@ class QLBackground(GenericTimeSeries):
         axes : `~matplotlib.axes.Axes`, optional
             If provided the image will be plotted on the given axes.
             Defaults to `None`, so the current axes will be used.
+        columns : `str`, optional
+            Columns to plot, defaults to 'counts'.
         **plot_args : `dict`, optional
             Additional plot keyword arguments that are handed to
             :meth:`pandas.DataFrame.plot`.
@@ -283,45 +252,31 @@ class QLBackground(GenericTimeSeries):
         axes : `~matplotlib.axes.Axes`
             The plot axes.
         """
-        import matplotlib.pyplot as plt
+        if columns is None:
+            count_re = re.compile(r"\d+-\d+ keV$")
+            columns = [column for column in self.columns if count_re.match(column)]
 
-        # Get current axes
-        if axes is None:
-            fig, axes = plt.subplots()
+        axes, columns = self._setup_axes_columns(axes, columns)
 
-        self._validate_data_for_plotting()
-        quantity_support()
+        axes = self._data[columns].plot(ax=axes, **plot_args)
 
-        dates = matplotlib.dates.date2num(self.to_dataframe().index)
+        units = set([self.units[col] for col in columns])
+        if len(units) == 1 and list(units)[0] is not None:
+            # If units of all columns being plotted are the same, add a unit
+            # label to the y-axis.
+            unit = u.Unit(list(units)[0])
+            axes.set_ylabel(unit.to_string())
+            axes.set_yscale("log")
 
-        labels = [f"{col} keV" for col in self.columns[4:]]
-
-        [axes.plot_date(dates, self.to_dataframe().iloc[:, 4 + i], "-", label=labels[i], **plot_args) for i in range(5)]
-
-        axes.legend(loc="upper right")
-
-        axes.set_yscale("log")
-
-        axes.set_title("STIX Quick Look")
-        axes.set_ylabel("count s$^{-1}$ keV$^{-1}$")
-
-        axes.yaxis.grid(True, "major")
-        axes.xaxis.grid(False, "major")
+        axes.set_title("STIX QL Background")
         axes.legend()
-
-        # TODO: display better tick labels for date range (e.g. 06/01 - 06/05)
-        formatter = matplotlib.dates.DateFormatter("%d %H:%M")
-        axes.xaxis.set_major_formatter(formatter)
-
-        axes.fmt_xdata = matplotlib.dates.DateFormatter("%d %H:%M")
-        fig.autofmt_xdate()
-
-        return fig
+        self._setup_x_axis(axes)
+        return axes
 
     @classmethod
     def _parse_file(cls, filepath):
         """
-        Parses a GOES/XRS FITS file.
+        Parses a STIX FITS file.
 
         Parameters
         ----------
@@ -342,18 +297,19 @@ class QLBackground(GenericTimeSeries):
             The path to the file you want to parse.
         """
         header = hdulist[0].header
-        control = Table(hdulist[1].data)
-        header["control"] = control
-        data = Table(hdulist[2].data)
-        energies = Table(hdulist[4].data)
+        # control = _hdu_to_qtable(hdulist[1])
+        data = _hdu_to_qtable(hdulist[2])
+        energies = _hdu_to_qtable(hdulist[4])
+        energy_delta = energies["e_high"] - energies["e_low"]
 
-        energy_delta = energies["e_high"] - energies["e_low"] << u.keV
+        live_frac, *_ = get_livetime_fraction(data["triggers"].reshape(-1) / data["timedel"])
 
-        live_time = _lfrac(data["triggers"].reshape(-1) / (16 * data["timedel"] * u.s))
+        data["counts"] = data["counts"] / ((data["timedel"].to(u.s) * live_frac).reshape(-1, 1) * energy_delta)
 
-        data["counts"] = data["counts"] / (live_time.reshape(-1, 1) * energy_delta)
-
-        names = [f'{energies["e_low"][i]}-{energies["e_high"][i]}' for i in range(5)]
+        names = [
+            f'{energies["e_low"][i].value.astype(int)}-{energies["e_high"][i].value.astype(int)} {energies["e_high"].unit}'
+            for i in range(5)
+        ]
 
         [data.add_column(data["counts"][:, i], name=names[i]) for i in range(5)]
         data.remove_column("counts")
@@ -362,17 +318,12 @@ class QLBackground(GenericTimeSeries):
         data.remove_column("counts_comp_err")
 
         try:
-            data["time"] = Time(header["date_obs"]) + TimeDelta(data["time"] * u.s)
+            data["time"] = Time(header["date_obs"]) + TimeDelta(data["time"])
         except KeyError:
-            data["time"] = Time(header["date-obs"]) + TimeDelta(data["time"] * u.s)
+            data["time"] = Time(header["date-obs"]) + TimeDelta(data["time"])
 
-        # [f'{energies[i]["e_low"]} - {energies[i]["e_high"]} keV' for i in range(5)]
-
-        units = OrderedDict(
-            [("control_index", None), ("timedel", u.s), ("triggers", None), ("triggers_comp_err", None), ("rcr", None)]
-        )
-        units.update([(name, u.ct) for name in names])
-        units.update([(f"{name}_comp_err", u.ct) for name in names])
+        units = OrderedDict((c.info.name, c.unit) for c in data.itercols() if c.info.name != "time")
+        units.update([(f"{name}_comp_err", units[name]) for name in names])
 
         data["triggers"] = data["triggers"].reshape(-1)
         data["triggers_comp_err"] = data["triggers_comp_err"].reshape(-1)
@@ -389,7 +340,7 @@ class QLBackground(GenericTimeSeries):
         Determines if the file corresponds to a STIX QL LightCurve
         `~sunpy.timeseries.TimeSeries`.
         """
-        # Check if source is explicitly assigned
+        # Check if a source is explicitly assigned
         if "source" in kwargs.keys():
             if kwargs.get("source", ""):
                 return kwargs.get("source", "").lower().startswith(cls._source)
@@ -400,7 +351,11 @@ class QLBackground(GenericTimeSeries):
 
 class QLVariance(GenericTimeSeries):
     """
-    Quicklook X-ray background detector time series.
+    Quicklook variance time series
+
+    Variance of counts is calculated for one energy range over counts summed from selected detectors and pixels in 40
+    accumulators, each accumulating for 0.1s. These accumulators are double buffered with depth of 32bits and
+    approximate data rate of 1 Mhz.
 
     Examples
     --------
@@ -440,15 +395,18 @@ class QLVariance(GenericTimeSeries):
     [21516 rows x 4 columns]
     """
 
-    def plot(self, axes=None, **plot_args):
+    def plot(self, axes=None, columns=None, **plot_args):
         """
         Show a plot of the data.
 
         Parameters
         ----------
+
         axes : `~matplotlib.axes.Axes`, optional
             If provided the image will be plotted on the given axes.
             Defaults to `None`, so the current axes will be used.
+        columns :
+            Columns to plot, defaults to 'variance'.
         **plot_args : `dict`, optional
             Additional plot keyword arguments that are handed to
             :meth:`pandas.DataFrame.plot`.
@@ -458,40 +416,25 @@ class QLVariance(GenericTimeSeries):
         axes : `~matplotlib.axes.Axes`
             The plot axes.
         """
-        import matplotlib.pyplot as plt
+        if columns is None:
+            count_re = re.compile(r"\d+-\d+ keV$")
+            columns = [column for column in self.columns if count_re.match(column)]
 
-        # Get current axes
-        if axes is None:
-            fig, axes = plt.subplots()
+        axes, columns = self._setup_axes_columns(axes, columns)
+        axes = self._data[columns].plot(ax=axes, **plot_args)
 
-        self._validate_data_for_plotting()
-        quantity_support()
+        units = set([self.units[col] for col in columns])
+        if len(units) == 1 and list(units)[0] is not None:
+            # If units of all columns being plotted are the same, add a unit
+            # label to the y-axis.
+            unit = u.Unit(list(units)[0])
+            axes.set_ylabel(unit.to_string())
+            axes.set_yscale("log")
 
-        dates = matplotlib.dates.date2num(self.to_dataframe().index)
-
-        label = f"{self.columns[2]} keV"
-
-        axes.plot_date(dates, self.to_dataframe().iloc[:, 2], "-", label=label)  # , **plot_args)
-
-        axes.legend(loc="upper right")
-
-        axes.set_yscale("log")
-
-        axes.set_title("STIX Quick Look Variance")
-        axes.set_ylabel("count s$^{-1}$ keV$^{-1}$")
-
-        axes.yaxis.grid(True, "major")
-        axes.xaxis.grid(False, "major")
+        axes.set_title("STIX QL Variance")
         axes.legend()
-
-        # TODO: display better tick labels for date range (e.g. 06/01 - 06/05)
-        formatter = matplotlib.dates.DateFormatter("%d %H:%M")
-        axes.xaxis.set_major_formatter(formatter)
-
-        axes.fmt_xdata = matplotlib.dates.DateFormatter("%d %H:%M")
-        fig.autofmt_xdate()
-
-        return fig
+        self._setup_x_axis(axes)
+        return axes
 
     @classmethod
     def _parse_file(cls, filepath):
@@ -517,32 +460,31 @@ class QLVariance(GenericTimeSeries):
             The path to the file you want to parse.
         """
         header = hdulist[0].header
-        control = Table(hdulist[1].data)
-        header["control"] = control
-        data = Table(hdulist[2].data)
-        energies = Table(hdulist[4].data)
-        dE = (
+        control = _hdu_to_qtable(hdulist[1])
+        data = _hdu_to_qtable(hdulist[2])
+        energies = _hdu_to_qtable(hdulist[4])
+        delta_energy = (
             energies[control["energy_bin_mask"][0]]["e_high"][-1] - energies[control["energy_bin_mask"][0]]["e_low"][0]
-            << u.keV
         )
         name = (
-            f'{energies[control["energy_bin_mask"][0]]["e_low"][0]}'
-            f'-{energies[control["energy_bin_mask"][0]]["e_high"][-1]}'
+            f'{energies[control["energy_bin_mask"][0]]["e_low"][0].value.astype(int)}'
+            f'-{energies[control["energy_bin_mask"][0]]["e_high"][-1].value.astype(int)} {energies["e_high"].unit}'
         )
 
         try:
-            data["time"] = Time(header["date_obs"]) + TimeDelta(data["time"] * u.s)
+            data["time"] = Time(header["date_obs"]) + TimeDelta(data["time"])
         except KeyError:
-            data["time"] = Time(header["date-obs"]) + TimeDelta(data["time"] * u.s)
+            data["time"] = Time(header["date-obs"]) + TimeDelta(data["time"])
 
-        data["variance"] = data["variance"].reshape(-1) / (dE * data["timedel"])
+        data["variance"] = data["variance"].reshape(-1) * u.ct / (delta_energy * data["timedel"].to(u.s))
 
         data.add_column(data["variance"], name=name)
         data.remove_column("variance")
         data.add_column(data["variance_comp_err"], name=f"{name}_comp_err")
         data.remove_column("variance_comp_err")
 
-        units = OrderedDict([("control_index", None), ("timedel", u.s), (name, u.count), (f"{name}_comp_err", u.count)])
+        units = OrderedDict((c.info.name, c.unit) for c in data.itercols() if c.info.name != "time")
+        units[f"{name}_comp_err"] = u.ct / (u.s * u.keV)
 
         data[name] = data[name].reshape(-1)
         data[f"{name}_comp_err"] = data[f"{name}_comp_err"].reshape(-1)
@@ -559,7 +501,7 @@ class QLVariance(GenericTimeSeries):
         Determines if the file corresponds to a STIX QL LightCurve
         `~sunpy.timeseries.TimeSeries`.
         """
-        # Check if source is explicitly assigned
+        # Check if a source is explicitly assigned
         if "source" in kwargs.keys():
             if kwargs.get("source", ""):
                 return kwargs.get("source", "").lower().startswith(cls._source)
@@ -659,20 +601,22 @@ class HKMaxi(GenericTimeSeries):
             The path to the file you want to parse.
         """
         header = hdulist[0].header
-        control = Table(hdulist[1].data)
-        header["control"] = control
-        data = Table(hdulist[2].data)
+        # control = _hdu_to_qtable(hdulist[1])
+        # header["control"] = control
+        data = _hdu_to_qtable(hdulist[2])
 
         try:
-            data["time"] = Time(header["date_obs"]) + TimeDelta(data["time"] * u.s)
+            data["time"] = Time(header["date_obs"]) + TimeDelta(data["time"])
         except KeyError:
-            data["time"] = Time(header["date-obs"]) + TimeDelta(data["time"] * u.s)
+            data["time"] = Time(header["date-obs"]) + TimeDelta(data["time"])
+
+        units = OrderedDict((c.info.name, c.unit) for c in data.itercols() if c.info.name != "time")
 
         data_df = data.to_pandas()
         data_df.index = data_df["time"]
         data_df.drop(columns="time", inplace=True)
 
-        return data_df, header, None
+        return data_df, header, units
 
     @classmethod
     def is_datasource_for(cls, **kwargs):
@@ -680,7 +624,7 @@ class HKMaxi(GenericTimeSeries):
         Determines if the file corresponds to a STIX QL LightCurve
         `~sunpy.timeseries.TimeSeries`.
         """
-        # Check if source is explicitly assigned
+        # Check if a source is explicitly assigned
         if "source" in kwargs.keys():
             if kwargs.get("source", ""):
                 return kwargs.get("source", "").lower().startswith(cls._source)

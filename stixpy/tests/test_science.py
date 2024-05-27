@@ -118,7 +118,7 @@ def test_science_l1():
     assert np.array_equal(res.detectors.masks, np.ones((1, num_detectors)))
     assert np.array_equal(res.pixels.masks, np.ones(12)[None, ...])
     assert np.array_equal(res.energy_masks.masks, np.ones((1, num_energies)))
-    assert res.data['counts'].shape == (num_times, num_detectors, num_pixels, num_energies-1)
+    assert res.data["counts"].shape == (num_times, num_detectors, num_pixels, num_energies - 1)
 
 
 @pytest.mark.remote_data
@@ -132,7 +132,7 @@ def test_science_l2():
     assert np.array_equal(res.detectors.masks, np.ones((1, num_detectors)))
     # assert np.array_equal(res.pixels.masks.astype(int), np.ones((1, num_pixels)))
     assert np.array_equal(res.energy_masks.masks, np.ones((1, num_energies)))
-    assert res.data['counts'].shape == (num_times, num_detectors, num_pixels, num_energies-1)
+    assert res.data["counts"].shape == (num_times, num_detectors, num_pixels, num_energies - 1)
 
 
 # def test_science_l3():
@@ -157,4 +157,4 @@ def test_spectrogram():
     # assert np.array_equal(res.pixels.masks, np.ones((1, num_pixels)))
     assert np.array_equal(res.energy_masks.masks, np.ones((1, num_energies)))
     assert np.array_equal(res.pixel_masks.masks, np.zeros((1, num_pixels)))
-    assert res.data['counts'].shape == (num_times, num_energies-1)
+    assert res.data["counts"].shape == (num_times, num_energies - 1)

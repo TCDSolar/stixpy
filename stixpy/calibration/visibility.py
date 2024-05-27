@@ -11,12 +11,15 @@ from stixpy.calibration.grid import get_grid_transmission
 from stixpy.calibration.livetime import get_livetime_fraction
 from stixpy.io.readers import read_subc_params
 
-__all__ = ["get_subcollimator_info",
-           "create_meta_pixels",
-           "create_visibility",
-           "get_uv_points_data",
-           "calibrate_visibility",
-           "sas_map_center"]
+__all__ = [
+    "get_subcollimator_info",
+    "create_meta_pixels",
+    "create_visibility",
+    "get_uv_points_data",
+    "calibrate_visibility",
+    "sas_map_center",
+]
+
 
 def get_subcollimator_info():
     r"""
@@ -160,7 +163,7 @@ def create_meta_pixels(pixel_data, time_range, energy_range, phase_center, no_sh
     e_cor_high, e_cor_low = get_elut_correction(e_ind, pixel_data)
 
     counts = pixel_data.data["counts"].astype(float)
-    count_errors = np.sqrt(pixel_data.data["counts_comp_err"].astype(float).value**2 + counts.value) * u.ct
+    count_errors = np.sqrt(pixel_data.data["counts_comp_err"].astype(float).value ** 2 + counts.value) * u.ct
     ct = counts[t_ind][..., e_ind]
     ct[..., 0:8, 0] = ct[..., 0:8, 0] * e_cor_low[..., 0:8]
     ct[..., 0:8, -1] = ct[..., 0:8, -1] * e_cor_high[..., 0:8]
@@ -170,7 +173,7 @@ def create_meta_pixels(pixel_data, time_range, energy_range, phase_center, no_sh
 
     lt = (livefrac * pixel_data.data["timedel"].reshape(-1, 1).to("s"))[t_ind].sum(axis=0)
 
-    ct_summed = ct.sum(axis=(0, 3))#.astype(float)
+    ct_summed = ct.sum(axis=(0, 3))  # .astype(float)
     ct_error_summed = np.sqrt(np.sum(ct_error**2, axis=(0, 3)))
 
     if not no_shadowing:
@@ -179,7 +182,9 @@ def create_meta_pixels(pixel_data, time_range, energy_range, phase_center, no_sh
         ct_error_summed = ct_error_summed / grid_shadowing.reshape(-1, 1) / 4
 
     abcd_counts = ct_summed.reshape(ct_summed.shape[0], -1, 4)[:, [0, 1], :].sum(axis=1)
-    abcd_count_errors = np.sqrt((ct_error_summed.reshape(ct_error_summed.shape[0], -1, 4)[:, [0, 1], :] ** 2).sum(axis=1))
+    abcd_count_errors = np.sqrt(
+        (ct_error_summed.reshape(ct_error_summed.shape[0], -1, 4)[:, [0, 1], :] ** 2).sum(axis=1)
+    )
 
     abcd_rate = abcd_counts / lt.reshape(-1, 1)
     abcd_rate_error = abcd_count_errors / lt.reshape(-1, 1)
@@ -297,7 +302,7 @@ def create_visibility(meta_pixels):
 
 
 @u.quantity_input
-def get_uv_points_data(d_det: u.Quantity[u.mm] = 47.78 * u.mm, d_sep:u.Quantity[u.mm] = 545.30 * u.mm):
+def get_uv_points_data(d_det: u.Quantity[u.mm] = 47.78 * u.mm, d_sep: u.Quantity[u.mm] = 545.30 * u.mm):
     r"""
     Return the STIX (u,v) points coordinates defined in [1], ordered with respect to the detector index.
 
@@ -339,17 +344,21 @@ def get_uv_points_data(d_det: u.Quantity[u.mm] = 47.78 * u.mm, d_sep:u.Quantity[
     front_unit_vector_comp = (((d_det + d_sep) / subc_imaging["Front Pitch"]) / u.rad).to(1 / u.arcsec)
     rear_unit_vector_comp = ((d_det / subc_imaging["Rear Pitch"]) / u.rad).to(1 / u.arcsec)
 
-    uu = np.cos(subc_imaging["Front Orient"].to("deg")) * front_unit_vector_comp - np.cos(
-        subc_imaging["Rear Orient"].to("deg")) * rear_unit_vector_comp
-    vv = np.sin(subc_imaging["Front Orient"].to("deg")) * front_unit_vector_comp - np.sin(
-        subc_imaging["Rear Orient"].to("deg")) * rear_unit_vector_comp
+    uu = (
+        np.cos(subc_imaging["Front Orient"].to("deg")) * front_unit_vector_comp
+        - np.cos(subc_imaging["Rear Orient"].to("deg")) * rear_unit_vector_comp
+    )
+    vv = (
+        np.sin(subc_imaging["Front Orient"].to("deg")) * front_unit_vector_comp
+        - np.sin(subc_imaging["Rear Orient"].to("deg")) * rear_unit_vector_comp
+    )
 
     uu = -uu * phase_sense
     vv = -vv * phase_sense
 
     uv_data = {
-        "isc": isc,     # sub-collimator indices
-        "label": label, # sub-collimator labels
+        "isc": isc,  # sub-collimator indices
+        "label": label,  # sub-collimator labels
         "u": uu,
         "v": vv,
     }

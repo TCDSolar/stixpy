@@ -8,7 +8,7 @@ from sunpy.io.special import read_genx
 from stixpy.calibration.transmission import Transmission
 from stixpy.io.readers import read_energy_channel_index, read_sci_energy_channels
 
-__all__ = ['get_srm','get_pixel_srm','get_sci_channels']
+__all__ = ["get_srm", "get_pixel_srm", "get_sci_channels"]
 
 SCI_INDEX = None
 SCI_CHANNELS = {}

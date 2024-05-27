@@ -23,7 +23,7 @@ STIX_Y_OFFSET = 8.0 * u.arcsec  # remaining offset after SAS solution
 
 logger = get_logger(__name__)
 
-__all__ = ['get_hpc_info', 'stixim_to_hpc', 'hpc_to_stixim']
+__all__ = ["get_hpc_info", "stixim_to_hpc", "hpc_to_stixim"]
 
 
 def _get_rotation_matrix_and_position(obstime):
@@ -73,45 +73,51 @@ def get_hpc_info(start_time, end_time=None):
     aux = _get_aux_data(start_time, end_time=end_time)
     if end_time is None:
         end_time = start_time
-    indices = np.argwhere((aux['time'] >= start_time) & (aux['time'] <= end_time))
+    indices = np.argwhere((aux["time"] >= start_time) & (aux["time"] <= end_time))
     indices = indices.flatten()
 
     if indices.size < 2:
-        logger.info('Only one data point found interpolating between two closest times.')
+        logger.info("Only one data point found interpolating between two closest times.")
         # Times contained in one time bin have to interpolate
         time_center = start_time + (end_time - start_time) * 0.5
-        diff_center = (aux['time']-time_center).to('s')
+        diff_center = (aux["time"] - time_center).to("s")
         closest_index = np.argmin(np.abs(diff_center))
 
         if diff_center[closest_index] > 0:
-            start_ind = closest_index-1
+            start_ind = closest_index - 1
             end_ind = closest_index + 1
         else:
             start_ind = closest_index
             end_ind = closest_index + 2
 
         interp = slice(start_ind, end_ind)
-        dt = np.diff(aux[start_ind:end_ind]['time'])[0].to(u.s)
+        dt = np.diff(aux[start_ind:end_ind]["time"])[0].to(u.s)
 
-        roll, pitch, yaw = (aux[start_ind:start_ind+1]['roll_angle_rpy']
-                            + (np.diff(aux[interp]['roll_angle_rpy'], axis=0) / dt) * diff_center[closest_index])[0]
-        solo_heeq = (aux[start_ind:start_ind+1]['solo_loc_heeq_zxy']
-                     + (np.diff(aux[interp]['solo_loc_heeq_zxy'], axis=0) / dt) * diff_center[closest_index])[0]
-        sas_x = (aux[start_ind:start_ind+1]['y_srf']
-                 + (np.diff(aux[interp]['y_srf']) / dt) * diff_center[closest_index])[0]
-        sas_y = (aux[start_ind:start_ind+1]['z_srf']
-                 + (np.diff(aux[interp]['z_srf']) / dt) * diff_center[closest_index])[0]
+        roll, pitch, yaw = (
+            aux[start_ind : start_ind + 1]["roll_angle_rpy"]
+            + (np.diff(aux[interp]["roll_angle_rpy"], axis=0) / dt) * diff_center[closest_index]
+        )[0]
+        solo_heeq = (
+            aux[start_ind : start_ind + 1]["solo_loc_heeq_zxy"]
+            + (np.diff(aux[interp]["solo_loc_heeq_zxy"], axis=0) / dt) * diff_center[closest_index]
+        )[0]
+        sas_x = (
+            aux[start_ind : start_ind + 1]["y_srf"] + (np.diff(aux[interp]["y_srf"]) / dt) * diff_center[closest_index]
+        )[0]
+        sas_y = (
+            aux[start_ind : start_ind + 1]["z_srf"] + (np.diff(aux[interp]["z_srf"]) / dt) * diff_center[closest_index]
+        )[0]
 
-        good_solution = np.where(aux[interp]['sas_ok'] == 1)
+        good_solution = np.where(aux[interp]["sas_ok"] == 1)
         good_sas = aux[good_solution]
     else:
         # average over
         aux = aux[indices]
 
-        roll, pitch, yaw = np.mean(aux['roll_angle_rpy'], axis=0)
-        solo_heeq = np.mean(aux['solo_loc_heeq_zxy'], axis=0)
+        roll, pitch, yaw = np.mean(aux["roll_angle_rpy"], axis=0)
+        solo_heeq = np.mean(aux["solo_loc_heeq_zxy"], axis=0)
 
-        good_solution = np.where(aux['sas_ok'] == 1)
+        good_solution = np.where(aux["sas_ok"] == 1)
         good_sas = aux[good_solution]
 
         if len(good_sas) == 0:
@@ -123,7 +129,7 @@ def get_hpc_info(start_time, end_time=None):
             sas_y = np.mean(good_sas["z_srf"])
             sigma_x = np.std(good_sas["y_srf"])
             sigma_y = np.std(good_sas["z_srf"])
-            tolerance = 3*u.arcsec
+            tolerance = 3 * u.arcsec
             if sigma_x > tolerance or sigma_y > tolerance:
                 warnings.warn(f"Pointing unstable: StD(X) = {sigma_x}, StD(Y) = {sigma_y}.")
 
@@ -136,13 +142,13 @@ def get_hpc_info(start_time, end_time=None):
 
     pointing_diff = np.linalg.norm(spacecraft_pointing - sas_pointing)
     if np.all(np.isfinite(sas_pointing)) and len(good_sas) > 0:
-
         if pointing_diff < 200 * u.arcsec:
             logger.info(f"Using SAS pointing: {sas_pointing}")
             stix_pointing = sas_pointing
         else:
-            warnings.warn(f"Using spacecraft pointing: {spacecraft_pointing}"
-                          f" large difference between SAS and spacecraft.")
+            warnings.warn(
+                f"Using spacecraft pointing: {spacecraft_pointing}" f" large difference between SAS and spacecraft."
+            )
     else:
         warnings.warn(f"SAS solution not available using spacecraft pointing: {stix_pointing}.")
 
@@ -170,13 +176,17 @@ def _get_aux_data(start_time, end_time=None):
         end_time = start_time
     logger.debug(f"Searching for AUX data: {start_time} - {end_time}")
     query = Fido.search(
-        a.Time(start_time, end_time), a.Instrument.stix, a.Level.l2, a.stix.DataType.aux, a.stix.DataProduct.aux_ephemeris
+        a.Time(start_time, end_time),
+        a.Instrument.stix,
+        a.Level.l2,
+        a.stix.DataType.aux,
+        a.stix.DataProduct.aux_ephemeris,
     )
-    if len(query['stix']) == 0:
-        raise ValueError(f'No STIX pointing data found for time range {start_time} to {end_time}.')
+    if len(query["stix"]) == 0:
+        raise ValueError(f"No STIX pointing data found for time range {start_time} to {end_time}.")
 
     logger.debug(f"Downloading {len(query['stix'])} AUX files")
-    aux_files = Fido.fetch(query['stix'])
+    aux_files = Fido.fetch(query["stix"])
     if len(aux_files.errors) > 0:
         raise ValueError("There were errors downloading the data.")
     # Read and extract data
@@ -187,11 +197,13 @@ def _get_aux_data(start_time, end_time=None):
         hdu = fits.getheader(aux_file, ext=0)
         aux = QTable.read(aux_file, hdu=2)
         date_beg = Time(hdu.get("DATE-BEG"))
-        aux['time'] = date_beg + aux['time'] - 32*u.s  # Shift AUX data by half a time bin (starting time vs. bin centre)
+        aux["time"] = (
+            date_beg + aux["time"] - 32 * u.s
+        )  # Shift AUX data by half a time bin (starting time vs. bin centre)
         aux_data.append(aux)
 
     aux = vstack(aux_data)
-    aux.sort(keys=['time'])
+    aux.sort(keys=["time"])
 
     return aux
 
@@ -211,8 +223,9 @@ def stixim_to_hpc(stxcoord, hpcframe):
 
     # Create SOLO HPC
     solo_hpc = Helioprojective(
-        newrepr, obstime=stxcoord.obstime,
-        observer=solo_heeq.transform_to(HeliographicStonyhurst(obstime=stxcoord.obstime))
+        newrepr,
+        obstime=stxcoord.obstime,
+        observer=solo_heeq.transform_to(HeliographicStonyhurst(obstime=stxcoord.obstime)),
     )
     logger.debug("SOLO HPC: %s", solo_hpc)
 

@@ -94,6 +94,7 @@ class EnergyEdgeMasks(IndexMasks):
     """
     Energy Edges Mask
     """
+
     @property
     def energy_mask(self):
         """
@@ -103,11 +104,10 @@ class EnergyEdgeMasks(IndexMasks):
         -------
         `np.array`
         """
-        energy_bin_mask = (self.masks & np.roll(self.masks, 1))[0,1:]
+        energy_bin_mask = (self.masks & np.roll(self.masks, 1))[0, 1:]
         indices = np.where(energy_bin_mask == 1)
-        energy_bin_mask[indices[0][0]: indices[0][-1] + 1] = 1
+        energy_bin_mask[indices[0][0] : indices[0][-1] + 1] = 1
         return energy_bin_mask
-
 
 
 class PixelMasks(PPrintMixin):

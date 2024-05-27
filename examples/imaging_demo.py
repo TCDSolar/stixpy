@@ -120,7 +120,7 @@ for k, v in cal_vis.__dict__.items():
 # Set up image parameters
 
 imsize = [512, 512] * u.pixel  # number of pixels of the map to reconstruct
-pixel = [10, 10] * u.arcsec  # pixel size in aresec
+pixel = [10, 10] * u.arcsec / u.pixel  # pixel size in aresec
 
 ###############################################################################
 # Make a full disk back projection (inverse transform) map
@@ -157,22 +157,21 @@ hp_map_rotated.draw_grid()
 # Estimate the flare location and plot on top of back projection map.
 
 max_pixel = np.argwhere(fd_bp_map.data == fd_bp_map.data.max()).ravel() * u.pixel
-# because WCS axes are reverse order
-max_hpc = fd_bp_map.pixel_to_world(max_pixel[1], max_pixel[0])
+# because WCS axes and array are reversed
+max_stix = fd_bp_map.pixel_to_world(max_pixel[1], max_pixel[0])
 
-ax0.plot_coord(max_hpc, marker=".", markersize=50, fillstyle="none", color="r", markeredgewidth=2)
-ax1.plot_coord(max_hpc, marker=".", markersize=50, fillstyle="none", color="r", markeredgewidth=2)
+ax0.plot_coord(max_stix, marker=".", markersize=50, fillstyle="none", color="r", markeredgewidth=2)
+ax1.plot_coord(max_stix, marker=".", markersize=50, fillstyle="none", color="r", markeredgewidth=2)
 
 
 ################################################################################
 # Use estimated flare location to create more accurate visibilities
 
+# because WCS axes and array are reversed and all positions are expected follow array indices
+flare_pos_stix = [max_stix.Ty.to_value("arcsec"), max_stix.Tx.to_value("arcsec")] * u.arcsec
+
 meta_pixels_sci = create_meta_pixels(
-    cpd_sci,
-    time_range=time_range_sci,
-    energy_range=energy_range,
-    phase_center=[max_hpc.Tx, max_hpc.Ty],
-    no_shadowing=True,
+    cpd_sci, time_range=time_range_sci, energy_range=energy_range, phase_center=flare_pos_stix, no_shadowing=True
 )
 
 meta_pixels_bkg_subtracted = {
@@ -186,7 +185,7 @@ vis = create_visibility(meta_pixels_bkg_subtracted)
 uv_data = get_uv_points_data()
 vis.u = uv_data["u"]
 vis.v = uv_data["v"]
-cal_vis = calibrate_visibility(vis, [max_hpc.Tx, max_hpc.Ty])
+cal_vis = calibrate_visibility(vis, flare_pos_stix)
 
 ###############################################################################
 # Selected detectors 10 to 3
@@ -201,7 +200,7 @@ stix_vis1 = Visibility(
     vis=cal_vis.obsvis[idx],
     u=cal_vis.u[idx],
     v=cal_vis.v[idx],
-    offset=np.array([max_hpc.Tx.value, max_hpc.Ty.value]) * u.arcsec,
+    offset=flare_pos_stix,
 )
 skeys = stix_vis1.__dict__.keys()
 for k, v in cal_vis.__dict__.items():
@@ -212,7 +211,7 @@ for k, v in cal_vis.__dict__.items():
 # Set up image parameters
 
 imsize = [129, 129] * u.pixel  # number of pixels of the map to reconstruct
-pixel = [2, 2] * u.arcsec  # pixel size in arcsec
+pixel = [2, 2] * u.arcsec / u.pixel  # pixel size in arcsec
 
 ###############################################################################
 # Create a back projection image with natural weighting
@@ -222,7 +221,7 @@ bp_nat = vis_to_image(stix_vis1, imsize, pixel_size=pixel)
 ###############################################################################
 # Create a back projection image with uniform weighting
 
-bp_uni = vis_to_image(stix_vis1, imsize, pixel_size=pixel, natural=False)
+bp_uni = vis_to_image(stix_vis1, imsize, pixel_size=pixel, scheme="uniform")
 
 ###############################################################################
 # Create a `sunpy.map.Map` with back projection
@@ -236,13 +235,13 @@ niter = 200  # number of iterations
 gain = 0.1  # gain used in each clean iteration
 beam_width = 20.0 * u.arcsec
 clean_map, model_map, resid_map = vis_clean(
-    stix_vis1, imsize, pixel=pixel, gain=gain, niter=niter, clean_beam_width=20 * u.arcsec
+    stix_vis1, imsize, pixel_size=pixel, gain=gain, niter=niter, clean_beam_width=20 * u.arcsec
 )
 
 ###############################################################################
 # Crete a map using the MEM GE algorithm `mem`
 
-mem_map = mem(stix_vis1, shape=imsize, pixel=pixel)
+mem_map = mem(stix_vis1, shape=imsize, pixel_size=pixel)
 
 
 ###############################################################################
@@ -252,7 +251,7 @@ stix_vis1 = Visibility(
     vis=cal_vis.obsvis[idx],
     u=cal_vis.u[idx],
     v=cal_vis.v[idx],
-    center=np.array([max_hpc.Tx.value, max_hpc.Ty.value]) * u.arcsec,
+    offset=flare_pos_stix,
 )
 skeys = stix_vis1.__dict__.keys()
 for k, v in cal_vis.__dict__.items():
@@ -264,7 +263,7 @@ em_map = em(
     stix_vis1,
     shape=imsize,
     pixel_size=pixel,
-    flare_xy=np.array([max_hpc.Tx.value, max_hpc.Ty.value]) * u.arcsec,
+    flare_xy=flare_pos_stix,
     idx=idx,
 )
 

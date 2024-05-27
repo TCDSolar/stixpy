@@ -1,4 +1,3 @@
-
 import astropy.nddata
 import astropy.units as u
 import numpy as np
@@ -14,12 +13,15 @@ from .. import tools
 @pytest.fixture
 def cube():
     data = np.ones((2, 5))
-    mask = np.array([[False, False, False,  True, False],
-                     [ True,  True,  True, False,  True]], dtype=bool)
-    uncertainty = astropy.nddata.StdDevUncertainty(data*0.1)
+    mask = np.array([[False, False, False, True, False], [True, True, True, False, True]], dtype=bool)
+    uncertainty = astropy.nddata.StdDevUncertainty(data * 0.1)
 
-    time_coord = TimeTableCoordinate(Time("2000-01-01", scale="utc", format="iso") + np.arange(0, data.shape[0]*10, 10)*u.s)
-    energy_coord = QuantityTableCoordinate(np.arange(3, 3+data.shape[1]) * u.keV, names="energy", physical_types="em.energy")
+    time_coord = TimeTableCoordinate(
+        Time("2000-01-01", scale="utc", format="iso") + np.arange(0, data.shape[0] * 10, 10) * u.s
+    )
+    energy_coord = QuantityTableCoordinate(
+        np.arange(3, 3 + data.shape[1]) * u.keV, names="energy", physical_types="em.energy"
+    )
     ec = ExtraCoords()
     ec.add("time", 1, time_coord)
     ec.add("energy", 0, energy_coord)
@@ -31,18 +33,21 @@ def cube():
 def test_rebin_by_edges(cube):
     # Run function.
     axes_idx_edges = [0, 2], [0, 1, 3, 5]
-    output = tools.rebin_by_edges(cube, axes_idx_edges, operation=np.sum,
-                                  operation_ignores_mask=False, handle_mask=np.all,
-                                  propagate_uncertainties=True)
+    output = tools.rebin_by_edges(
+        cube,
+        axes_idx_edges,
+        operation=np.sum,
+        operation_ignores_mask=False,
+        handle_mask=np.all,
+        propagate_uncertainties=True,
+    )
     # Define expected outputs.
-    data = np.array([[1., 2., 2.]])
+    data = np.array([[1.0, 2.0, 2.0]])
     mask = np.zeros(data.shape, dtype=bool)
-    uncertainty = astropy.nddata.StdDevUncertainty([[0.1,
-                                                     0.14142135623730953,
-                                                     0.14142135623730953]])
+    uncertainty = astropy.nddata.StdDevUncertainty([[0.1, 0.14142135623730953, 0.14142135623730953]])
     ec = ExtraCoords()
-    ec.add('iso(utc; None', 1, [5.] * u.s, physical_types="time")
-    ec.add("energy", 0, [3., 4.5, 6.5] * u.keV, physical_types="em.energy")
+    ec.add("iso(utc; None", 1, [5.0] * u.s, physical_types="time")
+    ec.add("energy", 0, [3.0, 4.5, 6.5] * u.keV, physical_types="em.energy")
     wcs = ec.wcs
     expected = NDCube(data, wcs, uncertainty=uncertainty, mask=mask)
     # Compare outputs with expected.

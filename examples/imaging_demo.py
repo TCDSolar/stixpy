@@ -21,8 +21,8 @@ from sunpy.coordinates import HeliographicStonyhurst, Helioprojective
 from sunpy.map import Map, make_fitswcs_header
 from xrayvision.clean import vis_clean
 from xrayvision.imaging import vis_to_image, vis_to_map
-from xrayvision.mem import mem
-from xrayvision.visibility import Visibility
+from xrayvision.mem import mem, resistant_mean
+from xrayvision.visibility import Visibilities, VisMeta
 
 from stixpy.calibration.visibility import (
     calibrate_visibility,
@@ -108,13 +108,11 @@ isc_10_7 = [3, 20, 22, 16, 14, 32, 21, 26, 4, 24, 8, 28]
 idx = np.argwhere(np.isin(cal_vis.isc, isc_10_7)).ravel()
 
 ###############################################################################
-# Create an ``xrayvsion`` visiblty object
+# Create an ``xrayvsion`` Visibilities object
 
-stix_vis = Visibility(vis=cal_vis.obsvis[idx], u=cal_vis.u[idx], v=cal_vis.v[idx])
-skeys = stix_vis.__dict__.keys()
-for k, v in cal_vis.__dict__.items():
-    if k not in skeys:
-        setattr(stix_vis, k, v[idx])
+stix_vis = Visibilities(
+    cal_vis.obsvis[idx], cal_vis.u[idx], cal_vis.v[idx], amplitude_uncertainty=cal_vis.amplitude_error[idx]
+)
 
 ###############################################################################
 # Set up image parameters
@@ -196,16 +194,15 @@ idx = np.argwhere(np.isin(cal_vis.isc, isc_10_3)).ravel()
 ###############################################################################
 # Create an ``xrayvsion`` visibility object
 
-stix_vis1 = Visibility(
-    vis=cal_vis.obsvis[idx],
-    u=cal_vis.u[idx],
-    v=cal_vis.v[idx],
-    offset=flare_pos_stix,
+meta = VisMeta({"vis_labels": cal_vis.isc[idx]})
+stix_vis1 = Visibilities(
+    cal_vis.obsvis[idx],
+    cal_vis.u[idx],
+    cal_vis.v[idx],
+    amplitude_uncertainty=cal_vis.amplitude_error[idx],
+    phase_center=flare_pos_stix,
+    meta=meta,
 )
-skeys = stix_vis1.__dict__.keys()
-for k, v in cal_vis.__dict__.items():
-    if k not in skeys:
-        setattr(stix_vis1, k, v[idx])
 
 ###############################################################################
 # Set up image parameters
@@ -241,22 +238,13 @@ clean_map, model_map, resid_map = vis_clean(
 ###############################################################################
 # Crete a map using the MEM GE algorithm `mem`
 
-mem_map = mem(stix_vis1, shape=imsize, pixel_size=pixel)
+snr_value, _ = resistant_mean((np.abs(stix_vis1.visibilities) / stix_vis1.amplitude_uncertainty).flatten(), 3)
+percent_lambda = 2 / (snr_value**2 + 90)
+mem_map = mem(stix_vis1, shape=imsize, pixel_size=pixel, percent_lambda=percent_lambda)
 
 
 ###############################################################################
 # Crete a map using the EM algorithm `EM`
-
-stix_vis1 = Visibility(
-    vis=cal_vis.obsvis[idx],
-    u=cal_vis.u[idx],
-    v=cal_vis.v[idx],
-    offset=flare_pos_stix,
-)
-skeys = stix_vis1.__dict__.keys()
-for k, v in cal_vis.__dict__.items():
-    if k not in skeys:
-        setattr(stix_vis1, k, v[idx])
 
 em_map = em(
     meta_pixels_bkg_subtracted["abcd_rate_kev_cm"],

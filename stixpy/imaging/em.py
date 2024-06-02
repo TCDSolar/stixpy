@@ -58,8 +58,8 @@ def get_transmission_matrix(u, v, shape=[64, 64] * apu.pix, pixel_size=[4.0, 4.0
     idx = [6, 28, 0, 24, 4, 22, 5, 29, 1, 14, 26, 30, 23, 7, 27, 20, 25, 3, 15, 13, 31, 2, 19, 21]
     phase_cor = phase_cor[idx]
 
-    x = generate_xy(shape[0], pixel_size=pixel_size[0], phase_centre=center[0])
-    y = generate_xy(shape[1], pixel_size=pixel_size[1], phase_centre=center[1])
+    x = generate_xy(shape[0], pixel_size=pixel_size[0], phase_center=center[0])
+    y = generate_xy(shape[1], pixel_size=pixel_size[1], phase_center=center[1])
 
     x, y = np.meshgrid(x, y)
     # Check apu are correct for exp need to be dimensionless and then remove apu for speed
@@ -111,7 +111,7 @@ def em(countrates, vis, shape, pixel_size, maxiter=5000, tolerance=0.001, *, fla
 
     # temp
     idx = [6, 28, 0, 24, 4, 22, 5, 29, 1, 14, 26, 30, 23, 7, 27, 20, 25, 3, 15, 13, 31, 2, 19, 21]
-    ii = np.array([np.argwhere(vis.isc - 1 == i).ravel() for i in idx]).ravel()
+    ii = np.array([np.argwhere(vis.meta.vis_labels - 1 == i).ravel() for i in idx]).ravel()
 
     H = get_transmission_matrix(vis.u[ii], vis.v[ii], shape=shape, pixel_size=pixel_size, center=flare_xy, pixel_sum=1)
     y = countrates[idx, ...]

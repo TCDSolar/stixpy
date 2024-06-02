@@ -1,14 +1,21 @@
 from types import SimpleNamespace
+from typing import Union
 from pathlib import Path
 
 import astropy.units as u
 import numpy as np
+from astropy.coordinates import SkyCoord
 from astropy.table import Table
 from astropy.time import Time
+from astropy.units import Quantity
+from sunpy.coordinates import HeliographicStonyhurst
+from sunpy.time import TimeRange
 
 from stixpy.calibration.energy import get_elut
 from stixpy.calibration.grid import get_grid_transmission
 from stixpy.calibration.livetime import get_livetime_fraction
+from stixpy.coordinates.frames import STIXImaging
+from stixpy.coordinates.transforms import get_hpc_info
 from stixpy.io.readers import read_subc_params
 
 __all__ = [
@@ -17,8 +24,11 @@ __all__ = [
     "create_visibility",
     "get_uv_points_data",
     "calibrate_visibility",
-    "sas_map_center",
 ]
+
+from xrayvision.visibility import Visibilities, VisMeta
+
+from stixpy.product.sources import CompressedPixelData, RawPixelData, SummedCompressedPixelData
 
 
 def get_subcollimator_info():
@@ -78,7 +88,14 @@ def get_subcollimator_info():
     return res
 
 
-def create_meta_pixels(pixel_data, time_range, energy_range, phase_center, no_shadowing=False):
+@u.quantity_input
+def create_meta_pixels(
+    pixel_data: Union[RawPixelData, CompressedPixelData, SummedCompressedPixelData],
+    time_range: Time,
+    energy_range: Quantity["energy"],  # noqa: F821
+    flare_location: SkyCoord,
+    no_shadowing: bool = False,
+):
     r"""
     Create meta-pixels by summing data with in given time and energy range.
 
@@ -90,8 +107,8 @@ def create_meta_pixels(pixel_data, time_range, energy_range, phase_center, no_sh
         Start and end times
     energy_range
         Start and end energies
-    phase_center
-        The coordinates of the center
+    flare_location
+        The coordinates of flare used to calculate grid transmission
     no_shadowing : bool optional
         If set to True turn grid shadowing correction off
     Returns
@@ -100,12 +117,15 @@ def create_meta_pixels(pixel_data, time_range, energy_range, phase_center, no_sh
         Visibility data and sub-collimator information
     """
     t_mask = (pixel_data.times >= Time(time_range[0])) & (pixel_data.times <= Time(time_range[1]))
-    e_mask = (pixel_data.energies["e_low"] >= energy_range[0] * u.keV) & (
-        pixel_data.energies["e_high"] <= energy_range[1] * u.keV
-    )
+    e_mask = (pixel_data.energies["e_low"] >= energy_range[0]) & (pixel_data.energies["e_high"] <= energy_range[1])
 
     t_ind = np.argwhere(t_mask).ravel()
     e_ind = np.argwhere(e_mask).ravel()
+
+    time_range = TimeRange(
+        pixel_data.times[t_ind[0]] - pixel_data.durtaion[t_ind[0]] / 2,
+        pixel_data.times[t_ind[-1]] + pixel_data.durtaion[t_ind[-1]] / 2,
+    )
 
     changed = []
     for column in ["rcr", "pixel_masks", "detector_masks"]:
@@ -117,41 +137,11 @@ def create_meta_pixels(pixel_data, time_range, energy_range, phase_center, no_sh
             f"please select a time interval where these are constant."
         )
 
+    # fmt: off
     # For the moment copied from idl
-    trigger_to_detector = [
-        0,
-        0,
-        7,
-        7,
-        2,
-        1,
-        1,
-        6,
-        6,
-        5,
-        2,
-        3,
-        3,
-        4,
-        4,
-        5,
-        13,
-        12,
-        12,
-        11,
-        11,
-        10,
-        13,
-        14,
-        14,
-        9,
-        9,
-        10,
-        15,
-        15,
-        8,
-        8,
-    ]
+    trigger_to_detector = [0, 0, 7, 7, 2, 1, 1, 6, 6, 5, 2, 3, 3, 4, 4, 5, 13, 12,
+                           12, 11, 11, 10, 13, 14, 14, 9, 9, 10, 15, 15, 8, 8,]
+    # fmt: on
 
     # Map the triggers to all 32 detectors
     triggers = pixel_data.data["triggers"][:, trigger_to_detector].astype(float)[...]
@@ -177,7 +167,10 @@ def create_meta_pixels(pixel_data, time_range, energy_range, phase_center, no_sh
     ct_error_summed = np.sqrt(np.sum(ct_error**2, axis=(0, 3)))
 
     if not no_shadowing:
-        grid_shadowing = get_grid_transmission(phase_center)
+        if not isinstance(flare_location, STIXImaging) and flare_location.obstime != time_range.center:
+            roll, solo_heeq, stix_pointing = get_hpc_info(time_range.start, time_range.stop)
+            flare_location = flare_location.transform_to(STIXImaging(obstime=time_range.center, observer=solo_heeq))
+        grid_shadowing = get_grid_transmission(flare_location.xyz[::-1])
         ct_summed = ct_summed / grid_shadowing.reshape(-1, 1) / 4  # transmission grid ~ 0.5*0.5 = .25
         ct_error_summed = ct_error_summed / grid_shadowing.reshape(-1, 1) / 4
 
@@ -193,25 +186,20 @@ def create_meta_pixels(pixel_data, time_range, energy_range, phase_center, no_sh
     abcd_rate_kev = abcd_rate / e_bin
     abcd_rate_error_kev = abcd_rate_error / e_bin
 
+    # fmt: off
     # Taken from IDL
-    pixel_areas = [
-        0.096194997,
-        0.096194997,
-        0.096194997,
-        0.096194997,
-        0.096194997,
-        0.096194997,
-        0.096194997,
-        0.096194997,
-        0.010009999,
-        0.010009999,
-        0.010009999,
-        0.010009999,
-    ] * u.cm**2
+    pixel_areas = [0.096194997, 0.096194997, 0.096194997, 0.096194997, 0.096194997, 0.096194997,
+                   0.096194997, 0.096194997, 0.010009999, 0.010009999, 0.010009999, 0.010009999,] * u.cm**2
+    # fmt: on
 
     areas = pixel_areas.reshape(-1, 4)[0:2].sum(axis=0)
 
-    meta_pixels = {"abcd_rate_kev_cm": abcd_rate_kev / areas, "abcd_rate_error_kev_cm": abcd_rate_error_kev / areas}
+    meta_pixels = {
+        "abcd_rate_kev_cm": abcd_rate_kev / areas,
+        "abcd_rate_error_kev_cm": abcd_rate_error_kev / areas,
+        "time_range": time_range,
+        "energy_range": energy_range,
+    }
 
     return meta_pixels
 
@@ -264,14 +252,15 @@ def create_visibility(meta_pixels):
     -------
 
     """
-    abcd_rate_kev_cm, abcd_rate_error_kev_cm = meta_pixels.values()
+    abcd_rate_kev_cm = meta_pixels["abcd_rate_kev_cm"]
+    abcd_rate_error_kev_cm = meta_pixels["abcd_rate_error_kev_cm"]
     real = abcd_rate_kev_cm[:, 2] - abcd_rate_kev_cm[:, 0]
     imag = abcd_rate_kev_cm[:, 3] - abcd_rate_kev_cm[:, 1]
 
     real_err = np.sqrt(abcd_rate_error_kev_cm[:, 2] ** 2 + abcd_rate_error_kev_cm[:, 0] ** 2).value * real.unit
     imag_err = np.sqrt(abcd_rate_error_kev_cm[:, 3] ** 2 + abcd_rate_error_kev_cm[:, 1] ** 2).value * real.unit
 
-    vis = get_uv_points_data()
+    vis_info = get_uv_points_data()
 
     # Compute raw phases
     phase = np.arctan2(imag, real)
@@ -288,16 +277,32 @@ def create_visibility(meta_pixels):
 
     obsvis = (np.cos(phase) + np.sin(phase) * 1j) * observed_amplitude
 
-    imaging_detector_indices = vis["isc"] - 1
+    imaging_detector_indices = vis_info["isc"] - 1
 
-    vis = SimpleNamespace(
-        obsvis=obsvis[imaging_detector_indices],
-        amplitude=observed_amplitude[imaging_detector_indices],
-        amplitude_error=amplitude_error[imaging_detector_indices],
-        phase=phase[imaging_detector_indices],
-        **vis,
+    # vis = SimpleNamespace(
+    #     obsvis=obsvis[imaging_detector_indices],
+    #     amplitude=observed_amplitude[imaging_detector_indices],
+    #     amplitude_error=amplitude_error[imaging_detector_indices],
+    #     phase=phase[imaging_detector_indices],
+    #     **vis_info,
+    # )
+
+    vis_meta = VisMeta(
+        instrumet="STIX",
+        spectral_range=meta_pixels["energy_range"],
+        time_range=Time([meta_pixels["time_range"].start, meta_pixels["time_range"].end]),
+        vis_labels=vis_info["label"].tolist(),
+        isc=vis_info["isc"].value,
+        calibrated=False,
     )
-
+    vis = Visibilities(
+        obsvis[imaging_detector_indices],
+        u=vis_info["u"],
+        v=vis_info["v"],
+        amplitude=observed_amplitude[imaging_detector_indices],
+        amplitude_uncertainty=amplitude_error[imaging_detector_indices],
+        meta=vis_meta,
+    )
     return vis
 
 
@@ -366,7 +371,7 @@ def get_uv_points_data(d_det: u.Quantity[u.mm] = 47.78 * u.mm, d_sep: u.Quantity
     return uv_data
 
 
-def calibrate_visibility(vis, flare_location=(0, 0) * u.arcsec):
+def calibrate_visibility(vis: Visibilities, flare_location: SkyCoord = STIXImaging(0 * u.arcsec, 0 * u.arcsec)):
     """
     Calibrate visibility phase and amplitudes.
 
@@ -374,6 +379,8 @@ def calibrate_visibility(vis, flare_location=(0, 0) * u.arcsec):
     ----------
     vis :
         Uncalibrated Visibilities
+    flare_location
+        The location of the flare the visibility are shifted to have the phase center at this location
 
     Returns
     -------
@@ -384,18 +391,23 @@ def calibrate_visibility(vis, flare_location=(0, 0) * u.arcsec):
     # Grid correction factors
     grid_cal_file = Path(__file__).parent.parent / "config" / "data" / "grid" / "GridCorrection.csv"
     grid_cal = Table.read(grid_cal_file, header_start=2, data_start=3)
-    grid_corr = grid_cal["Phase correction factor"][vis.isc - 1] * u.deg
+    grid_corr = grid_cal["Phase correction factor"][vis.meta["isc"] - 1] * u.deg
 
     # Phase correction
     phase_cal_file = Path(__file__).parent.parent / "config" / "data" / "grid" / "PhaseCorrFactors.csv"
     phase_cal = Table.read(phase_cal_file, header_start=3, data_start=4)
-    phase_corr = phase_cal["Phase correction factor"][vis.isc - 1] * u.deg
+    phase_corr = phase_cal["Phase correction factor"][vis.meta["isc"] - 1] * u.deg
 
-    phase_mapcenter_corr = (
-        -2 * np.pi * (flare_location[0].value * u.arcsec * vis.u + flare_location[1].value * u.arcsec * vis.v) * u.rad
-    )
+    tr = TimeRange(vis.meta.time_range)
 
-    ovis = vis.obsvis[:]
+    if not isinstance(flare_location, STIXImaging) and flare_location.obstime != tr.center:
+        roll, solo_heeq, stix_pointing = get_hpc_info(vis.meta.time_range[0], vis.meta.time_range[1])
+        solo_coord = HeliographicStonyhurst(solo_heeq, representation_type="cartesian", obstime=tr.center)
+        flare_location = flare_location.transform_to(STIXImaging(obstime=tr.center, observer=solo_coord))
+
+    phase_mapcenter_corr = -2 * np.pi * (flare_location.Ty * vis.u + flare_location.Tx * vis.v) * u.rad
+
+    ovis = vis.visibilities[:]
     ovis_real = np.real(ovis)
     ovis_imag = np.imag(ovis)
 
@@ -409,26 +421,21 @@ def calibrate_visibility(vis, flare_location=(0, 0) * u.arcsec):
     systematic_error = 5 * u.percent  # from G. Hurford 5% systematics
 
     calibrated_amplitude_error = np.sqrt(
-        (vis.amplitude_error * modulation_efficiency) ** 2
+        (vis.amplitude_uncertainty * modulation_efficiency) ** 2
         + (systematic_error * calibrated_amplitude).to(ovis_amp.unit) ** 2
     )
 
     calibrated_visibility = (np.cos(calibrated_phase) + np.sin(calibrated_phase) * 1j) * calibrated_amplitude
 
-    orig_vis = vis.__dict__
-    [orig_vis.pop(n) for n in ["obsvis", "amplitude", "amplitude_error", "phase"]]
-
-    cal_vis = SimpleNamespace(
-        obsvis=calibrated_visibility,
+    vis.meta["calibrated"] = True
+    vis.meta["offset"] = flare_location
+    cal_vis = Visibilities(
+        calibrated_visibility,
+        u=vis.u,
+        v=vis.v,
         amplitude=calibrated_amplitude,
-        amplitude_error=calibrated_amplitude_error,
-        phase=calibrated_phase,
-        **orig_vis,
+        amplitude_uncertainty=calibrated_amplitude_error,
+        meta=vis.meta,
     )
 
     return cal_vis
-
-
-def sas_map_center():
-    # receter map at 0,0 taking account of mean or actual sas sol
-    pass

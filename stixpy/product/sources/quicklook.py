@@ -52,3 +52,20 @@ class QLBackground(QuickLookProduct):
 
     def __repr__(self):
         return f"{self.__class__.__name__}\n" f"    {self.time_range}"
+
+
+class QLFlareFlag(QuickLookProduct):
+    """
+    Quicklook Flare flag and location
+    """
+
+    @classmethod
+    def is_datasource_for(cls, *, meta, **kwargs):
+        """Determines if meta data meach Raw Pixel Data"""
+        service_subservice_ssid = tuple(meta[name] for name in ["STYPE", "SSTYPE", "SSID"])
+        level = meta["level"]
+        if service_subservice_ssid == (21, 6, 34) and level == "L1":
+            return True
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}\n" f"    {self.time_range}"

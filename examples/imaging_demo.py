@@ -134,6 +134,14 @@ hp_map = Map((bp_image, header_hp))
 hp_map_rotated = hp_map.rotate()
 
 ###############################################################################
+# Estimate the flare location and plot on top of back projection map. Note the coordinates
+# are automaiccally converted from the STIXImaging to Helioprojective
+
+max_pixel = np.argwhere(fd_bp_map.data == fd_bp_map.data.max()).ravel() * u.pixel
+# because WCS axes and array are reversed
+max_stix = fd_bp_map.pixel_to_world(max_pixel[1], max_pixel[0])
+
+###############################################################################
 # Plot the both maps
 
 fig = plt.figure(figsize=(12, 8))
@@ -147,17 +155,8 @@ hp_map_rotated.plot(axes=ax1)
 hp_map_rotated.draw_limb()
 hp_map_rotated.draw_grid()
 
-###############################################################################
-# Estimate the flare location and plot on top of back projection map. Note the coordinates
-# are automaiccally converted from the STIXImaging to Helioprojective
-
-max_pixel = np.argwhere(fd_bp_map.data == fd_bp_map.data.max()).ravel() * u.pixel
-# because WCS axes and array are reversed
-max_stix = fd_bp_map.pixel_to_world(max_pixel[1], max_pixel[0])
-
 ax0.plot_coord(max_stix, marker=".", markersize=50, fillstyle="none", color="r", markeredgewidth=2)
 ax1.plot_coord(max_stix, marker=".", markersize=50, fillstyle="none", color="r", markeredgewidth=2)
-
 
 ################################################################################
 # Use estimated flare location to create more accurate visibilities

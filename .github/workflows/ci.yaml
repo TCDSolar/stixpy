@@ -21,8 +21,8 @@ jobs:
   core:
     uses: OpenAstronomy/github-actions-workflows/.github/workflows/tox.yml@v1
     with:
+      coverage: codecov
       envs: |
-        - linux: codestyle
         - linux: py39
     secrets:
       CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
@@ -31,12 +31,9 @@ jobs:
     needs: [core]
     uses: OpenAstronomy/github-actions-workflows/.github/workflows/tox.yml@v1
     with:
-      coverage: codecov
       envs: |
         - macos: py39
         - windows: py39
-    secrets:
-      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
   doc:
     needs: [test]

@@ -1,6 +1,8 @@
 import astropy.units as u
 import numpy as np
 from astropy.coordinates import SkyCoord
+from astropy.time import Time
+from astropy.units import Quantity
 from numpy.typing import NDArray
 from sunpy.time import TimeRange
 
@@ -10,8 +12,18 @@ from stixpy.product.product import L1Product
 THERMAL_INDEX_MAP = np.array(["None", "Minor", "Small", "Moderate", "Major"])
 FLUX_INDEX_MAP = np.array(["None", "Weak", "Significant"])
 LOCATION_INDEX_MAP = np.array(["None", "Previous", "New"])
+TM_PROCESSING_STATUS = {
+    0x01: "Imaging Started",
+    0x02: "Imaging Ended",
+    0x04: "Spectroscopy Started",
+    0x08: "Spectroscopy Ended",
+    0x10: "Publication Started",
+    0x20: "Publication Ended",
+    0x40: "Cancelled",
+    0x80: "New Entry",
+}
 
-__all__ = ["QuickLookProduct", "QLLightCurve", "QLBackground", "QLFlareFlag"]
+__all__ = ["QuickLookProduct", "QLLightCurve", "QLBackground", "QLVariance", "QLFlareFlag", "QLLightCurve"]
 
 
 class QuickLookProduct(L1Product):
@@ -20,13 +32,19 @@ class QuickLookProduct(L1Product):
     """
 
     @property
+    def time(self) -> Time:
+        return self.data["time"]
+
+    @property
+    def exposure_time(self) -> Quantity[u.s]:
+        return self.data["timedel"].to(u.s)
+
+    @property
     def time_range(self):
         """
         A `sunpy.time.TimeRange` for the data.
         """
-        return TimeRange(
-            self.data["time"][0] - self.data["timedel"][0] / 2, self.data["time"][-1] + self.data["timedel"][-1] / 2
-        )
+        return TimeRange(self.time[0] - self.exposure_time[0] / 2, self.time + self.exposure_time[-1] / 2)
 
 
 class QLLightCurve(QuickLookProduct):
@@ -36,7 +54,7 @@ class QLLightCurve(QuickLookProduct):
 
     @classmethod
     def is_datasource_for(cls, *, meta, **kwargs):
-        """Determines if meta data meach Raw Pixel Data"""
+        """Determines if meta data match"""
         service_subservice_ssid = tuple(meta[name] for name in ["STYPE", "SSTYPE", "SSID"])
         level = meta["level"]
         if service_subservice_ssid == (21, 6, 30) and level == "L1":
@@ -53,7 +71,7 @@ class QLBackground(QuickLookProduct):
 
     @classmethod
     def is_datasource_for(cls, *, meta, **kwargs):
-        """Determines if meta data meach Raw Pixel Data"""
+        """Determines if meta data match"""
         service_subservice_ssid = tuple(meta[name] for name in ["STYPE", "SSTYPE", "SSID"])
         level = meta["level"]
         if service_subservice_ssid == (21, 6, 31) and level == "L1":
@@ -70,7 +88,7 @@ class QLVariance(QuickLookProduct):
 
     @classmethod
     def is_datasource_for(cls, *, meta, **kwargs):
-        """Determines if meta data meach Raw Pixel Data"""
+        """Determines if meta data match"""
         service_subservice_ssid = tuple(meta[name] for name in ["STYPE", "SSTYPE", "SSID"])
         level = meta["level"]
         if service_subservice_ssid == (21, 6, 33) and level == "L1":
@@ -87,7 +105,7 @@ class QLFlareFlag(QuickLookProduct):
 
     @classmethod
     def is_datasource_for(cls, *, meta, **kwargs):
-        """Determines if meta data meach Raw Pixel Data"""
+        """Determines if meta data match"""
         service_subservice_ssid = tuple(meta[name] for name in ["STYPE", "SSTYPE", "SSID"])
         level = meta["level"]
         if service_subservice_ssid == (21, 6, 34) and level == "L1":
@@ -134,11 +152,18 @@ class QLTMStatusFlareList(QuickLookProduct):
 
     @classmethod
     def is_datasource_for(cls, *, meta, **kwargs):
-        """Determines if meta data meach Raw Pixel Data"""
+        """Determines if meta data match"""
         service_subservice_ssid = tuple(meta[name] for name in ["STYPE", "SSTYPE", "SSID"])
         level = meta["level"]
         if service_subservice_ssid == (21, 6, 43) and level == "L1":
             return True
+
+    @property
+    def processing_status(self):
+        r"""
+        Processing status
+        """
+        return [TM_PROCESSING_STATUS[status] for status in self.data["processing_mask"]]
 
     def __repr__(self):
         return f"{self.__class__.__name__}\n" f"    {self.time_range}"

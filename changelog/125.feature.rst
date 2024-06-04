@@ -1,0 +1,1 @@
+Add missing QL products `~stixpy.product.sources.quicklook.QLVariance`, `~stixpy.product.sources.quicklook.QLFlareFlag`, and `~stixpy.product.sources.quicklook.QLTMStatusFlareList` to Product. Also added some useful properties to the for status words.

@@ -24,7 +24,6 @@ jobs:
       envs: |
         - linux: codestyle
         - linux: py39
-      coverage: 'codecov'
     secrets:
       CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 

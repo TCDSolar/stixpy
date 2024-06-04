@@ -40,7 +40,7 @@ class QuickLookProduct(L1Product):
         return self.data["timedel"].to(u.s)
 
     @property
-    def time_range(self):
+    def time_range(self) -> TimeRange:
         """
         A `sunpy.time.TimeRange` for the data.
         """
@@ -124,7 +124,7 @@ class QLFlareFlag(QuickLookProduct):
         Flare location
         """
         return SkyCoord(
-            self.data["loc_y"] * u.arcsec, -self.data["loc_z"] * u.arcsec, frame=STIXImaging(obstie=self.data["time"])
+            self.data["loc_y"] * u.arcmin, -self.data["loc_z"] * u.arcmin, frame=STIXImaging(obstime=self.data["time"])
         )
 
     @property

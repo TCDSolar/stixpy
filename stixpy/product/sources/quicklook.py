@@ -44,7 +44,7 @@ class QuickLookProduct(L1Product):
         """
         A `sunpy.time.TimeRange` for the data.
         """
-        return TimeRange(self.time[0] - self.exposure_time[0] / 2, self.time + self.exposure_time[-1] / 2)
+        return TimeRange(self.time[0] - self.exposure_time[0] / 2, self.time[-1] + self.exposure_time[-1] / 2)
 
 
 class QLLightCurve(QuickLookProduct):
@@ -132,14 +132,14 @@ class QLFlareFlag(QuickLookProduct):
         r"""
         Flare non-thermal index - significant non-thermal emission
         """
-        return THERMAL_INDEX_MAP[self.data["thermal_index"]]
+        return THERMAL_INDEX_MAP[self.data["non_thermal_index"]]
 
     @property
     def location_flag(self) -> NDArray[str]:
         r"""
         Flare location flag
         """
-        return THERMAL_INDEX_MAP[self.data["thermal_index"]]
+        return THERMAL_INDEX_MAP[self.data["location_status"]]
 
     def __repr__(self):
         return f"{self.__class__.__name__}\n" f"    {self.time_range}"

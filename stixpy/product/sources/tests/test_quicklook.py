@@ -12,8 +12,7 @@ def test_qlflareflag():
     )
     assert isinstance(ff, QLFlareFlag)
     assert isinstance(ff.flare_location, SkyCoord)
+    assert ff.flare_location[0].transform_to(frame="helioprojective").frame.name == "helioprojective"
     assert ff.location_flag[0, 0] == "None"
     assert ff.thermal_index[0, 0] == "Minor"
     assert ff.non_thermal_index[0, 0] == "None"
-
-    assert True

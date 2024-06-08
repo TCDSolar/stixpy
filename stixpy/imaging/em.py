@@ -1,10 +1,19 @@
+from typing import Optional
 from pathlib import Path
+from collections.abc import Sequence
 
 import astropy.units as apu
 import numpy as np
+from astropy.coordinates import SkyCoord
 from astropy.table.table import Table
+from astropy.units import Quantity
+from sunpy.coordinates import HeliographicStonyhurst
+from sunpy.time import TimeRange
 from xrayvision.transform import generate_xy
+from xrayvision.visibility import Visibilities
 
+from stixpy.coordinates.frames import STIXImaging
+from stixpy.coordinates.transforms import get_hpc_info
 from stixpy.utils.logging import get_logger
 
 logger = get_logger(__name__, level="DEBUG")
@@ -85,33 +94,57 @@ def get_transmission_matrix(u, v, shape=[64, 64] * apu.pix, pixel_size=[4.0, 4.0
         raise ValueError("Units dont match")
 
 
-def em(countrates, vis, shape, pixel_size, maxiter=5000, tolerance=0.001, *, flare_xy, idx):
+@apu.quantity_input
+def em(
+    countrates: dict,
+    vis: Visibilities,
+    *,
+    shape: Quantity[apu.pix],
+    pixel_size: Quantity[apu.arcsec / apu.pix],
+    flare_location: SkyCoord,
+    maxiter: int = 5000,
+    tolerance: float = 0.001,
+    idx: Optional[Sequence[int]] = None,
+):
     r"""
     Count-based expectation maximisation imaging algorithm.
 
-
     Parameters
     ----------
-    countrates :
-        Meta pixel counts rates
-    vis
-        Visiblty
-    shape
-
-    pixel_size
-    maxiter
-    tolerance
-    flare_xy
-    idx
-
+    countrates : `dict`
+        Count rate data
+    vis :
+        Visibilities use for meta data
+    shape : `Quantity[apu.pix]`
+        Shape of the image
+    pixel_size : `Quantity[apu.arcsec/apu.pix]`
+        Size of the pixels
+    maxiter : `int`
+        Maximum number of iterations.
+    tolerance : `float`
+        Tolerance for convergence
+    flare_location : `SkyCoord`
+        Center of image
+    idx : `Sequence[int]`
+        The indices to use defaults to 10-2
     Returns
     -------
 
     """
 
     # temp
-    idx = [6, 28, 0, 24, 4, 22, 5, 29, 1, 14, 26, 30, 23, 7, 27, 20, 25, 3, 15, 13, 31, 2, 19, 21]
-    ii = np.array([np.argwhere(vis.meta.vis_labels - 1 == i).ravel() for i in idx]).ravel()
+    if idx is not None:
+        idx = [6, 28, 0, 24, 4, 22, 5, 29, 1, 14, 26, 30, 23, 7, 27, 20, 25, 3, 15, 13, 31, 2, 19, 21]
+    ii = np.array([np.argwhere(vis.meta["isc"] - 1 == i).ravel() for i in idx]).ravel()
+
+    tr = TimeRange(vis.meta.time_range)
+
+    if not isinstance(flare_location, STIXImaging) and flare_location.obstime != tr.center:
+        roll, solo_heeq, stix_pointing = get_hpc_info(vis.meta.time_range[0], vis.meta.time_range[1])
+        solo_coord = HeliographicStonyhurst(solo_heeq, representation_type="cartesian", obstime=tr.center)
+        flare_location = flare_location.transform_to(STIXImaging(obstime=tr.center, observer=solo_coord))
+
+    flare_xy = np.array([flare_location.Ty.value, flare_location.Tx.value]) * apu.arcsec
 
     H = get_transmission_matrix(vis.u[ii], vis.v[ii], shape=shape, pixel_size=pixel_size, center=flare_xy, pixel_sum=1)
     y = countrates[idx, ...]

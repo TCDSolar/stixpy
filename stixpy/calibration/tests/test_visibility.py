@@ -1,8 +1,10 @@
 import astropy.units as u
 import pytest
 from astropy.tests.helper import assert_quantity_allclose
+from astropy.time import Time
 
 from stixpy.calibration.visibility import create_meta_pixels, get_uv_points_data
+from stixpy.coordinates.frames import STIXImaging
 from stixpy.product import Product
 
 
@@ -33,13 +35,13 @@ def test_get_uv_points_data():
 
 
 def test_create_meta_pixels(background_cpd):
-    time_range = ["2022-08-24T14:00:37.271", "2022-08-24T14:50:17.271"]
-    energy_range = [20, 76]
+    time_range = Time(["2022-08-24T14:00:37.271", "2022-08-24T14:50:17.271"])
+    energy_range = [20, 76] * u.keV
     meta_pixels = create_meta_pixels(
         background_cpd,
         time_range=time_range,
         energy_range=energy_range,
-        phase_center=[0, 0] * u.arcsec,
+        flare_location=STIXImaging(0 * u.arcsec, 0 * u.arcsec),
         no_shadowing=True,
     )
 

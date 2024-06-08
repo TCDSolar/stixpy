@@ -55,63 +55,26 @@ def _get_rotation_matrix_and_position(obstime):
     return rmatrix, solo_position_heeq
 
 
-def get_hpc_info(start_time, end_time=None):
+def get_hpc_info(times):
     r"""
     Get STIX pointing and SO location from L2 aspect files.
 
     Parameters
     ----------
-    start_time : `astropy.time.Time`
-        Time or start of a time interval.
-    end_time : `astropy.time.Time`, optional
-        End of time interval
+    times : `astropy.time.Time`
+        Time/s to get hpc info for at.
 
     Returns
     -------
 
     """
-    aux = _get_aux_data(start_time, end_time=end_time)
-    if end_time is None:
-        end_time = start_time
-    indices = np.argwhere((aux["time"] >= start_time) & (aux["time"] <= end_time))
+    aux = _get_aux_data(times.min(), times.max())
+
+    indices = np.argwhere((aux["time"] >= times.min()) & (aux["time"] <= times.max()))
     indices = indices.flatten()
 
-    if indices.size < 2:
-        logger.info("Only one data point found interpolating between two closest times.")
-        # Times contained in one time bin have to interpolate
-        time_center = start_time + (end_time - start_time) * 0.5
-        diff_center = (aux["time"] - time_center).to("s")
-        closest_index = np.argmin(np.abs(diff_center))
-
-        if diff_center[closest_index] > 0:
-            start_ind = closest_index - 1
-            end_ind = closest_index + 1
-        else:
-            start_ind = closest_index
-            end_ind = closest_index + 2
-
-        interp = slice(start_ind, end_ind)
-        dt = np.diff(aux[start_ind:end_ind]["time"])[0].to(u.s)
-
-        roll, pitch, yaw = (
-            aux[start_ind : start_ind + 1]["roll_angle_rpy"]
-            + (np.diff(aux[interp]["roll_angle_rpy"], axis=0) / dt) * diff_center[closest_index]
-        )[0]
-        solo_heeq = (
-            aux[start_ind : start_ind + 1]["solo_loc_heeq_zxy"]
-            + (np.diff(aux[interp]["solo_loc_heeq_zxy"], axis=0) / dt) * diff_center[closest_index]
-        )[0]
-        sas_x = (
-            aux[start_ind : start_ind + 1]["y_srf"] + (np.diff(aux[interp]["y_srf"]) / dt) * diff_center[closest_index]
-        )[0]
-        sas_y = (
-            aux[start_ind : start_ind + 1]["z_srf"] + (np.diff(aux[interp]["z_srf"]) / dt) * diff_center[closest_index]
-        )[0]
-
-        good_solution = np.where(aux[interp]["sas_ok"] == 1)
-        good_sas = aux[good_solution]
-    else:
-        # average over
+    if times.size == 2 and indices.size >= 2:
+        # mean
         aux = aux[indices]
 
         roll, pitch, yaw = np.mean(aux["roll_angle_rpy"], axis=0)
@@ -121,7 +84,7 @@ def get_hpc_info(start_time, end_time=None):
         good_sas = aux[good_solution]
 
         if len(good_sas) == 0:
-            warnings.warn(f"No good SAS solution found for time range: {start_time} to {end_time}.")
+            warnings.warn(f"No good SAS solution found for time range: {times[0]} to {times[1]}.")
             sas_x = 0
             sas_y = 0
         else:
@@ -132,6 +95,84 @@ def get_hpc_info(start_time, end_time=None):
             tolerance = 3 * u.arcsec
             if sigma_x > tolerance or sigma_y > tolerance:
                 warnings.warn(f"Pointing unstable: StD(X) = {sigma_x}, StD(Y) = {sigma_y}.")
+    else:
+        if indices.size < 2:
+            logger.info("Only one data point found interpolating between two closest times.")
+            # Times contained in one time or only contains one time
+            if times.size == 2:
+                times = times[0] + (times[1] - times[0]) * 0.5
+            diff_center = (aux["time"] - times).to("s")
+            closest_index = np.argmin(np.abs(diff_center))
+
+            if diff_center[closest_index] > 0:
+                start_ind = closest_index - 1
+                end_ind = closest_index + 1
+            else:
+                start_ind = closest_index
+                end_ind = closest_index + 2
+            aux = aux[start_ind:end_ind]
+            indices = [0, 1]
+
+        # Interpolate
+        x = (times - aux["time"][0]).to_value(u.s)
+        xp = (aux["time"] - aux["time"][0]).to_value(u.s)
+
+        roll = np.interp(x, xp, aux["roll_angle_rpy"][:, 0].value) << aux["roll_angle_rpy"].unit
+        yaw = np.interp(x, xp, aux["roll_angle_rpy"][:, 1].value) << aux["roll_angle_rpy"].unit
+        pitch = np.interp(x, xp, aux["roll_angle_rpy"][:, 2].value) << aux["roll_angle_rpy"].unit
+
+        solo_heeq = (
+            np.vstack(
+                [
+                    np.interp(x, xp, aux["solo_loc_heeq_zxy"][:, 0].value),
+                    np.interp(x, xp, aux["solo_loc_heeq_zxy"][:, 1].value),
+                    np.interp(x, xp, aux["solo_loc_heeq_zxy"][:, 2].value),
+                ]
+            ).T
+            << aux["solo_loc_heeq_zxy"].unit
+        )
+
+        sas_x = np.interp(x, xp, aux["y_srf"])
+        sas_y = np.interp(x, xp, aux["z_srf"])
+
+        good_solution = np.where(aux[indices]["sas_ok"] == 1)
+        good_sas = aux[good_solution]
+
+    # if indices.size < 2:
+    #     logger.info("Only one data point found interpolating between two closest times.")
+    #     # Times contained in one time bin have to interpolate
+    #     time_center = start_time + (end_time - start_time) * 0.5
+    #     diff_center = (aux["time"] - time_center).to("s")
+    #     closest_index = np.argmin(np.abs(diff_center))
+    #
+    #     if diff_center[closest_index] > 0:
+    #         start_ind = closest_index - 1
+    #         end_ind = closest_index + 1
+    #     else:
+    #         start_ind = closest_index
+    #         end_ind = closest_index + 2
+    #
+    #     interp = slice(start_ind, end_ind)
+    #     dt = np.diff(aux[start_ind:end_ind]["time"])[0].to(u.s)
+    #
+    #     roll, pitch, yaw = (
+    #         aux[start_ind : start_ind + 1]["roll_angle_rpy"]
+    #         + (np.diff(aux[interp]["roll_angle_rpy"], axis=0) / dt) * diff_center[closest_index]
+    #     )[0]
+    #     solo_heeq = (
+    #         aux[start_ind : start_ind + 1]["solo_loc_heeq_zxy"]
+    #         + (np.diff(aux[interp]["solo_loc_heeq_zxy"], axis=0) / dt) * diff_center[closest_index]
+    #     )[0]
+    #     sas_x = (
+    #         aux[start_ind : start_ind + 1]["y_srf"] + (np.diff(aux[interp]["y_srf"]) / dt) * diff_center[closest_index]
+    #     )[0]
+    #     sas_y = (
+    #         aux[start_ind : start_ind + 1]["z_srf"] + (np.diff(aux[interp]["z_srf"]) / dt) * diff_center[closest_index]
+    #     )[0]
+    #
+    # #     good_solution = np.where(aux[interp]["sas_ok"] == 1)
+    # #     good_sas = aux[good_solution]
+    # else:
 
     # Convert the spacecraft pointing to STIX frame
     rotated_yaw = -yaw * np.cos(roll) + pitch * np.sin(roll)
@@ -156,7 +197,7 @@ def get_hpc_info(start_time, end_time=None):
 
 
 @lru_cache
-def _get_aux_data(start_time, end_time=None):
+def _get_aux_data(start_time, end_time):
     r"""
     Search, download and read L2 pointing data.
 
@@ -164,16 +205,12 @@ def _get_aux_data(start_time, end_time=None):
     ----------
     start_time : `astropy.time.Time`
         Time or start of a time interval.
-    end_time : `astropy.time.Time`, optional
-        End of time interval
 
     Returns
     -------
 
     """
     # Find, download, read aux file with pointing, sas and position information
-    if end_time is None:
-        end_time = start_time
     logger.debug(f"Searching for AUX data: {start_time} - {end_time}")
     query = Fido.search(
         a.Time(start_time, end_time),

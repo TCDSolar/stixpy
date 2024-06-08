@@ -55,7 +55,7 @@ def _get_rotation_matrix_and_position(obstime):
     return rmatrix, solo_position_heeq
 
 
-def get_hpc_info(times):
+def get_hpc_info(times, end_time=None):
     r"""
     Get STIX pointing and SO location from L2 aspect files.
 
@@ -71,9 +71,11 @@ def get_hpc_info(times):
     aux = _get_aux_data(times.min(), times.max())
 
     indices = np.argwhere((aux["time"] >= times.min()) & (aux["time"] <= times.max()))
+    if end_time is not None:
+        indices = np.argwhere((aux["time"] >= times.min()) & (aux["time"] <= end_time))
     indices = indices.flatten()
 
-    if times.size == 2 and indices.size >= 2:
+    if end_time is not None and times.size == 1 and indices.size >= 2:
         # mean
         aux = aux[indices]
 
@@ -84,7 +86,7 @@ def get_hpc_info(times):
         good_sas = aux[good_solution]
 
         if len(good_sas) == 0:
-            warnings.warn(f"No good SAS solution found for time range: {times[0]} to {times[1]}.")
+            warnings.warn(f"No good SAS solution found for time range: {times} to {end_time}.")
             sas_x = 0
             sas_y = 0
         else:
@@ -97,7 +99,7 @@ def get_hpc_info(times):
                 warnings.warn(f"Pointing unstable: StD(X) = {sigma_x}, StD(Y) = {sigma_y}.")
     else:
         if indices.size < 2:
-            logger.info("Only one data point found interpolating between two closest times.")
+            logger.info("Only one data contained in time interval found interpolating between two closest times.")
             # Times contained in one time or only contains one time
             if times.size == 2:
                 times = times[0] + (times[1] - times[0]) * 0.5
@@ -113,13 +115,13 @@ def get_hpc_info(times):
             aux = aux[start_ind:end_ind]
             indices = [0, 1]
 
-        # Interpolate
+        # Interpolate all times
         x = (times - aux["time"][0]).to_value(u.s)
         xp = (aux["time"] - aux["time"][0]).to_value(u.s)
 
         roll = np.interp(x, xp, aux["roll_angle_rpy"][:, 0].value) << aux["roll_angle_rpy"].unit
-        yaw = np.interp(x, xp, aux["roll_angle_rpy"][:, 1].value) << aux["roll_angle_rpy"].unit
-        pitch = np.interp(x, xp, aux["roll_angle_rpy"][:, 2].value) << aux["roll_angle_rpy"].unit
+        pitch = np.interp(x, xp, aux["roll_angle_rpy"][:, 1].value) << aux["roll_angle_rpy"].unit
+        yaw = np.interp(x, xp, aux["roll_angle_rpy"][:, 2].value) << aux["roll_angle_rpy"].unit
 
         solo_heeq = (
             np.vstack(
@@ -177,15 +179,15 @@ def get_hpc_info(times):
     # Convert the spacecraft pointing to STIX frame
     rotated_yaw = -yaw * np.cos(roll) + pitch * np.sin(roll)
     rotated_pitch = yaw * np.sin(roll) + pitch * np.cos(roll)
-    spacecraft_pointing = np.hstack([STIX_X_SHIFT + rotated_yaw, STIX_Y_SHIFT + rotated_pitch])
+    spacecraft_pointing = np.vstack([STIX_X_SHIFT + rotated_yaw, STIX_Y_SHIFT + rotated_pitch])
     stix_pointing = spacecraft_pointing
-    sas_pointing = np.hstack([sas_x + STIX_X_OFFSET, -1 * sas_y + STIX_Y_OFFSET])
+    sas_pointing = np.vstack([sas_x + STIX_X_OFFSET, -1 * sas_y + STIX_Y_OFFSET])
 
-    pointing_diff = np.linalg.norm(spacecraft_pointing - sas_pointing)
+    pointing_diff = np.sqrt(np.sum((spacecraft_pointing - sas_pointing) ** 2, axis=0))
     if np.all(np.isfinite(sas_pointing)) and len(good_sas) > 0:
-        if pointing_diff < 200 * u.arcsec:
+        if np.max(pointing_diff) < 200 * u.arcsec:
             logger.info(f"Using SAS pointing: {sas_pointing}")
-            stix_pointing = sas_pointing
+            stix_pointing = np.where(pointing_diff < 200 * u.arcsec, sas_pointing, spacecraft_pointing)
         else:
             warnings.warn(
                 f"Using spacecraft pointing: {spacecraft_pointing}" f" large difference between SAS and spacecraft."
@@ -193,11 +195,11 @@ def get_hpc_info(times):
     else:
         warnings.warn(f"SAS solution not available using spacecraft pointing: {stix_pointing}.")
 
-    return roll, solo_heeq, stix_pointing
+    return roll, solo_heeq, stix_pointing.T
 
 
 @lru_cache
-def _get_aux_data(start_time, end_time):
+def _get_aux_data(start_time, end_time=None):
     r"""
     Search, download and read L2 pointing data.
 
@@ -210,6 +212,8 @@ def _get_aux_data(start_time, end_time):
     -------
 
     """
+    if end_time is None:
+        end_time = start_time
     # Find, download, read aux file with pointing, sas and position information
     logger.debug(f"Searching for AUX data: {start_time} - {end_time}")
     query = Fido.search(

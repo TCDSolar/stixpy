@@ -46,8 +46,8 @@ def _get_rotation_matrix_and_position(obstime):
 
     logger.debug("Pointing: %s.", spacecraft_pointing)
     A = rotation_matrix(-1 * roll, "x")
-    B = rotation_matrix(spacecraft_pointing[1], "y")
-    C = rotation_matrix(-1 * spacecraft_pointing[0], "z")
+    B = rotation_matrix(spacecraft_pointing[..., 1], "y")
+    C = rotation_matrix(-1 * spacecraft_pointing[..., 0], "z")
 
     # Will be applied right to left
     rmatrix = A @ B @ C @ rot_to_solo
@@ -98,22 +98,8 @@ def get_hpc_info(times, end_time=None):
             if sigma_x > tolerance or sigma_y > tolerance:
                 warnings.warn(f"Pointing unstable: StD(X) = {sigma_x}, StD(Y) = {sigma_y}.")
     else:
-        if indices.size < 2:
-            logger.info("Only one data contained in time interval found interpolating between two closest times.")
-            # Times contained in one time or only contains one time
-            if times.size == 2:
-                times = times[0] + (times[1] - times[0]) * 0.5
-            diff_center = (aux["time"] - times).to("s")
-            closest_index = np.argmin(np.abs(diff_center))
-
-            if diff_center[closest_index] > 0:
-                start_ind = closest_index - 1
-                end_ind = closest_index + 1
-            else:
-                start_ind = closest_index
-                end_ind = closest_index + 2
-            aux = aux[start_ind:end_ind]
-            indices = [0, 1]
+        if end_time is not None and indices.size < 2:
+            times = times + (end_time - times) * 0.5
 
         # Interpolate all times
         x = (times - aux["time"][0]).to_value(u.s)
@@ -179,9 +165,9 @@ def get_hpc_info(times, end_time=None):
     # Convert the spacecraft pointing to STIX frame
     rotated_yaw = -yaw * np.cos(roll) + pitch * np.sin(roll)
     rotated_pitch = yaw * np.sin(roll) + pitch * np.cos(roll)
-    spacecraft_pointing = np.vstack([STIX_X_SHIFT + rotated_yaw, STIX_Y_SHIFT + rotated_pitch])
+    spacecraft_pointing = np.vstack([STIX_X_SHIFT + rotated_yaw, STIX_Y_SHIFT + rotated_pitch]).T
     stix_pointing = spacecraft_pointing
-    sas_pointing = np.vstack([sas_x + STIX_X_OFFSET, -1 * sas_y + STIX_Y_OFFSET])
+    sas_pointing = np.vstack([sas_x + STIX_X_OFFSET, -1 * sas_y + STIX_Y_OFFSET]).T
 
     pointing_diff = np.sqrt(np.sum((spacecraft_pointing - sas_pointing) ** 2, axis=0))
     if np.all(np.isfinite(sas_pointing)) and len(good_sas) > 0:
@@ -195,7 +181,11 @@ def get_hpc_info(times, end_time=None):
     else:
         warnings.warn(f"SAS solution not available using spacecraft pointing: {stix_pointing}.")
 
-    return roll, solo_heeq, stix_pointing.T
+    if end_time is not None or times.ndim == 0:
+        solo_heeq = solo_heeq.squeeze()
+        stix_pointing = stix_pointing.squeeze()
+
+    return roll, solo_heeq, stix_pointing
 
 
 @lru_cache
@@ -257,7 +247,7 @@ def stixim_to_hpc(stxcoord, hpcframe):
     logger.debug("STIX: %s", stxcoord)
 
     rot_matrix, solo_pos_heeq = _get_rotation_matrix_and_position(stxcoord.obstime)
-    solo_heeq = HeliographicStonyhurst(solo_pos_heeq, representation_type="cartesian", obstime=stxcoord.obstime)
+    solo_heeq = HeliographicStonyhurst(solo_pos_heeq.T, representation_type="cartesian", obstime=stxcoord.obstime)
 
     # Transform from STIX imaging to SOLO HPC
     newrepr = stxcoord.cartesian.transform(rot_matrix)
@@ -285,7 +275,7 @@ def hpc_to_stixim(hpccoord, stxframe):
     """
     logger.debug("Input HPC: %s", hpccoord)
     rmatrix, solo_pos_heeq = _get_rotation_matrix_and_position(stxframe.obstime)
-    solo_hgs = HeliographicStonyhurst(solo_pos_heeq, representation_type="cartesian", obstime=stxframe.obstime)
+    solo_hgs = HeliographicStonyhurst(solo_pos_heeq.T, representation_type="cartesian", obstime=stxframe.obstime)
 
     # Create SOLO HPC
     solo_hpc_frame = Helioprojective(obstime=stxframe.obstime, observer=solo_hgs)

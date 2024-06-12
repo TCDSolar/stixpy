@@ -52,9 +52,14 @@ class STIXMap(GenericMap):
         w2.wcs.crota = (0, 0)
         w2.wcs.cunit = self.spatial_units
 
-        w2.wcs.datebeg = self.date_start.isot
-        w2.wcs.dateavg = self.date_average.isot
-        w2.wcs.dateend = self.date_end.isot
+        if self.date_start is not None:
+            w2.wcs.datebeg = self.date_start.isot
+        if self.date_average is not None:
+            w2.wcs.dateavg = self.date_average.isot
+        if self.date_end is not None:
+            w2.wcs.dateend = self.date_end.isot
+        if self.date is not None:
+            w2.wcs.dateobs = self.date.isot
 
         w2.wcs.aux.rsun_ref = self.rsun_meters.to_value(u.m)
         w2.wcs.aux.hgln_obs = self.observer_coordinate.lon.to_value(u.deg)

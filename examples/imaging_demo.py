@@ -119,7 +119,7 @@ bp_image = vis_to_image(vis10_7, imsize, pixel_size=pixel)
 vis_tr = TimeRange(vis.meta["time_range"])
 roll, solo_xyz, pointing = get_hpc_info(vis_tr.start, vis_tr.end)
 solo = HeliographicStonyhurst(*solo_xyz, obstime=vis_tr.center, representation_type="cartesian")
-coord = STIXImaging(0 * u.arcsec, 0 * u.arcsec, obstime=vis_tr.start, observer=solo)
+coord = STIXImaging(0 * u.arcsec, 0 * u.arcsec, obstime=vis_tr.start, obstime_end=vis_tr.end, observer=solo)
 header = make_fitswcs_header(
     bp_image, coord, telescope="STIX", observatory="Solar Orbiter", scale=[10, 10] * u.arcsec / u.pix
 )
@@ -128,7 +128,9 @@ fd_bp_map = Map((bp_image, header))
 ###############################################################################
 # Convert the coordinates and make a map in Helioprojective and rotate so "North" is "up"
 
-hpc_ref = coord.transform_to(Helioprojective(observer=solo, obstime=fd_bp_map.date))  # Center of STIX pointing in HPC
+hpc_ref = coord.transform_to(
+    Helioprojective(observer=solo, obstime=fd_bp_map.date_average)
+)  # Center of STIX pointing in HPC
 header_hp = make_fitswcs_header(bp_image, hpc_ref, scale=[10, 10] * u.arcsec / u.pix, rotation_angle=90 * u.deg + roll)
 hp_map = Map((bp_image, header_hp))
 hp_map_rotated = hp_map.rotate()

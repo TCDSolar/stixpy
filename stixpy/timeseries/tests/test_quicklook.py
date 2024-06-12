@@ -9,7 +9,7 @@ from stixpy.timeseries.quicklook import HKMaxi, QLBackground, QLLightCurve, QLVa
 @pytest.fixture()
 def ql_lightcurve():
     ql_lc = TimeSeries(
-        r"https://pub099.cs.technik.fhnw.ch/fits/L1/2020/05/06/QL/solo_L1_stix-ql-lightcurve_20200506_V02.fits"
+        "https://pub099.cs.technik.fhnw.ch/fits/L1/2020/05/06/QL/solo_L1_stix-ql-lightcurve_20200506_V02.fits"
     )
     return ql_lc
 
@@ -18,7 +18,7 @@ def ql_lightcurve():
 @pytest.fixture()
 def ql_background():
     ql_bkg = TimeSeries(
-        r"https://pub099.cs.technik.fhnw.ch/fits/L1/2020/05/06/QL/solo_L1_stix-ql-background_20200506_V02.fits"
+        "https://pub099.cs.technik.fhnw.ch/fits/L1/2020/05/06/QL/solo_L1_stix-ql-background_20200506_V02.fits"
     )
     return ql_bkg
 
@@ -27,7 +27,7 @@ def ql_background():
 @pytest.fixture()
 def ql_variance():
     ql_var = TimeSeries(
-        r"https://pub099.cs.technik.fhnw.ch/fits/L1/2020/05/06/QL/solo_L1_stix-ql-variance_20200506_V02.fits"
+        "https://pub099.cs.technik.fhnw.ch/fits/L1/2020/05/06/QL/solo_L1_stix-ql-variance_20200506_V02.fits"
     )
     return ql_var
 
@@ -36,7 +36,7 @@ def ql_variance():
 @pytest.fixture()
 def hk_maxi():
     hk_maxi = TimeSeries(
-        r"https://pub099.cs.technik.fhnw.ch/fits/L1/2020/05/06/HK/solo_L1_stix-hk-maxi_20200506_V02.fits"
+        "https://pub099.cs.technik.fhnw.ch/fits/L1/2020/05/06/HK/solo_L1_stix-hk-maxi_20200506_V02.fits"
     )
     return hk_maxi
 

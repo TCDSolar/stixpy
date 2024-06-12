@@ -128,9 +128,7 @@ fd_bp_map = Map((bp_image, header))
 ###############################################################################
 # Convert the coordinates and make a map in Helioprojective and rotate so "North" is "up"
 
-hpc_ref = coord.transform_to(
-    Helioprojective(observer=solo, obstime=fd_bp_map.date_average)
-)  # Center of STIX pointing in HPC
+hpc_ref = coord.transform_to(Helioprojective(observer=solo, obstime=vis_tr.center))  # Center of STIX pointing in HPC
 header_hp = make_fitswcs_header(bp_image, hpc_ref, scale=[10, 10] * u.arcsec / u.pix, rotation_angle=90 * u.deg + roll)
 hp_map = Map((bp_image, header_hp))
 hp_map_rotated = hp_map.rotate()

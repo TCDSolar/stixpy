@@ -1,6 +1,7 @@
 import astropy.units as u
 import numpy as np
 from astropy.time import Time
+from astropy.units import Quantity
 from numpy.testing import assert_equal
 
 
@@ -22,6 +23,8 @@ def times_to_indices(in_times, obs_times, unit=u.ms, decimals=3):
     -------
     Array of indices
     """
+    if not isinstance(in_times, (Time, Quantity)):
+        return in_times
     unique_only = False
     shape = None
     relative_times = np.around((obs_times - obs_times[0]).to(unit), decimals=decimals)

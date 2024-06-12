@@ -88,9 +88,10 @@ def test_stix_frame_to_wcs_none():
 def test_stix_frame_map():
     data = np.random.rand(512, 512)
     obstime = "2023-01-01 12:00:00"
+    obstime_end = "2023-01-01 12:02:00"
     solo = get_horizons_coord("solo", time=obstime)
     coord = SkyCoord(
-        0 * u.arcsec, 0 * u.arcsec, obstime=obstime, obstime_end="2023-01-01 12:02:00", observer=solo, frame=STIXImaging
+        0 * u.arcsec, 0 * u.arcsec, obstime=obstime, obstime_end=obstime_end, observer=solo, frame=STIXImaging
     )
     header = make_fitswcs_header(
         data, coord, scale=[8, 8] * u.arcsec / u.pix, telescope="STIX", instrument="STIX", observatory="Solar Orbiter"

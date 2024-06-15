@@ -6,7 +6,7 @@ from stixpy.timeseries.quicklook import HKMaxi, QLBackground, QLLightCurve, QLVa
 
 
 @pytest.mark.remote_data
-@pytest.fixture()
+@pytest.fixture(scope="session")
 def ql_lightcurve():
     ql_lc = TimeSeries(
         "https://pub099.cs.technik.fhnw.ch/fits/L1/2020/05/06/QL/solo_L1_stix-ql-lightcurve_20200506_V02.fits"
@@ -15,7 +15,7 @@ def ql_lightcurve():
 
 
 @pytest.mark.remote_data
-@pytest.fixture()
+@pytest.fixture(scope="session")
 def ql_background():
     ql_bkg = TimeSeries(
         "https://pub099.cs.technik.fhnw.ch/fits/L1/2020/05/06/QL/solo_L1_stix-ql-background_20200506_V02.fits"
@@ -24,7 +24,7 @@ def ql_background():
 
 
 @pytest.mark.remote_data
-@pytest.fixture()
+@pytest.fixture(scope="session")
 def ql_variance():
     ql_var = TimeSeries(
         "https://pub099.cs.technik.fhnw.ch/fits/L1/2020/05/06/QL/solo_L1_stix-ql-variance_20200506_V02.fits"
@@ -33,7 +33,7 @@ def ql_variance():
 
 
 @pytest.mark.remote_data
-@pytest.fixture()
+@pytest.fixture(scope="session")
 def hk_maxi():
     hk_maxi = TimeSeries(
         "https://pub099.cs.technik.fhnw.ch/fits/L1/2020/05/06/HK/solo_L1_stix-hk-maxi_20200506_V02.fits"

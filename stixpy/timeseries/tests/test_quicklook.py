@@ -6,39 +6,39 @@ from stixpy.timeseries.quicklook import HKMaxi, QLBackground, QLLightCurve, QLVa
 
 
 @pytest.mark.remote_data
-@pytest.fixture()
+@pytest.fixture(scope="session")
 def ql_lightcurve():
     ql_lc = TimeSeries(
-        r"https://pub099.cs.technik.fhnw.ch/fits/L1/2020/05/06/QL/solo_L1_stix-ql-lightcurve_20200506_V02.fits"
+        "https://pub099.cs.technik.fhnw.ch/fits/L1/2020/05/06/QL/solo_L1_stix-ql-lightcurve_20200506_V02.fits"
     )
     return ql_lc
 
 
 @pytest.mark.remote_data
-@pytest.fixture()
+@pytest.fixture(scope="session")
 def ql_background():
     ql_bkg = TimeSeries(
-        r"https://pub099.cs.technik.fhnw.ch/fits/L1/2020/05/06/QL/solo_L1_stix-ql-background_20200506_V02.fits"
+        "https://pub099.cs.technik.fhnw.ch/fits/L1/2020/05/06/QL/solo_L1_stix-ql-background_20200506_V02.fits"
     )
     return ql_bkg
 
 
 @pytest.mark.remote_data
-@pytest.fixture()
+@pytest.fixture(scope="session")
 def ql_variance():
     ql_var = TimeSeries(
-        r"https://pub099.cs.technik.fhnw.ch/fits/L1/2020/05/06/QL/solo_L1_stix-ql-variance_20200506_V02.fits"
+        "https://pub099.cs.technik.fhnw.ch/fits/L1/2020/05/06/QL/solo_L1_stix-ql-variance_20200506_V02.fits"
     )
     return ql_var
 
 
-# @pytest.mark.remote_data
-# @pytest.fixture()
-# def hk_maxi():
-#     hk_maxi = TimeSeries(
-#         r"https://pub099.cs.technik.fhnw.ch/fits/L1/2020/05/06/HK/solo_L1_stix-hk-maxi_20200506_V02U.fits"
-#     )
-#     return hk_maxi
+@pytest.mark.remote_data
+@pytest.fixture(scope="session")
+def hk_maxi():
+    hk_maxi = TimeSeries(
+        "https://pub099.cs.technik.fhnw.ch/fits/L1/2020/05/06/HK/solo_L1_stix-hk-maxi_20200506_V02.fits"
+    )
+    return hk_maxi
 
 
 @pytest.mark.remote_data
@@ -78,15 +78,12 @@ def test_ql_variance_plot(ql_variance):
 
 
 @pytest.mark.remote_data
-def test_hk_maxi():
-    hk_maxi = TimeSeries(
-        "https://pub099.cs.technik.fhnw.ch/fits/L1/2020/05/06/HK/solo_L1_stix-hk-maxi_20200506_V02U.fits"
-    )
+def test_hk_maxi(hk_maxi):
     assert isinstance(hk_maxi, HKMaxi)
     assert hk_maxi.quantity("hk_att_c").unit == u.mA
 
 
-# @pytest.mark.remote_data
-# def test_hk_maxi_plot(hk_maxi):
-#     hk_maxi.plot()
-#     hk_maxi.plot(columns=['hk_asp_photoa0_v'])
+@pytest.mark.remote_data
+def test_hk_maxi_plot(hk_maxi):
+    hk_maxi.plot()
+    hk_maxi.plot(columns=["hk_asp_photoa0_v"])

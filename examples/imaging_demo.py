@@ -5,7 +5,7 @@ Imaging example
 
 How to create visibility from pixel data and make images.
 
-The example uses ``stixpy`` to obtain STIX pixel data and convert these into visiblites and ``xrayvisim``
+The example uses ``stixpy`` to obtain STIX pixel data and convert these into visibilities and ``xrayvisim``
 to make the images.
 
 Imports
@@ -93,7 +93,7 @@ cal_vis = calibrate_visibility(vis)
 ###############################################################################
 # Selected detectors 10 to 7
 
-# order by sub-collimator e.g 10a, 10b, 10c, 9a, 9b, 9c ....
+# order by sub-collimator e.g. 10a, 10b, 10c, 9a, 9b, 9c ....
 isc_10_7 = [3, 20, 22, 16, 14, 32, 21, 26, 4, 24, 8, 28]
 idx = np.argwhere(np.isin(cal_vis.meta["isc"], isc_10_7)).ravel()
 
@@ -106,7 +106,7 @@ vis10_7 = cal_vis[idx]
 # Set up image parameters
 
 imsize = [512, 512] * u.pixel  # number of pixels of the map to reconstruct
-pixel = [10, 10] * u.arcsec / u.pixel  # pixel size in aresec
+pixel = [10, 10] * u.arcsec / u.pixel  # pixel size in arcsec
 
 ###############################################################################
 # Make a full disk back projection (inverse transform) map
@@ -119,7 +119,7 @@ bp_image = vis_to_image(vis10_7, imsize, pixel_size=pixel)
 vis_tr = TimeRange(vis.meta["time_range"])
 roll, solo_xyz, pointing = get_hpc_info(vis_tr.start, vis_tr.end)
 solo = HeliographicStonyhurst(*solo_xyz, obstime=vis_tr.center, representation_type="cartesian")
-coord = STIXImaging(0 * u.arcsec, 0 * u.arcsec, obstime=vis_tr.start, observer=solo)
+coord = STIXImaging(0 * u.arcsec, 0 * u.arcsec, obstime=vis_tr.start, obstime_end=vis_tr.end, observer=solo)
 header = make_fitswcs_header(
     bp_image, coord, telescope="STIX", observatory="Solar Orbiter", scale=[10, 10] * u.arcsec / u.pix
 )
@@ -128,18 +128,10 @@ fd_bp_map = Map((bp_image, header))
 ###############################################################################
 # Convert the coordinates and make a map in Helioprojective and rotate so "North" is "up"
 
-hpc_ref = coord.transform_to(Helioprojective(observer=solo, obstime=fd_bp_map.date))  # Center of STIX pointing in HPC
+hpc_ref = coord.transform_to(Helioprojective(observer=solo, obstime=vis_tr.center))  # Center of STIX pointing in HPC
 header_hp = make_fitswcs_header(bp_image, hpc_ref, scale=[10, 10] * u.arcsec / u.pix, rotation_angle=90 * u.deg + roll)
 hp_map = Map((bp_image, header_hp))
 hp_map_rotated = hp_map.rotate()
-
-###############################################################################
-# Estimate the flare location and plot on top of back projection map. Note the coordinates
-# are automaiccally converted from the STIXImaging to Helioprojective
-
-max_pixel = np.argwhere(fd_bp_map.data == fd_bp_map.data.max()).ravel() * u.pixel
-# because WCS axes and array are reversed
-max_stix = fd_bp_map.pixel_to_world(max_pixel[1], max_pixel[0])
 
 ###############################################################################
 # Plot the both maps
@@ -154,6 +146,14 @@ fd_bp_map.draw_grid()
 hp_map_rotated.plot(axes=ax1)
 hp_map_rotated.draw_limb()
 hp_map_rotated.draw_grid()
+
+###############################################################################
+# Estimate the flare location and plot on top of back projection map. Note the coordinates
+# are automatically converted from the STIXImaging to Helioprojective
+
+max_pixel = np.argwhere(fd_bp_map.data == fd_bp_map.data.max()).ravel() * u.pixel
+# because WCS axes and array are reversed
+max_stix = fd_bp_map.pixel_to_world(max_pixel[1], max_pixel[0])
 
 ax0.plot_coord(max_stix, marker=".", markersize=50, fillstyle="none", color="r", markeredgewidth=2)
 ax1.plot_coord(max_stix, marker=".", markersize=50, fillstyle="none", color="r", markeredgewidth=2)
@@ -178,7 +178,7 @@ cal_vis = calibrate_visibility(vis, flare_location=max_stix)
 
 ###############################################################################
 # Selected detectors 10 to 3
-# order by sub-collimator e.g 10a, 10b, 10c, 9a, 9b, 9c ....
+# order by sub-collimator e.g. 10a, 10b, 10c, 9a, 9b, 9c ....
 isc_10_3 = [3, 20, 22, 16, 14, 32, 21, 26, 4, 24, 8, 28, 15, 27, 31, 6, 30, 2, 25, 5, 23, 7, 29, 1]
 idx = np.argwhere(np.isin(cal_vis.meta["isc"], isc_10_3)).ravel()
 

@@ -121,10 +121,15 @@ class QLFlareFlag(QuickLookProduct):
     @property
     def flare_location(self) -> SkyCoord:
         r"""
-        Flare location
+        Flare location as`
+
+        Notes
+        -----
+        From STIX-TN-0109-FHNW_I3R3 `YLOS = -Ysc = -Yint` and `ZLOS = Zsc = Xint`
+
         """
         return SkyCoord(
-            self.data["loc_y"] * u.arcmin, -self.data["loc_z"] * u.arcmin, frame=STIXImaging(obstime=self.data["time"])
+            self.data["loc_z"] * u.arcmin, -self.data["loc_y"] * u.arcmin, frame=STIXImaging(obstime=self.data["time"])
         )
 
     @property

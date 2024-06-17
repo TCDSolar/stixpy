@@ -9,7 +9,6 @@ from sunpy.map import Map, make_fitswcs_header
 from sunpy.map.mapbase import SpatialPair
 
 from stixpy.coordinates.frames import STIXImaging, stix_frame_to_wcs, stix_wcs_to_frame
-from stixpy.coordinates.transforms import hpc_to_stixim, stixim_to_hpc  # noqa
 from stixpy.map.stix import STIXMap
 
 

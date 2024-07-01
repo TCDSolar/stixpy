@@ -235,7 +235,7 @@ class SpectrogramPlotMixin:
         # fig.autofmt_xdate()
         # fig.tight_layout()
 
-        return axes
+        return im
 
 
 class TimesSeriesPlotMixin:

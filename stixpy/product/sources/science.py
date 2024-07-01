@@ -210,8 +210,8 @@ class SpectrogramPlotMixin:
         counts, errors, times, timedeltas, energies = self.get_data(
             detector_indices=did, pixel_indices=pid, time_indices=time_indices, energy_indices=energy_indices
         )
-        counts = counts.to(u.ct / u.s / u.keV).unit
-        errors = errors.to(u.ct / u.s / u.keV).unit
+        counts = counts.to(u.ct / u.s / u.keV)
+        errors = errors.to(u.ct / u.s / u.keV)
         timedeltas = timedeltas.to(u.s)
 
         e_edges = np.hstack([energies["e_low"], energies["e_high"][-1]])
@@ -310,8 +310,8 @@ class TimesSeriesPlotMixin:
             time_indices=time_indices,
             energy_indices=energy_indices,
         )
-        counts = counts.to(u.ct / u.s / u.keV).unit
-        errors = errors.to(u.ct / u.s / u.keV).unit
+        counts = counts.to(u.ct / u.s / u.keV)
+        errors = errors.to(u.ct / u.s / u.keV)
         timedeltas = timedeltas.to(u.s)
 
         labels = [f"{el.value} - {eh.value} keV" for el, eh in energies["e_low", "e_high"]]

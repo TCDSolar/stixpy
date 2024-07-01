@@ -210,6 +210,9 @@ class SpectrogramPlotMixin:
         counts, errors, times, timedeltas, energies = self.get_data(
             detector_indices=did, pixel_indices=pid, time_indices=time_indices, energy_indices=energy_indices
         )
+        counts = counts.to(u.ct / u.s / u.keV).unit
+        errors = errors.to(u.ct / u.s / u.keV).unit
+        timedeltas = timedeltas.to(u.s)
 
         e_edges = np.hstack([energies["e_low"], energies["e_high"][-1]])
         t_edges = Time(
@@ -307,8 +310,11 @@ class TimesSeriesPlotMixin:
             time_indices=time_indices,
             energy_indices=energy_indices,
         )
+        counts = counts.to(u.ct / u.s / u.keV).unit
+        errors = errors.to(u.ct / u.s / u.keV).unit
+        timedeltas = timedeltas.to(u.s)
 
-        labels = [f"{el.value} - {eh.value}" for el, eh in energies["e_low", "e_high"]]
+        labels = [f"{el.value} - {eh.value} keV" for el, eh in energies["e_low", "e_high"]]
 
         n_time, n_det, n_pix, n_energy = counts.shape
 
@@ -366,6 +372,10 @@ class PixelPlotMixin:
             fig, axes = plt.subplots(nrows=4, ncols=8, sharex=True, sharey=True, figsize=(10, 5))
 
         counts, count_err, times, dt, energies = self.get_data(time_indices=time_indices, energy_indices=energy_indices)
+
+        counts = counts.to(u.ct / u.s / u.keV).unit
+        count_err = count_err.to(u.ct / u.s / u.keV).unit
+        dt = dt.to(u.s)
 
         def timeval(val):
             return times[val].isot

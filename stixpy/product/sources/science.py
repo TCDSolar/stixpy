@@ -234,6 +234,10 @@ class SpectrogramPlotMixin:
         axes.xaxis.set_major_formatter(DateFormatter("%d %H:%M"))
         # fig.autofmt_xdate()
         # fig.tight_layout()
+        for i in plt.get_fignums():
+            if axes in plt.figure(i).axes:
+                plt.sca(axes)
+                plt.sci(im)
 
         return im
 

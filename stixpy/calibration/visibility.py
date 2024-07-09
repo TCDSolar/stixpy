@@ -123,8 +123,8 @@ def create_meta_pixels(
     e_ind = np.argwhere(e_mask).ravel()
 
     time_range = TimeRange(
-        pixel_data.times[t_ind[0]] - pixel_data.durtaion[t_ind[0]] / 2,
-        pixel_data.times[t_ind[-1]] + pixel_data.durtaion[t_ind[-1]] / 2,
+        pixel_data.times[t_ind[0]] - pixel_data.duration[t_ind[0]] / 2,
+        pixel_data.times[t_ind[-1]] + pixel_data.duration[t_ind[-1]] / 2,
     )
 
     changed = []

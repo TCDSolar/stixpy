@@ -7,9 +7,7 @@ from stixpy.product.sources import QLFlareFlag
 
 @pytest.mark.remote_data
 def test_qlflareflag():
-    ff = Product(
-        "https://pub099.cs.technik.fhnw.ch/fits/L1/2024/06/03/QL/" "solo_L1_stix-ql-flareflag_20240603_V02U.fits"
-    )
+    ff = Product("https://pub099.cs.technik.fhnw.ch/fits/L1/2024/06/03/QL/solo_L1_stix-ql-flareflag_20240603_V02.fits")
     assert isinstance(ff, QLFlareFlag)
     assert isinstance(ff.flare_location, SkyCoord)
     assert ff.flare_location[0].transform_to(frame="helioprojective").frame.name == "helioprojective"

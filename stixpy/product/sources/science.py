@@ -226,7 +226,7 @@ class SpectrogramPlotMixin:
 
         pcolor_kwargs = {"norm": LogNorm(), "shading": "flat"}
         pcolor_kwargs.update(plot_kwargs)
-        im = axes.pcolormesh(t_edges.datetime, e_edges[1:-1], counts[:, 0, 0, 1:-1].T.value, **pcolor_kwargs)  # noqa
+        im = axes.pcolormesh(t_edges.datetime, e_edges[1:-1], counts[:, 0, 0, 1:-1].T, **pcolor_kwargs)  # noqa
 
         # axes.colorbar(im).set_label(format(counts.unit))
         axes.xaxis_date()
@@ -373,8 +373,8 @@ class PixelPlotMixin:
 
         counts, count_err, times, dt, energies = self.get_data(time_indices=time_indices, energy_indices=energy_indices)
 
-        counts = counts.to(u.ct / u.s / u.keV).unit
-        count_err = count_err.to(u.ct / u.s / u.keV).unit
+        counts = counts.to(u.ct / u.s / u.keV)
+        count_err = count_err.to(u.ct / u.s / u.keV)
         dt = dt.to(u.s)
 
         def timeval(val):

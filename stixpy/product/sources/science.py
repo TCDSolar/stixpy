@@ -214,7 +214,7 @@ class SpectrogramPlotMixin:
         errors = errors.to(u.ct / u.s / u.keV)
         timedeltas = timedeltas.to(u.s)
 
-        e_edges = np.hstack([energies["e_low"], energies["e_high"][-1]])
+        e_edges = np.hstack([energies["e_low"], energies["e_high"][-1]]).value
         t_edges = Time(
             np.concatenate([times - timedeltas.reshape(-1) / 2, times[-1] + timedeltas.reshape(-1)[-1:] / 2])
         )
@@ -226,7 +226,7 @@ class SpectrogramPlotMixin:
 
         pcolor_kwargs = {"norm": LogNorm(), "shading": "flat"}
         pcolor_kwargs.update(plot_kwargs)
-        im = axes.pcolormesh(t_edges.datetime, e_edges[1:-1], counts[:, 0, 0, 1:-1].T, **pcolor_kwargs)  # noqa
+        im = axes.pcolormesh(t_edges.datetime, e_edges[1:-1], counts[:, 0, 0, 1:-1].T.value, **pcolor_kwargs)  # noqa
 
         # axes.colorbar(im).set_label(format(counts.unit))
         axes.xaxis_date()

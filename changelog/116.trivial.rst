@@ -1,1 +1,0 @@
-Format code with ruff and turn on ruff format in pre-commit.

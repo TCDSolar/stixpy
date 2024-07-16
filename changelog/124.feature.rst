@@ -1,1 +1,0 @@
-Update code and examples to use new :class:`~xrayvision.visibility.Visibilities`, tidy API of `~stixpy.imaging.em.em`.

@@ -210,8 +210,11 @@ class SpectrogramPlotMixin:
         counts, errors, times, timedeltas, energies = self.get_data(
             detector_indices=did, pixel_indices=pid, time_indices=time_indices, energy_indices=energy_indices
         )
+        counts = counts.to(u.ct / u.s / u.keV)
+        errors = errors.to(u.ct / u.s / u.keV)
+        timedeltas = timedeltas.to(u.s)
 
-        e_edges = np.hstack([energies["e_low"], energies["e_high"][-1]])
+        e_edges = np.hstack([energies["e_low"], energies["e_high"][-1]]).value
         t_edges = Time(
             np.concatenate([times - timedeltas.reshape(-1) / 2, times[-1] + timedeltas.reshape(-1)[-1:] / 2])
         )
@@ -234,8 +237,12 @@ class SpectrogramPlotMixin:
         axes.xaxis.set_major_formatter(DateFormatter("%d %H:%M"))
         # fig.autofmt_xdate()
         # fig.tight_layout()
+        for i in plt.get_fignums():
+            if axes in plt.figure(i).axes:
+                plt.sca(axes)
+                plt.sci(im)
 
-        return axes
+        return im
 
 
 class TimesSeriesPlotMixin:
@@ -303,8 +310,11 @@ class TimesSeriesPlotMixin:
             time_indices=time_indices,
             energy_indices=energy_indices,
         )
+        counts = counts.to(u.ct / u.s / u.keV)
+        errors = errors.to(u.ct / u.s / u.keV)
+        timedeltas = timedeltas.to(u.s)
 
-        labels = [f"{el.value} - {eh.value}" for el, eh in energies["e_low", "e_high"]]
+        labels = [f"{el.value} - {eh.value} keV" for el, eh in energies["e_low", "e_high"]]
 
         n_time, n_det, n_pix, n_energy = counts.shape
 
@@ -362,6 +372,10 @@ class PixelPlotMixin:
             fig, axes = plt.subplots(nrows=4, ncols=8, sharex=True, sharey=True, figsize=(10, 5))
 
         counts, count_err, times, dt, energies = self.get_data(time_indices=time_indices, energy_indices=energy_indices)
+
+        counts = counts.to(u.ct / u.s / u.keV)
+        count_err = count_err.to(u.ct / u.s / u.keV)
+        dt = dt.to(u.s)
 
         def timeval(val):
             return times[val].isot

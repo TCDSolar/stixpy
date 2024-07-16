@@ -405,7 +405,7 @@ def calibrate_visibility(vis: Visibilities, flare_location: SkyCoord = STIXImagi
         solo_coord = HeliographicStonyhurst(solo_heeq, representation_type="cartesian", obstime=tr.center)
         flare_location = flare_location.transform_to(STIXImaging(obstime=tr.center, observer=solo_coord))
 
-    phase_mapcenter_corr = -2 * np.pi * (flare_location.Ty * vis.u + flare_location.Tx * vis.v) * u.rad
+    phase_mapcenter_corr = -2 * np.pi * (flare_location.Tx * vis.u + flare_location.Ty * vis.v) * u.rad
 
     ovis = vis.visibilities[:]
     ovis_real = np.real(ovis)

@@ -144,7 +144,7 @@ def em(
         solo_coord = HeliographicStonyhurst(solo_heeq, representation_type="cartesian", obstime=tr.center)
         flare_location = flare_location.transform_to(STIXImaging(obstime=tr.center, observer=solo_coord))
 
-    flare_xy = np.array([flare_location.Ty.value, flare_location.Tx.value]) * apu.arcsec
+    flare_xy = np.array([flare_location.Tx.value, flare_location.Ty.value]) * apu.arcsec
 
     H = get_transmission_matrix(vis.u[ii], vis.v[ii], shape=shape, pixel_size=pixel_size, center=flare_xy, pixel_sum=1)
     y = countrates[idx, ...]
@@ -184,4 +184,4 @@ def em(
     m, n = shape.to_value("pix").astype(int)
     # Note the order keyword here to match `y.flatten(order='F')` above at line 108
     x_im = x.reshape(m, n, order="F")
-    return x_im
+    return x_im.T

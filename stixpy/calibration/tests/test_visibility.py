@@ -1,4 +1,5 @@
 import astropy.units as u
+import numpy as np
 import pytest
 from astropy.tests.helper import assert_quantity_allclose
 from astropy.time import Time
@@ -54,3 +55,43 @@ def test_create_meta_pixels(background_cpd):
         [0.18701911, 0.18205339, 0.18328145, 0.17945563] * u.ct / (u.keV * u.cm**2 * u.s),
         meta_pixels["abcd_rate_kev_cm"][-1, :],
     )
+
+
+def test_create_meta_pixels_timebins(flare_cpd):
+    energy_range = [6, 12] * u.keV
+
+    # check time_range within one bin (i.e. timerange passed is within one bin)
+    time_range = [flare_cpd.times[0], flare_cpd.times[0] + flare_cpd.duration / 4]
+    meta_pixels = create_meta_pixels(
+        flare_cpd,
+        time_range=time_range,
+        energy_range=energy_range,
+        flare_location=STIXImaging(0 * u.arcsec, 0 * u.arcsec),
+        no_shadowing=True,
+    )
+
+    assert_quantity_allclose(meta_pixels["time_range"].dt.to(u.s), flare_cpd.duration[0].to(u.s))
+
+    # check time_range fully outside bins (i.e. all bins contained with timerange)
+    time_range = [flare_cpd.times[0] - 10 * u.s, flare_cpd.times[-1] + 10 * u.s]
+    meta_pixels = create_meta_pixels(
+        flare_cpd,
+        time_range=time_range,
+        energy_range=energy_range,
+        flare_location=STIXImaging(0 * u.arcsec, 0 * u.arcsec),
+        no_shadowing=True,
+    )
+
+    assert_quantity_allclose(np.sum(flare_cpd.duration), meta_pixels["time_range"].dt.to(u.s))
+
+    # check time_range start and end are within bins
+    time_range = [flare_cpd.times[0], flare_cpd.times[2]]
+    meta_pixels = create_meta_pixels(
+        flare_cpd,
+        time_range=time_range,
+        energy_range=energy_range,
+        flare_location=STIXImaging(0 * u.arcsec, 0 * u.arcsec),
+        no_shadowing=True,
+    )
+
+    assert_quantity_allclose(np.sum(flare_cpd.duration[0:3]), meta_pixels["time_range"].dt.to(u.s))

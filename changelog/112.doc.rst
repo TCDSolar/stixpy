@@ -1,0 +1,1 @@
+Correct calculation of the HPC coordinate of the center of the STIX pointing in the imaging demo.

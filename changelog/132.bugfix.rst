@@ -1,0 +1,1 @@
+Fix typo in `~stixpy.product.sources.science.ScienceData` 'durtaion' -> 'duration'.

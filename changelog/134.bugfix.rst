@@ -1,0 +1,1 @@
+Fix some inconsistencies on the data units in plots, also return handle to the image from `~stixpy.product.sources.science.SpectrogramPlotMixin.plot_spectrogram`.

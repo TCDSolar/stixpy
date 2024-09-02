@@ -116,7 +116,21 @@ def create_meta_pixels(
     `dict`
         Visibility data and sub-collimator information
     """
-    t_mask = (pixel_data.times >= Time(time_range[0])) & (pixel_data.times <= Time(time_range[1]))
+
+    # checks if a time bin fully overlaps, is fully within, starts within, or ends within the specified time range.
+    pixel_starts = pixel_data.times - pixel_data.duration / 2
+    pixel_ends = pixel_data.times + pixel_data.duration / 2
+
+    time_range_start = Time(time_range[0])
+    time_range_end = Time(time_range[1])
+
+    t_mask = (
+        (pixel_starts >= time_range_start) & (pixel_ends <= time_range_end)  # fully within the time range
+        | (time_range_start <= pixel_starts) & (time_range_end >= pixel_ends)  #  fully overlaps the time range
+        | (pixel_starts <= time_range_start) & (pixel_ends >= time_range_start)  # starts within the time range
+        | (pixel_starts <= time_range_end) & (pixel_ends >= time_range_end)  #  ends within the time range
+    )
+
     e_mask = (pixel_data.energies["e_low"] >= energy_range[0]) & (pixel_data.energies["e_high"] <= energy_range[1])
 
     t_ind = np.argwhere(t_mask).ravel()

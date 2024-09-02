@@ -1,7 +1,7 @@
 """
-=================
-Imaging example
-=================
+============
+Imaging Demo
+============
 
 How to create visibility from pixel data and make images.
 
@@ -51,12 +51,12 @@ cpd_bkg
 ###############################################################################
 # Set time and energy ranges which will be considered for the science and the background file
 
-time_range_sci = ["2021-09-23T15:21:00", "2021-09-23T15:24:00"]
+time_range_sci = ["2021-09-23T15:20:00", "2021-09-23T15:23:00"]
 time_range_bkg = [
     "2021-09-23T09:00:00",
     "2021-09-23T12:00:00",
 ]  # Set this range larger than the actual observation time
-energy_range = [28, 40] * u.keV
+energy_range = [25, 28] * u.keV
 
 ###############################################################################
 # Create the meta pixel, A, B, C, D for the science and the background data
@@ -136,14 +136,16 @@ hp_map_rotated = hp_map.rotate()
 ###############################################################################
 # Plot the both maps
 
-fig = plt.figure(figsize=(12, 8))
-ax0 = fig.add_subplot(1, 2, 1, projection=fd_bp_map)
-ax1 = fig.add_subplot(1, 2, 2, projection=hp_map_rotated)
-fd_bp_map.plot(axes=ax0)
+
+fig = plt.figure(layout="constrained", figsize=(3, 6))
+ax = fig.subplot_mosaic(
+    [["stix"], ["hpc"]], per_subplot_kw={"stix": {"projection": fd_bp_map}, "hpc": {"projection": hp_map_rotated}}
+)
+fd_bp_map.plot(axes=ax["stix"])
 fd_bp_map.draw_limb()
 fd_bp_map.draw_grid()
 
-hp_map_rotated.plot(axes=ax1)
+hp_map_rotated.plot(axes=ax["hpc"])
 hp_map_rotated.draw_limb()
 hp_map_rotated.draw_grid()
 
@@ -155,8 +157,9 @@ max_pixel = np.argwhere(fd_bp_map.data == fd_bp_map.data.max()).ravel() * u.pixe
 # because WCS axes and array are reversed
 max_stix = fd_bp_map.pixel_to_world(max_pixel[1], max_pixel[0])
 
-ax0.plot_coord(max_stix, marker=".", markersize=50, fillstyle="none", color="r", markeredgewidth=2)
-ax1.plot_coord(max_stix, marker=".", markersize=50, fillstyle="none", color="r", markeredgewidth=2)
+ax["stix"].plot_coord(max_stix, marker=".", markersize=50, fillstyle="none", color="r", markeredgewidth=2)
+ax["hpc"].plot_coord(max_stix, marker=".", markersize=50, fillstyle="none", color="r", markeredgewidth=2)
+fig.tight_layout()
 
 ################################################################################
 # Use estimated flare location to create more accurate visibilities
@@ -231,10 +234,6 @@ header = make_fitswcs_header(
     rotation_angle=90 * u.deg + roll,
 )
 
-clean_map = Map((clean_map.data, header))
-plt.figure()
-clean_map.rotate().plot()
-
 ###############################################################################
 # Crete a map using the MEM GE algorithm `mem`
 
@@ -255,23 +254,32 @@ em_map = em(
     idx=idx,
 )
 
-vmax = max([clean_map.data.max(), mem_map.data.max(), em_map.value.max()])
+
+clean_map = Map((clean_map.data, header)).rotate()
+bp_map = Map((bp_nat, header)).rotate()
+mem_map = Map((mem_map.data, header)).rotate()
+em_map = Map((em_map, header)).rotate()
+
+vmax = max([clean_map.data.max(), mem_map.data.max(), em_map.data.max()])
 
 ###############################################################################
 # Finally compare the images from each algorithm
 
-fig, axes = plt.subplots(2, 2)
-a = axes[0, 0].imshow(bp_nat.value)
-axes[0, 0].set_title("Back Projection")
-fig.colorbar(a)
-b = axes[1, 0].imshow(clean_map.data, vmin=0, vmax=vmax)
-axes[1, 0].set_title("Clean")
-fig.colorbar(b)
-c = axes[0, 1].imshow(mem_map.data, vmin=0, vmax=vmax)
-axes[0, 1].set_title("MEM GE")
-fig.colorbar(c)
-d = axes[1, 1].imshow(em_map.value, vmin=0, vmax=vmax)
-axes[1, 1].set_title("EM")
-fig.colorbar(d)
-fig.tight_layout()
+fig = plt.figure(figsize=(12, 12))
+ax = fig.subplot_mosaic(
+    [
+        ["bp", "clean"],
+        ["mem", "em"],
+    ],
+    subplot_kw={"projection": clean_map},
+)
+a = bp_map.plot(axes=ax["bp"])
+ax["bp"].set_title("Back Projection")
+b = clean_map.plot(axes=ax["clean"])
+ax["clean"].set_title("Clean")
+c = mem_map.plot(axes=ax["mem"])
+ax["mem"].set_title("MEM GE")
+d = em_map.plot(axes=ax["em"])
+ax["em"].set_title("EM")
+fig.colorbar(a, ax=ax.values())
 plt.show()

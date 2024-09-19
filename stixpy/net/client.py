@@ -1,7 +1,12 @@
+from pathlib import Path
+
 from sunpy.net import attrs as a
+from sunpy.net.attr import SimpleAttr
 from sunpy.net.dataretriever import GenericClient
 from sunpy.net.dataretriever.client import QueryResponse
 from sunpy.time import TimeRange
+
+from stixpy.net.attrs import StixDataSource
 
 try:
     from sunpy.net.scraper import Scraper
@@ -36,6 +41,10 @@ class STIXClient(GenericClient):
     """
 
     baseurl = r"https://pub099.cs.technik.fhnw.ch/data/fits/{level}/{year:4d}/{month:02d}/{day:02d}/{datatype}/"
+    online_url = r"https://pub099.cs.technik.fhnw.ch/data/fits/"
+    datapath = r"{level}/{year:4d}/{month:02d}/{day:02d}/{datatype}/"
+    local_url = r"file://{localpath}"
+
     ql_filename = r"solo_{level}_stix-{product}_\d{{8}}_V\d{{2}}\D?.fits"
     sci_filename = r"solo_{level}_stix-{product}_" r"\d{{8}}T\d{{6}}-\d{{8}}T\d{{6}}_V\d{{2}}\D?_.*.fits"
 
@@ -63,6 +72,11 @@ class STIXClient(GenericClient):
         matchdict = self._get_match_dict(*args, **kwargs)
         levels = matchdict["Level"]
 
+        if "pub099" in matchdict["StixDataSource"]:
+            baseurl = self.online_url + self.datapath
+        else:
+            baseurl = self.local_url.format(localpath=matchdict["StixDataSource"][0]) + self.datapath
+
         metalist = []
         tr = TimeRange(matchdict["Start Time"], matchdict["End Time"])
         for date in tr.get_dates():
@@ -74,16 +88,16 @@ class STIXClient(GenericClient):
                     products = [p for p in matchdict["DataProduct"] if p.startswith(datatype.lower())]
                     for product in products:
                         if datatype.lower() == "ql" and product.startswith("ql"):
-                            url = self.baseurl + self.ql_filename
+                            url = baseurl + self.ql_filename
                             pattern = self.base_pattern + self.ql_pattern
                         if datatype.lower() == "hk" and product.startswith("hk"):
-                            url = self.baseurl + self.ql_filename
+                            url = baseurl + self.ql_filename
                             pattern = self.base_pattern + self.ql_pattern
                         elif datatype.lower() == "sci" and product.startswith("sci"):
-                            url = self.baseurl + self.sci_filename
+                            url = baseurl + self.sci_filename
                             pattern = self.base_pattern + self.sci_pattern
                         elif datatype.lower() == "cal" and product.startswith("cal"):
-                            url = self.baseurl + self.ql_filename
+                            url = baseurl + self.ql_filename
                             pattern = self.base_pattern + self.ql_pattern
                         elif datatype.lower() == "asp" and product.startswith("asp"):
                             url = self.baseurl + self.ql_filename
@@ -99,7 +113,10 @@ class STIXClient(GenericClient):
                         )
 
                         scraper = Scraper(url, regex=True)
-                        filesmeta = scraper._extract_files_meta(tr, extractor=pattern)
+                        try:
+                            filesmeta = scraper._extract_files_meta(tr, extractor=pattern)
+                        except Exception:
+                            continue
                         for i in filesmeta:
                             rowdict = self.post_search_hook(i, matchdict)
                             file_tr = rowdict.pop("tr", None)
@@ -118,10 +135,32 @@ class STIXClient(GenericClient):
 
         return QueryResponse(metalist, client=self)
 
+    @classmethod
+    def _can_handle_query(cls, *query):
+        """
+        Method the
+        `sunpy.net.fido_factory.UnifiedDownloaderFactory`
+        class uses to dispatch queries to this Client.
+        """
+        regattrs_dict = cls.register_values()
+        optional = {k for k in regattrs_dict.keys()} - cls.required
+        if not cls.check_attr_types_in_query(query, cls.required, optional):
+            return False
+        for key in regattrs_dict:
+            all_vals = [i[0].lower() for i in regattrs_dict[key]]
+            if not issubclass(key, StixDataSource):
+                for x in query:
+                    if isinstance(x, key) and issubclass(key, SimpleAttr) and str(x.value).lower() not in all_vals:
+                        return False
+        return True
+
     def post_search_hook(self, exdict, matchdict):
         rowdict = super().post_search_hook(exdict, matchdict)
         product = rowdict.pop("descriptor")[5:]  # Strip 'sci-' from product name
         rowdict["DataProduct"] = product
+
+        if rowdict["StixDataSource"].lower() != "pub099":
+            rowdict["Path"] = Path(rowdict["url"].replace("file://", ""))
 
         if rowdict.get("DataType") == "SCI":
             rowdict["Request ID"] = int(rowdict["Request"])
@@ -162,6 +201,7 @@ class STIXClient(GenericClient):
                 ("ASP", "Aspect"),
                 ("HK", "House Keeping"),
             ],
+            attrs.stix.StixDataSource: [("pub099", "any local path")],
             attrs.stix.DataProduct: [
                 ("hk_maxi", "House Keeping Maxi Report"),
                 ("cal_energy", "Energy Calibration"),

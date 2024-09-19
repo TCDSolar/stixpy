@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from unittest import mock
 
@@ -5,6 +6,7 @@ import pytest
 from sunpy.net import Fido
 from sunpy.net import attrs as a
 
+from stixpy.net.attrs import StixDataSource
 from stixpy.net.client import STIXClient
 
 MOCK_PATH = "sunpy.net.scraper.urlopen"
@@ -33,6 +35,7 @@ def http_response():
         (("2022-01-01T00:35:00", "2022-01-01T00:45:00"), 1),
         (("2022-01-01T00:00:00", "2022-01-01T00:35:00"), 1),
         (("2022-01-01T02:45:00", "2022-01-01T05:00:00"), 1),
+        (("2023-01-01T02:45:00", "2023-01-01T05:00:00"), 0),
     ],
 )
 @mock.patch(MOCK_PATH)
@@ -41,6 +44,29 @@ def test_client(urlopen, client, http_response, time_range, nfiles):
     urlopen.return_value.read.side_effect = [http_response] * 5
     urlopen.close = mock.MagicMock(return_value=None)
     query = client.search(a.Time(*time_range), a.Instrument.stix, a.Level("L1"), a.stix.DataType.sci)
+    assert len(query) == nfiles
+
+
+@pytest.mark.parametrize(
+    "time_range, nfiles",
+    [
+        (("2022-01-01T00:00:00", "2022-01-01T03:00:00"), 4),
+        (("2022-01-01T00:00:00", "2022-01-01T01:00:00"), 2),
+        (("2022-01-01T00:30:00", "2022-01-01T01:00:00"), 2),
+        (("2022-01-01T00:35:00", "2022-01-01T00:45:00"), 1),
+        (("2022-01-01T00:00:00", "2022-01-01T00:35:00"), 1),
+        (("2022-01-01T02:45:00", "2022-01-01T05:00:00"), 1),
+        (("2023-01-01T02:45:00", "2023-01-01T05:00:00"), 0),
+    ],
+)
+def test_local_client(client, time_range, nfiles):
+    query = client.search(
+        a.Time(*time_range),
+        a.Instrument.stix,
+        a.Level("L1"),
+        StixDataSource(f'{Path(__file__).parent / "data"}{os.sep}'),
+        a.stix.DataType.sci,
+    )
     assert len(query) == nfiles
 
 

@@ -6,7 +6,6 @@ import pytest
 from sunpy.net import Fido
 from sunpy.net import attrs as a
 
-from stixpy.net.attrs import StixDataSource
 from stixpy.net.client import STIXClient
 
 MOCK_PATH = "sunpy.net.scraper.urlopen"
@@ -15,6 +14,11 @@ MOCK_PATH = "sunpy.net.scraper.urlopen"
 @pytest.fixture
 def client():
     return STIXClient()
+
+
+@pytest.fixture
+def clientlocal():
+    return STIXClient(source=f'file://{Path(__file__).parent / "data"}{os.sep}')
 
 
 @pytest.fixture
@@ -48,24 +52,28 @@ def test_client(urlopen, client, http_response, time_range, nfiles):
 
 
 @pytest.mark.parametrize(
-    "time_range, nfiles",
+    "time_range, level, dtype, nfiles",
     [
-        (("2022-01-01T00:00:00", "2022-01-01T03:00:00"), 4),
-        (("2022-01-01T00:00:00", "2022-01-01T01:00:00"), 2),
-        (("2022-01-01T00:30:00", "2022-01-01T01:00:00"), 2),
-        (("2022-01-01T00:35:00", "2022-01-01T00:45:00"), 1),
-        (("2022-01-01T00:00:00", "2022-01-01T00:35:00"), 1),
-        (("2022-01-01T02:45:00", "2022-01-01T05:00:00"), 1),
-        (("2023-01-01T02:45:00", "2023-01-01T05:00:00"), 0),
+        (("2022-01-01T00:00:00", "2022-01-01T03:00:00"), "L1", a.stix.DataType.sci, 4),
+        (("2022-01-01T00:00:00", "2022-01-01T01:00:00"), "L1", a.stix.DataType.sci, 2),
+        (("2022-01-01T00:30:00", "2022-01-01T01:00:00"), "L1", a.stix.DataType.sci, 2),
+        (("2022-01-01T00:35:00", "2022-01-01T00:45:00"), "L1", a.stix.DataType.sci, 1),
+        (("2022-01-01T00:00:00", "2022-01-01T00:35:00"), "L1", a.stix.DataType.sci, 1),
+        (("2022-01-01T02:45:00", "2022-01-01T05:00:00"), "L1", a.stix.DataType.sci, 1),
+        (("2023-01-01T02:45:00", "2023-01-01T05:00:00"), "L1", a.stix.DataType.sci, 0),
+        (("2022-01-01T00:00:00", "2022-01-01T03:00:00"), "L1", a.stix.DataType.ql, 2),
+        (("2022-01-01T00:00:00", "2022-01-01T03:00:00"), "ANC", a.stix.DataType.asp, 1),
+        (("2022-01-01T00:00:00", "2022-01-02T03:00:00"), "ANC", a.stix.DataType.asp, 2),
+        (("2022-01-01T00:00:00", "2022-01-03T03:00:00"), "ANC", a.stix.DataType.asp, 3),
+        (("2022-01-01T00:00:00", "2022-01-05T03:00:00"), "ANC", a.stix.DataType.asp, 3),
     ],
 )
-def test_local_client(client, time_range, nfiles):
-    query = client.search(
+def test_local_client(clientlocal, time_range, level, dtype, nfiles):
+    query = clientlocal.search(
         a.Time(*time_range),
         a.Instrument.stix,
-        a.Level("L1"),
-        StixDataSource(f'{Path(__file__).parent / "data"}{os.sep}'),
-        a.stix.DataType.sci,
+        a.Level(level),
+        dtype,
     )
     assert len(query) == nfiles
 

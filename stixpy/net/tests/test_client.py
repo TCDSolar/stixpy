@@ -81,7 +81,8 @@ def test_local_client(clientlocal, time_range, level, dtype, nfiles):
 @pytest.mark.remote_data
 def test_search_date(client):
     res = client.search(a.Time("2020-05-01T00:00", "2020-05-01T23:59"), a.Instrument.stix)
-    assert len(res) == 38
+    assert len(res) == 37
+    # this might need fixed when we change to ANC to become an level of its own
 
 
 @pytest.mark.remote_data
@@ -120,7 +121,8 @@ def test_search_date_product_sci():
 @pytest.mark.remote_data
 def test_fido():
     res = Fido.search(a.Time("2020-11-17T00:00", "2020-11-17T23:59"), a.Instrument.stix)
-    assert len(res["stix"]) == 51
+    assert len(res["stix"]) == 50
+    # this might need fixed when we change to ANC to become an level of its own
 
     res_ql = Fido.search(a.Time("2020-11-17T00:00", "2020-11-17T23:59"), a.Instrument.stix, a.stix.DataType.ql)
     assert len(res_ql["stix"]) == 6

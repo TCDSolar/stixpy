@@ -101,7 +101,7 @@ class STIXClient(GenericClient):
                         elif datatype.lower() == "cal" and product.startswith("cal"):
                             url = self.baseurl + self.ql_filename
                             pattern = self.base_pattern + self.ql_pattern
-                        elif datatype.lower() == "asp" and product.startswith("asp"):
+                        elif datatype.lower() in ["asp", "aux"] and product.endswith("ephemeris"):
                             url = self.baseurl + self.ql_filename
                             pattern = self.base_pattern + self.ql_pattern
 
@@ -199,6 +199,7 @@ class STIXClient(GenericClient):
                 ("SCI", "Science Data"),
                 ("CAL", "Calibration"),
                 ("ASP", "Aspect"),
+                ("AUX", "will be removed when ANC is ready"),
                 ("HK", "House Keeping"),
             ],
             attrs.stix.DataProduct: [

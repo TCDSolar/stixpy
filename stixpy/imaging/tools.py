@@ -77,7 +77,7 @@ def estimate_stix_flare_location(cpd_sci, time_range=None, energy_range=None, su
     coord = STIXImaging(0 * u.arcsec, 0 * u.arcsec, obstime=vis_tr.start, obstime_end=vis_tr.end, observer=solo)
     header_bp = sunpy.map.make_fitswcs_header(bp_image, coord, telescope="STIX",
                                               observatory="Solar Orbiter", scale=plate_scale)
-    map_bp = sunpy.map.Map(bp_image, header_bp).wcs
+    map_bp = sunpy.map.Map(bp_image, header_bp)
     wcs_bp = map_bp.wcs
     # Estimate flare location from brightest pixel in backprojection image
     flare_loc = wcs_bp.array_index_to_world(*max_idx)

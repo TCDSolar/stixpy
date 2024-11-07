@@ -1,6 +1,9 @@
 import astropy.units as u
 from astropy import wcs
+from sunpy.coordinates import HeliographicStonyhurst
 from sunpy.map import GenericMap
+
+import stixpy.coordinates.transforms
 
 __all__ = ["STIXMap"]
 
@@ -72,3 +75,45 @@ class STIXMap(GenericMap):
         # Validate the WCS here.
         w2.wcs.set()
         return w2
+
+    def to_hpc(self,
+               reference_coordinate,
+               reference_pixel: u.Unit('pix') = None):
+        """
+        Return a version of the map in the Helioprojective Cartesian (HPC) coordinate frame.
+
+        This is quicker than a full reprojection, `~stixpy.coordinates.transforms.STIXImaging`
+        is also a helioprojective frame with a different z-axis and rotation.
+        Therefore, the new WCS information can be unambiguously reconstructed without
+        altering the data array.
+
+        Parameters
+        ----------
+        reference_coordinate: `astropy.coordinates.SkyCoord`
+            The coordinate of the reference pixel.
+            Must be transformable to `sunpy.coordinates.Helioprojective`.
+        reference_pixel: `astropy.coordinate.Quantity` length-2 (optional)
+            The (x, y) pixel index of the reference pixel.
+            Default is center of the map's field of view.
+
+        Returns
+        -------
+        hpc_map: `sunpy.map.Map`
+            Map of the STIX image in the HPC coordinate frame.
+        """
+        if reference_pixel is None:
+            reference_pixel = (np.array(self.data.shape)[::-1] / 2) << u.pix
+        roll, solo_xyz, pointing = stixpy.coordinates.transforms.get_hpc_info(
+            reference_coordinate.obstime)
+        solo = HeliographicStonyhurst(*solo_xyz, obstime=reference_coordinate.obstime,
+                                      representation_type="cartesian")
+        header = make_fitswcs_header(
+            self.data,
+            reference_coordinate.transform_to(Helioprojective(obstime=reference_coordinate.obstime,
+                                                              observer=solo)),
+            telescope="STIX",
+            observatory="Solar Orbiter",
+            scale=u.Quantity(self.scale),
+            rotation_angle=90 * u.deg + roll,)
+        return sunpy.map.Map(self.data, header,
+                             mask=self.mask, uncertainty=self.uncertainty, meta=self.meta)

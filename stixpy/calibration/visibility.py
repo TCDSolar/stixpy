@@ -172,17 +172,14 @@ def create_meta_pixels(
 
     # Get counts and other data.
     not_imp = "not implemented"
-    pixel_slices = {"big": slice(0, 8),
-                    "top": slice(0, 4),
-                    "bottom": slice(4, 8),
-                    "small": not_imp,
-                    "all": not_imp}
+    pixel_slices = {"big": slice(0, 8), "top": slice(0, 4), "bottom": slice(4, 8), "small": not_imp, "all": not_imp}
     idx_pix = pixel_slices.get(pixels.lower(), None)
     if idx_pix == not_imp:
         raise NotImplementedError(f"Creating meta pixels from {pixels} pixels not yet implemented.")
     elif not idx_pix:
-        raise ValueError(f"Unrecognised input for 'pixels': {pixels}. "
-                         "Supported values: 'all', 'big', 'small', 'top', 'bottom'.")
+        raise ValueError(
+            f"Unrecognised input for 'pixels': {pixels}. " "Supported values: 'all', 'big', 'small', 'top', 'bottom'."
+        )
     counts = pixel_data.data["counts"].astype(float)
     count_errors = np.sqrt(pixel_data.data["counts_comp_err"].astype(float).value ** 2 + counts.value) * u.ct
     ct = counts[t_ind][..., idx_pix, e_ind]
@@ -207,9 +204,7 @@ def create_meta_pixels(
         ct_error_summed = ct_error_summed / grid_shadowing.reshape(-1, 1) / 4
 
     abcd_counts = ct_summed.reshape(ct_summed.shape[0], -1, 4).sum(axis=1)
-    abcd_count_errors = np.sqrt(
-        (ct_error_summed.reshape(ct_error_summed.shape[0], -1, 4) ** 2).sum(axis=1)
-    )
+    abcd_count_errors = np.sqrt((ct_error_summed.reshape(ct_error_summed.shape[0], -1, 4) ** 2).sum(axis=1))
 
     abcd_rate = abcd_counts / lt.reshape(-1, 1)
     abcd_rate_error = abcd_count_errors / lt.reshape(-1, 1)
@@ -232,7 +227,7 @@ def create_meta_pixels(
         "abcd_rate_error_kev_cm": abcd_rate_error_kev / areas,
         "time_range": time_range,
         "energy_range": energy_range,
-        "pixels": pixels
+        "pixels": pixels,
     }
 
     return meta_pixels

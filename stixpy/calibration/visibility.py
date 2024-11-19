@@ -442,11 +442,11 @@ def calibrate_visibility(vis: Visibilities, flare_location: SkyCoord = STIXImagi
     calibrated_visibility = (np.cos(calibrated_phase) + np.sin(calibrated_phase) * 1j) * calibrated_amplitude
 
     vis.meta["calibrated"] = True
-    vis.meta["offset"] = flare_location
     cal_vis = Visibilities(
         calibrated_visibility,
         u=vis.u,
         v=vis.v,
+        phase_center=flare_location,
         amplitude=calibrated_amplitude,
         amplitude_uncertainty=calibrated_amplitude_error,
         meta=vis.meta,

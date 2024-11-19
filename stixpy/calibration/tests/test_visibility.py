@@ -36,7 +36,7 @@ def test_get_uv_points_data():
 
 
 @pytest.mark.parametrize(
-    ("pixel_set", "expected_abcd_rate_kev", "expected_abcd_rate_kev_cm0", "expected_abcd_rate_kev_cm1"),
+    "pixel_set,expected_abcd_rate_kev,expected_abcd_rate_kev_cm0,expected_abcd_rate_kev_cm1",
     [
         (
             "big",
@@ -74,7 +74,6 @@ def test_create_meta_pixels(
 
     assert_quantity_allclose(expected_abcd_rate_kev, meta_pixels["abcd_rate_kev"][0, :], atol=1e-7 * u.ct / u.keV / u.s)
 
-    unit = u.ct / (u.keV * u.cm**2 * u.s)
     assert_quantity_allclose(
         expected_abcd_rate_kev_cm0, meta_pixels["abcd_rate_kev_cm"][0, :], atol=1e-7 * expected_abcd_rate_kev_cm0.unit
     )

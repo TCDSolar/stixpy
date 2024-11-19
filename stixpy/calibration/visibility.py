@@ -177,13 +177,11 @@ def create_meta_pixels(
         "small": slice(8, None),
         "top": slice(0, 4),
         "bottom": slice(4, 8),
-        "bottom+small": slice(4, None)
+        "bottom+small": slice(4, None),
     }
     idx_pix = pixel_slices.get(pixels.lower(), None)
     if idx_pix is None:
-        raise ValueError(
-            f"Unrecognised input for 'pixels': {pixels}. Supported values: {list(pixel_slices.keys())}"
-        )
+        raise ValueError(f"Unrecognised input for 'pixels': {pixels}. Supported values: {list(pixel_slices.keys())}")
     counts = pixel_data.data["counts"].astype(float)
     count_errors = np.sqrt(pixel_data.data["counts_comp_err"].astype(float).value ** 2 + counts.value) * u.ct
     ct = counts[t_ind][..., idx_pix, e_ind]

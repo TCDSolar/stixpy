@@ -1,4 +1,5 @@
 from sunpy.net import attrs as a
+from sunpy.net.attr import SimpleAttr
 from sunpy.net.dataretriever import GenericClient
 from sunpy.net.dataretriever.client import QueryResponse
 from sunpy.time import TimeRange
@@ -35,15 +36,30 @@ class STIXClient(GenericClient):
     <BLANKLINE>
     """
 
-    baseurl = r"https://pub099.cs.technik.fhnw.ch/data/fits/" r"{level}/{year:4d}/{month:02d}/{day:02d}/{datatype}/"
-    ql_filename = r"solo_{level}_stix-{product}_\d{{8}}_V\d{{2}}\D?.fits"
-    sci_filename = r"solo_{level}_stix-{product}_" r"\d{{8}}T\d{{6}}-\d{{8}}T\d{{6}}_V\d{{2}}\D?_.*.fits"
+    baseurl = r"https://pub099.cs.technik.fhnw.ch/data/fits/"
+    datapath = r"{level}/{year:4d}/{month:02d}/{day:02d}/{datatype}/"
+
+    ql_filename = r"solo_{level}_stix-{product}_[0-9]{{8}}_V[0-9]{{2}}[a-zA-Z]?.fits"
+    sci_filename = (
+        r"solo_{level}_stix-{product}_" r"[0-9]{{8}}T[0-9]{{6}}-[0-9]{{8}}T[0-9]{{6}}_V[0-9]{{2}}[a-zA-Z]?_.*.fits"
+    )
 
     base_pattern = r"{}/{Level}/{year:4d}/{month:02d}/{day:02d}/{DataType}/"
     ql_pattern = r"solo_{Level}_{descriptor}_{time}_{Ver}.fits"
     sci_pattern = r"solo_{Level}_{descriptor}_{start}-{end}_{Ver}_{Request}-{tc}.fits"
 
     required = {a.Time, a.Instrument}
+
+    def __init__(self, *, source="https://pub099.cs.technik.fhnw.ch/data/fits/") -> None:
+        """Creates a Fido client to search and download STIX data from the STIX instrument archive
+
+        Parameters
+        ----------
+        source : str, optional
+            a url like path to alternative data source. You can provide a local filesystem path here. by default "https://pub099.cs.technik.fhnw.ch/data/fits/"
+        """
+        super().__init__()
+        self.baseurl = source + r"{level}/{year:4d}/{month:02d}/{day:02d}/{datatype}/"
 
     def search(self, *args, **kwargs):
         """
@@ -85,7 +101,7 @@ class STIXClient(GenericClient):
                         elif datatype.lower() == "cal" and product.startswith("cal"):
                             url = self.baseurl + self.ql_filename
                             pattern = self.base_pattern + self.ql_pattern
-                        elif datatype.lower() == "aux" and product.startswith("aux"):
+                        elif datatype.lower() in ["asp", "aux"] and product.endswith("ephemeris"):
                             url = self.baseurl + self.ql_filename
                             pattern = self.base_pattern + self.ql_pattern
 
@@ -99,7 +115,11 @@ class STIXClient(GenericClient):
                         )
 
                         scraper = Scraper(url, regex=True)
-                        filesmeta = scraper._extract_files_meta(tr, extractor=pattern)
+                        try:
+                            filesmeta = scraper._extract_files_meta(tr, extractor=pattern)
+                        except Exception as e:
+                            print(e)
+                            continue
                         for i in filesmeta:
                             rowdict = self.post_search_hook(i, matchdict)
                             file_tr = rowdict.pop("tr", None)
@@ -117,6 +137,24 @@ class STIXClient(GenericClient):
                                 metalist.append(rowdict)
 
         return QueryResponse(metalist, client=self)
+
+    @classmethod
+    def _can_handle_query(cls, *query):
+        """
+        Method the
+        `sunpy.net.fido_factory.UnifiedDownloaderFactory`
+        class uses to dispatch queries to this Client.
+        """
+        regattrs_dict = cls.register_values()
+        optional = {k for k in regattrs_dict.keys()} - cls.required
+        if not cls.check_attr_types_in_query(query, cls.required, optional):
+            return False
+        for key in regattrs_dict:
+            all_vals = [i[0].lower() for i in regattrs_dict[key]]
+            for x in query:
+                if isinstance(x, key) and issubclass(key, SimpleAttr) and str(x.value).lower() not in all_vals:
+                    return False
+        return True
 
     def post_search_hook(self, exdict, matchdict):
         rowdict = super().post_search_hook(exdict, matchdict)
@@ -152,13 +190,15 @@ class STIXClient(GenericClient):
             attrs.Level: [
                 ("L0", "STIX: Decommutated, uncompressed, uncalibrated data."),
                 ("L1", "STIX: Engineering and UTC time conversion ."),
+                ("ANC", "STIX: Ancillary Data like aspect."),
                 ("L2", "STIX: Calibrated data."),
             ],
             attrs.stix.DataType: [
                 ("QL", "Quick Look"),
                 ("SCI", "Science Data"),
                 ("CAL", "Calibration"),
-                ("AUX", "Auxiliary"),
+                ("ASP", "Aspect"),
+                ("AUX", "will be removed when ANC is ready"),
                 ("HK", "House Keeping"),
             ],
             attrs.stix.DataProduct: [
@@ -176,7 +216,8 @@ class STIXClient(GenericClient):
                 ("sci_xray_scpd", "Summed Compressed Pixel Data"),
                 ("sci_xray_vis", "Visibilities"),
                 ("sci_xray_spec", "Spectrogram"),
-                ("aux_ephemeris", "Auxiliary ephemeris data"),
+                ("asp-ephemeris", "Ancillary ephemeris data"),
+                ("aux-ephemeris", "will be removed when ANC is ready"),
             ],
         }
         return adict

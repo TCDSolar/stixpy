@@ -171,19 +171,22 @@ def create_meta_pixels(
     e_cor_high, e_cor_low = get_elut_correction(e_ind, pixel_data)
 
     # Get counts and other data.
-    not_imp = "not implemented"
-    pixel_slices = {"big": slice(0, 8), "top": slice(0, 4), "bottom": slice(4, 8), "small": not_imp, "all": not_imp}
+    pixel_slices = {
+        "all": slice(None),
+        "big": slice(0, 8),
+        "small": slice(8, None),
+        "top": slice(0, 4),
+        "bottom": slice(4, 8),
+        "bottom+small": slice(4, None)
+    }
     idx_pix = pixel_slices.get(pixels.lower(), None)
-    if idx_pix == not_imp:
-        raise NotImplementedError(f"Creating meta pixels from {pixels} pixels not yet implemented.")
-    elif not idx_pix:
+    if idx_pix is None:
         raise ValueError(
-            f"Unrecognised input for 'pixels': {pixels}. " "Supported values: 'all', 'big', 'small', 'top', 'bottom'."
+            f"Unrecognised input for 'pixels': {pixels}. Supported values: {list(pixel_slices.keys())}"
         )
     counts = pixel_data.data["counts"].astype(float)
     count_errors = np.sqrt(pixel_data.data["counts_comp_err"].astype(float).value ** 2 + counts.value) * u.ct
     ct = counts[t_ind][..., idx_pix, e_ind]
-    print(counts.shape, idx_pix, ct.shape)
     ct[..., 0] = ct[..., 0] * e_cor_low[..., idx_pix]
     ct[..., -1] = ct[..., -1] * e_cor_high[..., idx_pix]
     ct_error = count_errors[t_ind][..., idx_pix, e_ind]

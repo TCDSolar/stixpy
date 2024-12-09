@@ -45,6 +45,21 @@ def test_hpc_to_stx(mock):
     assert_quantity_allclose(stix_coord.Ty, sas[0, 0])
 
 
+@pytest.mark.remote_data
+def test_get_hpc_info_interp():
+    t1 = Time("2022-03-28T18:43:00")
+    t2 = Time("2022-03-28T18:44:00")
+    t3 = Time("2022-03-28T18:45:00")
+    t4 = Time("2022-03-28T18:46:00")
+
+    roll1, solo_xyz1, ptg_1 = get_hpc_info(t1, t2)
+    roll2, solo_xyz2, ptg_2 = get_hpc_info(t2, t3)
+    roll3, solo_xyz3, ptg_3 = get_hpc_info(t3, t4)
+
+    assert_quantity_allclose(ptg_1, ptg_2, rtol=0.03)
+    assert_quantity_allclose(ptg_2, ptg_3, rtol=0.03)
+
+
 def test_stx_to_hpc_times():
     times = Time("2023-01-01") + np.arange(10) * u.min
     stix_coord = SkyCoord([0] * 10 * u.deg, [0] * 10 * u.deg, frame=STIXImaging(obstime=times))

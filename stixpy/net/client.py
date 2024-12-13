@@ -35,7 +35,7 @@ class STIXClient(GenericClient):
     <BLANKLINE>
     """
 
-    baseurl = r"https://pub099.cs.technik.fhnw.ch/data/fits/" r"{level}/{year:4d}/{month:02d}/{day:02d}/{datatype}/"
+    baseurl = r"https://pub099.cs.technik.fhnw.ch/data/fits/{level}/{year:4d}/{month:02d}/{day:02d}/{datatype}/"
     ql_filename = r"solo_{level}_stix-{product}_\d{{8}}_V\d{{2}}\D?.fits"
     sci_filename = r"solo_{level}_stix-{product}_" r"\d{{8}}T\d{{6}}-\d{{8}}T\d{{6}}_V\d{{2}}\D?_.*.fits"
 
@@ -85,7 +85,7 @@ class STIXClient(GenericClient):
                         elif datatype.lower() == "cal" and product.startswith("cal"):
                             url = self.baseurl + self.ql_filename
                             pattern = self.base_pattern + self.ql_pattern
-                        elif datatype.lower() == "aux" and product.startswith("aux"):
+                        elif datatype.lower() == "asp" and product.startswith("asp"):
                             url = self.baseurl + self.ql_filename
                             pattern = self.base_pattern + self.ql_pattern
 
@@ -104,7 +104,7 @@ class STIXClient(GenericClient):
                             rowdict = self.post_search_hook(i, matchdict)
                             file_tr = rowdict.pop("tr", None)
                             if file_tr is not None:
-                                # 4 cases file time full in, fully our start in or end in
+                                # 4 cases file time full in, fully our start in or ends in
                                 if file_tr.start >= tr.start and file_tr.end <= tr.end:
                                     metalist.append(rowdict)
                                 elif tr.start <= file_tr.start and tr.end >= file_tr.end:
@@ -150,15 +150,16 @@ class STIXClient(GenericClient):
         adict = {
             attrs.Instrument: [("STIX", "Spectrometer/Telescope for Imaging X-rays")],
             attrs.Level: [
-                ("L0", "STIX: Decommutated, uncompressed, uncalibrated data."),
+                ("L0", "STIX: commutated, uncompressed, uncalibrated data."),
                 ("L1", "STIX: Engineering and UTC time conversion ."),
                 ("L2", "STIX: Calibrated data."),
+                ("ANC", "STIX: Ancillary data."),
             ],
             attrs.stix.DataType: [
                 ("QL", "Quick Look"),
                 ("SCI", "Science Data"),
                 ("CAL", "Calibration"),
-                ("AUX", "Auxiliary"),
+                ("ASP", "Aspect"),
                 ("HK", "House Keeping"),
             ],
             attrs.stix.DataProduct: [
@@ -176,7 +177,7 @@ class STIXClient(GenericClient):
                 ("sci_xray_scpd", "Summed Compressed Pixel Data"),
                 ("sci_xray_vis", "Visibilities"),
                 ("sci_xray_spec", "Spectrogram"),
-                ("aux_ephemeris", "Auxiliary ephemeris data"),
+                ("asp-ephemeris", "Aspect Solution and Ephemeris data"),
             ],
         }
         return adict

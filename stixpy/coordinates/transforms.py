@@ -68,7 +68,7 @@ def get_hpc_info(times, end_time=None):
     -------
 
     """
-    aux = _get_aux_data(times.min(), end_time or times.max())
+    aux = _get_ephemeris_data(times.min(), end_time or times.max())
 
     indices = np.argwhere((aux["time"] >= times.min()) & (aux["time"] <= times.max()))
     if end_time is not None:
@@ -155,7 +155,7 @@ def get_hpc_info(times, end_time=None):
 
 
 @lru_cache
-def _get_aux_data(start_time, end_time=None):
+def _get_ephemeris_data(start_time, end_time=None):
     r"""
     Search, download and read L2 pointing data.
 
@@ -175,9 +175,9 @@ def _get_aux_data(start_time, end_time=None):
     query = Fido.search(
         a.Time(start_time, end_time),
         a.Instrument.stix,
-        a.Level.l2,
-        a.stix.DataType.aux,
-        a.stix.DataProduct.aux_ephemeris,
+        a.Level.anc,
+        a.stix.DataType.asp,
+        a.stix.DataProduct.asp_ephemeris,
     )
     if len(query["stix"]) == 0:
         raise ValueError(f"No STIX pointing data found for time range {start_time} to {end_time}.")

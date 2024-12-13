@@ -9,7 +9,7 @@ from astropy.time import Time
 from sunpy.coordinates import HeliographicStonyhurst, Helioprojective
 
 from stixpy.coordinates.frames import STIXImaging
-from stixpy.coordinates.transforms import _get_aux_data, get_hpc_info
+from stixpy.coordinates.transforms import _get_ephemeris_data, get_hpc_info
 
 
 @pytest.mark.skip(reason="Test data maybe incorrect")
@@ -85,15 +85,15 @@ def test_stx_to_hpc_obstime_end():
 @pytest.mark.remote_data
 def test_get_aux_data():
     with pytest.raises(ValueError, match="No STIX pointing data found for time range"):
-        _get_aux_data(Time("2015-06-06"))  # Before the mission started
+        _get_ephemeris_data(Time("2015-06-06"))  # Before the mission started
 
-    aux_data = _get_aux_data(Time("2022-08-28T16:02:00"))
+    aux_data = _get_ephemeris_data(Time("2022-08-28T16:02:00"))
     assert len(aux_data) == 1341
 
-    aux_data = _get_aux_data(Time("2022-08-28T16:02:00"), end_time=Time("2022-08-28T16:04:00"))
+    aux_data = _get_ephemeris_data(Time("2022-08-28T16:02:00"), end_time=Time("2022-08-28T16:04:00"))
     assert len(aux_data) == 1341
 
-    aux_data = _get_aux_data(Time("2022-08-28T23:58:00"), end_time=Time("2022-08-29T00:02:00"))
+    aux_data = _get_ephemeris_data(Time("2022-08-28T23:58:00"), end_time=Time("2022-08-29T00:02:00"))
     assert len(aux_data) == 2691
 
 

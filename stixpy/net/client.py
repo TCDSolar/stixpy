@@ -4,6 +4,8 @@ from sunpy.net.dataretriever import GenericClient
 from sunpy.net.dataretriever.client import QueryResponse
 from sunpy.time import TimeRange
 
+from stixpy.net.attrs import LatestVersion, Version
+
 try:
     from sunpy.net.scraper import Scraper
 except ModuleNotFoundError:
@@ -78,6 +80,7 @@ class STIXClient(GenericClient):
         """
         matchdict = self._get_match_dict(*args, **kwargs)
         levels = matchdict["Level"]
+        version = kwargs.get("Version", None)
 
         metalist = []
         tr = TimeRange(matchdict["Start Time"], matchdict["End Time"])
@@ -117,26 +120,32 @@ class STIXClient(GenericClient):
                         scraper = Scraper(url, regex=True)
                         try:
                             filesmeta = scraper._extract_files_meta(tr, extractor=pattern)
-                        except Exception as e:
-                            print(e)
-                            continue
-                        for i in filesmeta:
-                            rowdict = self.post_search_hook(i, matchdict)
-                            file_tr = rowdict.pop("tr", None)
-                            if file_tr is not None:
-                                # 4 cases file time full in, fully our start in or ends in
-                                if file_tr.start >= tr.start and file_tr.end <= tr.end:
-                                    metalist.append(rowdict)
-                                elif tr.start <= file_tr.start and tr.end >= file_tr.end:
-                                    metalist.append(rowdict)
-                                elif file_tr.start <= tr.start <= file_tr.end:
-                                    metalist.append(rowdict)
-                                elif file_tr.start <= tr.end <= file_tr.end:
-                                    metalist.append(rowdict)
-                            else:
-                                metalist.append(rowdict)
 
-        return QueryResponse(metalist, client=self)
+                            for i in filesmeta:
+                                rowdict = self.post_search_hook(i, matchdict)
+
+                                if isinstance(version, Version) and not version.matches(rowdict["Ver"]):
+                                    continue
+
+                                file_tr = rowdict.pop("tr", None)
+                                if file_tr is not None:
+                                    # 4 cases file time full in, fully our start in or end in
+                                    if file_tr.start >= tr.start and file_tr.end <= tr.end:
+                                        metalist.append(rowdict)
+                                    elif tr.start <= file_tr.start and tr.end >= file_tr.end:
+                                        metalist.append(rowdict)
+                                    elif file_tr.start <= tr.start <= file_tr.end:
+                                        metalist.append(rowdict)
+                                    elif file_tr.start <= tr.end <= file_tr.end:
+                                        metalist.append(rowdict)
+                                else:
+                                    metalist.append(rowdict)
+                        except FileNotFoundError:
+                            continue
+        res = QueryResponse(metalist, client=self)
+        if isinstance(version, LatestVersion):
+            res = version.filter(res)
+        return res
 
     @classmethod
     def _can_handle_query(cls, *query):

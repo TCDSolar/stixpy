@@ -18,7 +18,7 @@ class Version(SimpleAttr):
     exact version of the data file
     """
 
-    PATTERN = re.compile(r"V([0-9][0-9])([a-zA-Z]?)")
+    PATTERN = re.compile(r"V(\d{2})([a-zA-Z]?)")
 
     def __init__(self, version: int, allow_uncompleted=True):
         super().__init__(version)

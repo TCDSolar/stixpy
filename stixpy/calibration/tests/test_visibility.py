@@ -3,8 +3,10 @@ import numpy as np
 import pytest
 from astropy.tests.helper import assert_quantity_allclose
 from astropy.time import Time
+from numpy.ma.testutils import assert_equal
+from sunpy.time import TimeRange
 
-from stixpy.calibration.visibility import create_meta_pixels, get_uv_points_data
+from stixpy.calibration.visibility import create_meta_pixels, create_visibility, get_uv_points_data
 from stixpy.coordinates.frames import STIXImaging
 from stixpy.product import Product
 
@@ -133,3 +135,29 @@ def test_create_meta_pixels_timebins(flare_cpd):
     )
 
     assert_quantity_allclose(np.sum(flare_cpd.duration[0:3]), meta_pixels["time_range"].dt.to(u.s))
+
+
+@pytest.mark.parametrize(
+    "pix_set, real_comp",
+    [
+        ("blahblah", None),
+        ("top+bot", np.cos(46.1 * u.deg)),
+        ("all", np.cos(45 * u.deg)),
+        ("small", np.cos(22.5 * u.deg)),
+    ],
+)
+def test_create_visibility(pix_set, real_comp):
+    # counts chosen to make real component 0 so real comp will only be phase from pixel combination
+    fake_meta_pixels = {
+        "abcd_rate_kev_cm": np.repeat([[0, 0, 1, 0]], 32, axis=0) * u.ct,
+        "abcd_rate_error_kev_cm": np.repeat([[0, 0, 0, 0]], 32, axis=0) * u.ct,
+        "energy_range": [4, 10] * u.keV,
+        "time_range": TimeRange("2025-01-30", "2025-01-31"),
+        "pixels": pix_set,
+    }
+    if pix_set == "blahblah":
+        with pytest.raises(ValueError):
+            create_visibility(fake_meta_pixels)
+    else:
+        vis = create_visibility(fake_meta_pixels)
+        assert_equal(np.real(vis[0].visibilities.value), real_comp)

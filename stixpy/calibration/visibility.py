@@ -300,7 +300,7 @@ def create_visibility(meta_pixels):
     amplitude_error = np.sqrt((real / observed_amplitude * real_err) ** 2 + (imag / observed_amplitude * imag_err) ** 2)
 
     # Apply pixel correction
-    pix_set = meta_pixels["pixels"]
+    pix_set = meta_pixels.get("pixels", None)
     if pix_set in {"top", "bot", "top+bot"}:
         phase += 46.1 * u.deg  # Center of large pixel in terms morie pattern phase
     elif pix_set == "all":

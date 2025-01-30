@@ -10,6 +10,7 @@ from astropy.time import Time
 from astropy.units import Quantity
 from sunpy.coordinates import HeliographicStonyhurst
 from sunpy.time import TimeRange
+from xrayvision.visibility import Visibilities, VisMeta
 
 from stixpy.calibration.energy import get_elut
 from stixpy.calibration.grid import get_grid_transmission
@@ -17,6 +18,7 @@ from stixpy.calibration.livetime import get_livetime_fraction
 from stixpy.coordinates.frames import STIXImaging
 from stixpy.coordinates.transforms import get_hpc_info
 from stixpy.io.readers import read_subc_params
+from stixpy.product.sources import CompressedPixelData, RawPixelData, SummedCompressedPixelData
 
 __all__ = [
     "get_subcollimator_info",
@@ -26,9 +28,13 @@ __all__ = [
     "calibrate_visibility",
 ]
 
-from xrayvision.visibility import Visibilities, VisMeta
-
-from stixpy.product.sources import CompressedPixelData, RawPixelData, SummedCompressedPixelData
+_PIXEL_SLICES = {
+    "top": slice(0, 4),
+    "bot": slice(4, 8),
+    "top+bot": slice(0, 8),
+    "all": slice(None),
+    "small": slice(8, None),
+}
 
 
 def get_subcollimator_info():
@@ -94,7 +100,7 @@ def create_meta_pixels(
     time_range: Time,
     energy_range: Quantity["energy"],  # noqa: F821
     flare_location: SkyCoord,
-    pixels: str = "big",
+    pixels: str = "top+bot",
     no_shadowing: bool = False,
 ):
     r"""
@@ -171,17 +177,9 @@ def create_meta_pixels(
     e_cor_high, e_cor_low = get_elut_correction(e_ind, pixel_data)
 
     # Get counts and other data.
-    pixel_slices = {
-        "all": slice(None),
-        "big": slice(0, 8),
-        "small": slice(8, None),
-        "top": slice(0, 4),
-        "bottom": slice(4, 8),
-        "bottom+small": slice(4, None),
-    }
-    idx_pix = pixel_slices.get(pixels.lower(), None)
+    idx_pix = _PIXEL_SLICES.get(pixels.lower(), None)
     if idx_pix is None:
-        raise ValueError(f"Unrecognised input for 'pixels': {pixels}. Supported values: {list(pixel_slices.keys())}")
+        raise ValueError(f"Unrecognised input for 'pixels': {pixels}. Supported values: {list(_PIXEL_SLICES.keys())}")
     counts = pixel_data.data["counts"].astype(float)
     count_errors = np.sqrt(pixel_data.data["counts_comp_err"].astype(float).value ** 2 + counts.value) * u.ct
     ct = counts[t_ind][..., idx_pix, e_ind]
@@ -303,14 +301,16 @@ def create_visibility(meta_pixels):
 
     # Apply pixel correction
     pix_set = meta_pixels["pixels"]
-    if pix_set in {"big", "top", "bottom"}:
+    if pix_set in {"top", "bot", "top+bot"}:
         phase += 46.1 * u.deg  # Center of large pixel in terms morie pattern phase
+    elif pix_set == "all":
+        phase += 45 * u.deg
     elif pix_set == "small":
         phase += 22.5 * u.deg
-    elif pix_set == "all":
-        raise NotImplementedError("phase correction for combined big and small pixels not yet implemented.")
     else:
-        raise ValueError("Set of pixels used to make meta pixels not recognised: {pix_set}")
+        raise ValueError(
+            f"Set of pixels used to make meta pixels not recognised, {pix_set} should be one of {list(_PIXEL_SLICES.keys())}"
+        )
 
     obsvis = (np.cos(phase) + np.sin(phase) * 1j) * observed_amplitude
 

@@ -177,6 +177,7 @@ def test_search_latest_version(clientlocal):
     res = clientlocal.search(a.Time("2022-01-01T00:00", "2022-01-01T23:59"), a.Instrument.stix, a.stix.DataType.ql)
     res.filter_for_latest_version(allow_uncompleted=False)
     res.sort("DataProduct")
+    print(res["DataProduct", "Ver", "url"])
     assert len(res) == 2
     assert res["DataProduct"][0] == "ql-lightcurve"
     assert res["Ver"][0] == "V05"

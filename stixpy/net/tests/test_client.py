@@ -1,4 +1,3 @@
-import os
 from pathlib import Path
 from unittest import mock
 
@@ -52,7 +51,7 @@ def clientlocal():
     │                   └── solo_L1_stix-sci-xray-cpd_20220101T020000-20220101T030000_V01_2201010007-54551.fits
     └── test.html
     """
-    return STIXClient(source=f'file://{Path(__file__).parent / "data"}{os.sep}')
+    return STIXClient(source=f"file://{Path(__file__).parent / 'data'}")
 
 
 @pytest.fixture
@@ -175,9 +174,7 @@ def test_search_latest_version(clientlocal):
     assert len(res) == 7
 
     res = clientlocal.search(a.Time("2022-01-01T00:00", "2022-01-01T23:59"), a.Instrument.stix, a.stix.DataType.ql)
-    res.pprint_all()
     res.filter_for_latest_version(allow_uncompleted=False)
-    res.pprint_all()
     res.sort("DataProduct")
 
     assert len(res) == 2

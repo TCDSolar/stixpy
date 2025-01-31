@@ -17,26 +17,20 @@ __all__ = ["STIXClient", "StixQueryResponse"]
 
 class StixQueryResponse(QueryResponse):
     def filter_for_latest_version(self, allow_uncompleted=False):
-        self["_num_version"] = 0
-        for i, row in enumerate(self):
-            match = Version.PATTERN.match(row["Ver"])
-            if match is None:
-                self.remove_row(i)
-                continue
-            v = int(match.group(1))
-            u = match.group(2)
-            if u not in ["", "U"] if allow_uncompleted else u != "":
-                self.remove_row(i)
-                continue
-            row["_num_version"] = v
+        self["tidx"] = range(len(self))
         grouped_res = self.group_by(
             ["Start Time", "End Time", "Instrument", "Level", "DataType", "DataProduct", "Request ID"]
         )
-        maxv = grouped_res["_num_version"].groups.aggregate(np.argmax)
-        self.remove_rows(range(len(self)))
-        for key, group in zip(maxv, grouped_res.groups):
-            self.add_row(group[key])
-        self.remove_column("_num_version")
+        keep = np.zeros(len(self), dtype=bool)
+        for key, group in zip(grouped_res.groups.keys, grouped_res.groups):
+            group.sort("Ver")
+            if not allow_uncompleted:
+                incomplete = np.char.endswith(group["Ver"].data, "U")
+                keep[group[~incomplete][-1]["tidx"]] = True
+            else:
+                keep[group[-1]["tidx"]] = True
+        self.remove_column("tidx")
+        self.remove_rows(np.where(~keep))
 
 
 class STIXClient(GenericClient):
@@ -63,13 +57,11 @@ class STIXClient(GenericClient):
     <BLANKLINE>
     """
 
-    baseurl = r"https://pub099.cs.technik.fhnw.ch/data/fits/"
+    baseurl = r"https://pub099.cs.technik.fhnw.ch/data/fits"
     datapath = r"{level}/{year:4d}/{month:02d}/{day:02d}/{datatype}/"
 
-    ql_filename = r"solo_{level}_stix-{product}_[0-9]{{8}}_V[0-9]{{2}}[a-zA-Z]?[.]fits"
-    sci_filename = (
-        r"solo_{level}_stix-{product}_" r"[0-9]{{8}}T[0-9]{{6}}-[0-9]{{8}}T[0-9]{{6}}_V[0-9]{{2}}[a-zA-Z]?_.*[.]fits"
-    )
+    ql_filename = r"solo_{level}_stix-{product}_[0-9]{{8}}_V.*.fits"
+    sci_filename = r"solo_{level}_stix-{product}_[0-9]{{8}}T[0-9]{{6}}-[0-9]{{8}}T[0-9]{{6}}_V.*.fits"
 
     base_pattern = r"{}/{Level}/{year:4d}/{month:02d}/{day:02d}/{DataType}/"
     ql_pattern = r"solo_{Level}_{descriptor}_{time}_{Ver}.fits"
@@ -77,7 +69,7 @@ class STIXClient(GenericClient):
 
     required = {a.Time, a.Instrument}
 
-    def __init__(self, *, source="https://pub099.cs.technik.fhnw.ch/data/fits/") -> None:
+    def __init__(self, *, source="https://pub099.cs.technik.fhnw.ch/data/fits") -> None:
         """Creates a Fido client to search and download STIX data from the STIX instrument archive
 
         Parameters
@@ -86,7 +78,7 @@ class STIXClient(GenericClient):
             a url like path to alternative data source. You can provide a local filesystem path here. by default "https://pub099.cs.technik.fhnw.ch/data/fits/"
         """
         super().__init__()
-        self.baseurl = source + r"{level}/{year:4d}/{month:02d}/{day:02d}/{datatype}/"
+        self.baseurl = source + r"/{level}/{year:4d}/{month:02d}/{day:02d}/{datatype}/"
 
     def search(self, *args, **kwargs) -> StixQueryResponse:
         """

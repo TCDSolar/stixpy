@@ -1,0 +1,3 @@
+Update `Fido` client for to also handle local file search.
+Update `Fido` client for specifying specific versions of files.
+Update `Fido` client so the search result can be filter for files just returning the latest version available (with the highest version number).

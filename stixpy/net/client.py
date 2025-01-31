@@ -1,17 +1,42 @@
+import numpy as np
 from sunpy.net import attrs as a
 from sunpy.net.attr import SimpleAttr
 from sunpy.net.dataretriever import GenericClient
 from sunpy.net.dataretriever.client import QueryResponse
 from sunpy.time import TimeRange
 
-from stixpy.net.attrs import LatestVersion, Version
+from stixpy.net.attrs import MaxVersion, MaxVersionU, MinVersion, MinVersionU, Version, VersionU
 
 try:
     from sunpy.net.scraper import Scraper
 except ModuleNotFoundError:
     from sunpy.util.scraper import Scraper
 
-__all__ = ["STIXClient"]
+__all__ = ["STIXClient", "StixQueryResponse"]
+
+
+class StixQueryResponse(QueryResponse):
+    def filter_for_latest_version(self, allow_uncompleted=False):
+        self["_num_version"] = 0
+        for i, row in enumerate(self):
+            match = Version.PATTERN.match(row["Ver"])
+            if match is None:
+                self.remove_row(i)
+                continue
+            v = int(match.group(1))
+            u = match.group(2)
+            if u not in ["", "U"] if allow_uncompleted else u != "":
+                self.remove_row(i)
+                continue
+            row["_num_version"] = v
+        grouped_res = self.group_by(
+            ["Start Time", "End Time", "Instrument", "Level", "DataType", "DataProduct", "Request ID"]
+        )
+        maxv = grouped_res["_num_version"].groups.aggregate(np.argmax)
+        self.remove_rows(range(len(self)))
+        for key, group in zip(maxv, grouped_res.groups):
+            self.add_row(group[key])
+        self.remove_column("_num_version")
 
 
 class STIXClient(GenericClient):
@@ -41,9 +66,9 @@ class STIXClient(GenericClient):
     baseurl = r"https://pub099.cs.technik.fhnw.ch/data/fits/"
     datapath = r"{level}/{year:4d}/{month:02d}/{day:02d}/{datatype}/"
 
-    ql_filename = r"solo_{level}_stix-{product}_[0-9]{{8}}_V[0-9]{{2}}[a-zA-Z]?.fits"
+    ql_filename = r"solo_{level}_stix-{product}_[0-9]{{8}}_V[0-9]{{2}}[a-zA-Z]?[.]fits"
     sci_filename = (
-        r"solo_{level}_stix-{product}_" r"[0-9]{{8}}T[0-9]{{6}}-[0-9]{{8}}T[0-9]{{6}}_V[0-9]{{2}}[a-zA-Z]?_.*.fits"
+        r"solo_{level}_stix-{product}_" r"[0-9]{{8}}T[0-9]{{6}}-[0-9]{{8}}T[0-9]{{6}}_V[0-9]{{2}}[a-zA-Z]?_.*[.]fits"
     )
 
     base_pattern = r"{}/{Level}/{year:4d}/{month:02d}/{day:02d}/{DataType}/"
@@ -63,7 +88,7 @@ class STIXClient(GenericClient):
         super().__init__()
         self.baseurl = source + r"{level}/{year:4d}/{month:02d}/{day:02d}/{datatype}/"
 
-    def search(self, *args, **kwargs):
+    def search(self, *args, **kwargs) -> StixQueryResponse:
         """
         Query this client for a list of results.
 
@@ -80,7 +105,12 @@ class STIXClient(GenericClient):
         """
         matchdict = self._get_match_dict(*args, **kwargs)
         levels = matchdict["Level"]
-        version = kwargs.get("Version", None)
+
+        versions = []
+        for versionAttrType in [Version, VersionU, MinVersion, MinVersionU, MaxVersion, MaxVersionU]:
+            if versionAttrType.__name__ in matchdict:
+                for version in matchdict[versionAttrType.__name__]:
+                    versions.append(versionAttrType(int(version)))
 
         metalist = []
         tr = TimeRange(matchdict["Start Time"], matchdict["End Time"])
@@ -124,7 +154,12 @@ class STIXClient(GenericClient):
                             for i in filesmeta:
                                 rowdict = self.post_search_hook(i, matchdict)
 
-                                if isinstance(version, Version) and not version.matches(rowdict["Ver"]):
+                                versionTest = True
+                                for versionAttr in versions:
+                                    versionTest &= versionAttr.matches(rowdict["Ver"])
+                                    if not versionTest:
+                                        break
+                                if not versionTest:
                                     continue
 
                                 file_tr = rowdict.pop("tr", None)
@@ -142,10 +177,7 @@ class STIXClient(GenericClient):
                                     metalist.append(rowdict)
                         except FileNotFoundError:
                             continue
-        res = QueryResponse(metalist, client=self)
-        if isinstance(version, LatestVersion):
-            res = version.filter(res)
-        return res
+        return StixQueryResponse(metalist, client=self)
 
     @classmethod
     def _can_handle_query(cls, *query):

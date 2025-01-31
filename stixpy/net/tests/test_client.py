@@ -120,52 +120,62 @@ def test_search_date(client):
 
 
 def test_search_max_version(clientlocal):
-    res = clientlocal.search(
-        a.Time("2022-01-01T00:00", "2022-01-01T23:59"), a.Instrument.stix, Version=a.stix.MaxVersion(3)
-    )
+    res = clientlocal.search(a.Time("2022-01-01T00:00", "2022-01-01T23:59"), a.Instrument.stix, a.stix.MaxVersion(3))
     assert len(res) == 7
 
     res = clientlocal.search(
         a.Time("2022-01-01T00:00", "2022-01-01T23:59"),
         a.Instrument.stix,
-        Version=a.stix.MaxVersion(3, allow_uncompleted=False),
+        a.stix.MaxVersionU(3),
     )
-    assert len(res) == 6
+    assert len(res) == 8
 
 
 def test_search_min_version(clientlocal):
-    res = clientlocal.search(
-        a.Time("2022-01-01T00:00", "2022-01-01T23:59"), a.Instrument.stix, Version=a.stix.MinVersion(2)
-    )
-    assert len(res) == 8
+    res = clientlocal.search(a.Time("2022-01-01T00:00", "2022-01-01T23:59"), a.Instrument.stix, a.stix.MinVersion(2))
+    assert len(res) == 7
 
     res = clientlocal.search(
         a.Time("2022-01-01T00:00", "2022-01-01T23:59"),
         a.Instrument.stix,
-        Version=a.stix.MinVersion(2, allow_uncompleted=False),
+        a.stix.MinVersionU(2),
+    )
+    assert len(res) == 9
+
+
+def test_search_version(clientlocal):
+    res = clientlocal.search(a.Time("2022-01-01T00:00", "2022-01-01T23:59"), a.Instrument.stix, a.stix.Version(2))
+    assert len(res) == 5
+
+    res = clientlocal.search(
+        a.Time("2022-01-01T00:00", "2022-01-01T23:59"),
+        a.Instrument.stix,
+        a.stix.VersionU(1),
+    )
+    assert len(res) == 3
+
+
+def test_search_version_and(clientlocal):
+    res = clientlocal.search(
+        a.Time("2022-01-01T00:00", "2022-01-01T23:59"), a.Instrument.stix, a.stix.MinVersion(2), a.stix.MaxVersionU(5)
     )
     assert len(res) == 6
 
 
 def test_search_latest_version(clientlocal):
-    res = clientlocal.search(
-        a.Time("2022-01-01T00:00", "2022-01-01T23:59"), a.Instrument.stix, Version=a.stix.LatestVersion()
-    )
+    res = clientlocal.search(a.Time("2022-01-01T00:00", "2022-01-01T23:59"), a.Instrument.stix)
+    res.filter_for_latest_version(allow_uncompleted=True)
     assert len(res) == 7
 
     res = clientlocal.search(
         a.Time("2022-01-01T00:00", "2022-01-01T23:59"),
         a.Instrument.stix,
-        Version=a.stix.LatestVersion(allow_uncompleted=False),
     )
+    res.filter_for_latest_version(allow_uncompleted=False)
     assert len(res) == 7
 
-    res = clientlocal.search(
-        a.Time("2022-01-01T00:00", "2022-01-01T23:59"),
-        a.Instrument.stix,
-        a.stix.DataType.ql,
-        Version=a.stix.LatestVersion(allow_uncompleted=False),
-    )
+    res = clientlocal.search(a.Time("2022-01-01T00:00", "2022-01-01T23:59"), a.Instrument.stix, a.stix.DataType.ql)
+    res.filter_for_latest_version(allow_uncompleted=False)
     res.sort("DataProduct")
     assert len(res) == 2
     assert res["DataProduct"][0] == "ql-lightcurve"
@@ -177,8 +187,8 @@ def test_search_latest_version(clientlocal):
         a.Time("2022-01-01T00:00", "2022-01-01T23:59"),
         a.Instrument.stix,
         a.stix.DataType.ql,
-        Version=a.stix.LatestVersion(allow_uncompleted=True),
     )
+    res.filter_for_latest_version(allow_uncompleted=True)
     res.sort("DataProduct")
     assert len(res) == 2
     assert res["DataProduct"][0] == "ql-lightcurve"

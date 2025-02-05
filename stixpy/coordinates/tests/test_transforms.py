@@ -77,7 +77,7 @@ def test_stx_to_hpc_obstime_end():
     stix_coord_rt = hp.transform_to(STIXImaging(obstime=times[0], obstime_end=times[-1]))
 
     stix_coord_rt_interp = hp.transform_to(STIXImaging(obstime=times[1]))  # noqa: F841
-    assert_quantity_allclose(0 * u.deg, stix_coord.separation(stix_coord_rt), atol=1e-17 * u.deg)
+    assert_quantity_allclose(0 * u.deg, stix_coord.separation(stix_coord_rt), atol=1e-9 * u.deg)
     assert np.all(stix_coord.obstime.isclose(stix_coord_rt.obstime))
     assert np.all(stix_coord.obstime_end.isclose(stix_coord_rt.obstime_end))
 

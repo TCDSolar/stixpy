@@ -10,6 +10,7 @@ from astropy.time import Time
 from astropy.units import Quantity
 from sunpy.coordinates import HeliographicStonyhurst
 from sunpy.time import TimeRange
+from xrayvision.visibility import Visibilities, VisMeta
 
 from stixpy.calibration.energy import get_elut
 from stixpy.calibration.grid import get_grid_transmission
@@ -17,6 +18,7 @@ from stixpy.calibration.livetime import get_livetime_fraction
 from stixpy.coordinates.frames import STIXImaging
 from stixpy.coordinates.transforms import get_hpc_info
 from stixpy.io.readers import read_subc_params
+from stixpy.product.sources import CompressedPixelData, RawPixelData, SummedCompressedPixelData
 
 __all__ = [
     "get_subcollimator_info",
@@ -26,9 +28,13 @@ __all__ = [
     "calibrate_visibility",
 ]
 
-from xrayvision.visibility import Visibilities, VisMeta
-
-from stixpy.product.sources import CompressedPixelData, RawPixelData, SummedCompressedPixelData
+_PIXEL_SLICES = {
+    "top": slice(0, 4),
+    "bot": slice(4, 8),
+    "top+bot": slice(0, 8),
+    "all": slice(None),
+    "small": slice(8, None),
+}
 
 
 def get_subcollimator_info():
@@ -94,6 +100,7 @@ def create_meta_pixels(
     time_range: Time,
     energy_range: Quantity["energy"],  # noqa: F821
     flare_location: SkyCoord,
+    pixels: str = "top+bot",
     no_shadowing: bool = False,
 ):
     r"""
@@ -109,6 +116,9 @@ def create_meta_pixels(
         Start and end energies
     flare_location
         The coordinates of flare used to calculate grid transmission
+    pixels :
+        The set of pixels to use to create the meta pixels.
+        Allowed values are 'all', 'big' (default), 'small', 'top', 'bottom'.
     no_shadowing : bool optional
         If set to True turn grid shadowing correction off
     Returns
@@ -166,14 +176,18 @@ def create_meta_pixels(
 
     e_cor_high, e_cor_low = get_elut_correction(e_ind, pixel_data)
 
+    # Get counts and other data.
+    idx_pix = _PIXEL_SLICES.get(pixels.lower(), None)
+    if idx_pix is None:
+        raise ValueError(f"Unrecognised input for 'pixels': {pixels}. Supported values: {list(_PIXEL_SLICES.keys())}")
     counts = pixel_data.data["counts"].astype(float)
     count_errors = np.sqrt(pixel_data.data["counts_comp_err"].astype(float).value ** 2 + counts.value) * u.ct
-    ct = counts[t_ind][..., e_ind]
-    ct[..., 0:8, 0] = ct[..., 0:8, 0] * e_cor_low[..., 0:8]
-    ct[..., 0:8, -1] = ct[..., 0:8, -1] * e_cor_high[..., 0:8]
-    ct_error = count_errors[t_ind][..., e_ind]
-    ct_error[..., 0:8, 0] = ct_error[..., 0:8, 0] * e_cor_low[..., 0:8]
-    ct_error[..., 0:8, -1] = ct_error[..., 0:8, -1] * e_cor_high[..., 0:8]
+    ct = counts[t_ind][..., idx_pix, e_ind]
+    ct[..., 0] = ct[..., 0] * e_cor_low[..., idx_pix]
+    ct[..., -1] = ct[..., -1] * e_cor_high[..., idx_pix]
+    ct_error = count_errors[t_ind][..., idx_pix, e_ind]
+    ct_error[..., 0] = ct_error[..., 0] * e_cor_low[..., idx_pix]
+    ct_error[..., -1] = ct_error[..., -1] * e_cor_high[..., idx_pix]
 
     lt = (livefrac * pixel_data.data["timedel"].reshape(-1, 1).to("s"))[t_ind].sum(axis=0)
 
@@ -188,10 +202,8 @@ def create_meta_pixels(
         ct_summed = ct_summed / grid_shadowing.reshape(-1, 1) / 4  # transmission grid ~ 0.5*0.5 = .25
         ct_error_summed = ct_error_summed / grid_shadowing.reshape(-1, 1) / 4
 
-    abcd_counts = ct_summed.reshape(ct_summed.shape[0], -1, 4)[:, [0, 1], :].sum(axis=1)
-    abcd_count_errors = np.sqrt(
-        (ct_error_summed.reshape(ct_error_summed.shape[0], -1, 4)[:, [0, 1], :] ** 2).sum(axis=1)
-    )
+    abcd_counts = ct_summed.reshape(ct_summed.shape[0], -1, 4).sum(axis=1)
+    abcd_count_errors = np.sqrt((ct_error_summed.reshape(ct_error_summed.shape[0], -1, 4) ** 2).sum(axis=1))
 
     abcd_rate = abcd_counts / lt.reshape(-1, 1)
     abcd_rate_error = abcd_count_errors / lt.reshape(-1, 1)
@@ -206,13 +218,15 @@ def create_meta_pixels(
                    0.096194997, 0.096194997, 0.010009999, 0.010009999, 0.010009999, 0.010009999,] * u.cm**2
     # fmt: on
 
-    areas = pixel_areas.reshape(-1, 4)[0:2].sum(axis=0)
+    areas = pixel_areas[idx_pix].reshape(-1, 4).sum(axis=0)
 
     meta_pixels = {
+        "abcd_rate_kev": abcd_rate_kev,
         "abcd_rate_kev_cm": abcd_rate_kev / areas,
         "abcd_rate_error_kev_cm": abcd_rate_error_kev / areas,
         "time_range": time_range,
         "energy_range": energy_range,
+        "pixels": pixels,
     }
 
     return meta_pixels
@@ -286,20 +300,21 @@ def create_visibility(meta_pixels):
     amplitude_error = np.sqrt((real / observed_amplitude * real_err) ** 2 + (imag / observed_amplitude * imag_err) ** 2)
 
     # Apply pixel correction
-    phase += 46.1 * u.deg  # Center of large pixel in terms morie pattern phase
-    # TODO add correction for small pixel
+    pix_set = meta_pixels.get("pixels", None)
+    if pix_set in {"top", "bot", "top+bot"}:
+        phase += 46.1 * u.deg  # Center of large pixel in terms morie pattern phase
+    elif pix_set == "all":
+        phase += 45 * u.deg
+    elif pix_set == "small":
+        phase += 22.5 * u.deg
+    else:
+        raise ValueError(
+            f"Set of pixels used to make meta pixels not recognised, {pix_set} should be one of {list(_PIXEL_SLICES.keys())}"
+        )
 
     obsvis = (np.cos(phase) + np.sin(phase) * 1j) * observed_amplitude
 
     imaging_detector_indices = vis_info["isc"] - 1
-
-    # vis = SimpleNamespace(
-    #     obsvis=obsvis[imaging_detector_indices],
-    #     amplitude=observed_amplitude[imaging_detector_indices],
-    #     amplitude_error=amplitude_error[imaging_detector_indices],
-    #     phase=phase[imaging_detector_indices],
-    #     **vis_info,
-    # )
 
     vis_meta = VisMeta(
         instrumet="STIX",

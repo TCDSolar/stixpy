@@ -13,7 +13,7 @@ class DataType(SimpleAttr):
 
 class Version(SimpleAttr):
     """
-    exact version of the data file
+    Exact version of the data file
     """
 
     PATTERN = re.compile(r"V(\d{2})([a-zA-Z]?)")

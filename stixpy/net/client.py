@@ -232,7 +232,6 @@ class STIXClient(GenericClient):
                 ("SCI", "Science Data"),
                 ("CAL", "Calibration"),
                 ("ASP", "Aspect"),
-                ("AUX", "will be removed when ANC is ready"),
                 ("HK", "House Keeping"),
             ],
             attrs.stix.DataProduct: [

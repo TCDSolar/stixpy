@@ -1,3 +1,1 @@
-Update `Fido` client for to also handle local file search.
-Update `Fido` client for specifying specific versions of files.
-Update `Fido` client so the search result can be filter for files just returning the latest version available (with the highest version number).
+Update `Fido` client to optionally take root path or url. Also add attributes to enable searching for specific versions for example latest version available.

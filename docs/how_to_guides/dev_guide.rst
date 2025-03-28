@@ -63,7 +63,7 @@ used in the above steps)
     python -m pip install -e .[dev]
 
 
-The ``stixpy`` repository uses git submodules to include external resources, such as the STIX calibration database. 
+The ``stixpy`` repository uses git submodules to include external resources, such as the STIX calibration database.
 Git submodules are essentially repositories embedded within the main repository at a fixed commit.
  This setup ensures that specific versions of external data or code are tracked alongside the main codebase.
 
@@ -78,7 +78,7 @@ If you later pull updates from the main repository and those updates include cha
 .. code-block:: bash
 
     git submodule update --remote
-    
+
 
 Working on code
 ---------------

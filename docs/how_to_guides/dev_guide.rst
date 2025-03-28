@@ -63,6 +63,23 @@ used in the above steps)
     python -m pip install -e .[dev]
 
 
+The ``stixpy`` repository uses git submodules to include external resources, such as the STIX calibration database. 
+Git submodules are essentially repositories embedded within the main repository at a fixed commit.
+ This setup ensures that specific versions of external data or code are tracked alongside the main codebase.
+
+After cloning the repository, you will need initialize and update the submodules to make these linked repositories available locally:
+
+.. code-block:: bash
+
+    git submodule update --init
+
+If you later pull updates from the main repository and those updates include changes to the submodules, run the following to fetch the latest commits from the submodules' remote:
+
+.. code-block:: bash
+
+    git submodule update --remote
+    
+
 Working on code
 ---------------
 It's import to always be working from the most recent version of the so before working on any code

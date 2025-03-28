@@ -3,10 +3,10 @@ Developers Guide
 
 The instructions in this following section are based upon resources:
 
-* `Astropy Dev Workflow <https://docs.astropy.org/en/latest/development/workflow/development_workflow.html>`_
-* `Astropy Dev environment <https://docs.astropy.org/en/latest/development/workflow/get_devel_version.html#get-devel>`_
-* `Astropy Pull Request Example <https://docs.astropy.org/en/latest/development/workflow/git_edit_workflow_examples.html#astropy-fix-example>`_
-* `Sunpy Newcomers' Guide <https://docs.sunpy.org/en/latest/dev_guide/newcomers.html>`_
+* `Astropy Dev Workflow <https://docs.astropy.org/en/latest/development/git_edit_workflow_examples.html>`_
+* `Astropy Dev environment <https://docs.astropy.org/en/latest/development/quickstart.html#creating-a-development-environment>`_
+* `Astropy Pull Request Example <https://docs.astropy.org/en/latest/development/quickstart.html#creating-and-submitting-a-pull-request>`_
+* `Sunpy Newcomers' Guide <https://docs.sunpy.org/en/latest/dev_guide/contents/newcomers.html>`_
 
 Fork and Clone Repository
 -------------------------

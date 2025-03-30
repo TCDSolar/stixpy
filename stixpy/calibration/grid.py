@@ -64,7 +64,7 @@ def _calculate_grid_transmission(grid_params, xy_flare_stix):
     -------
     Transmission through all grids defined by the grid parameters
     """
-    orient = 180 * u.deg - grid_params["o"] * u.deg  # As viewed from the detector side (data recorded from front)
+    orient = grid_params["o"] * u.deg  # As viewed from the detector side (data recorded from front)
     pitch = grid_params["p"]
     slit = grid_params["slit"]
     thick = grid_params["thick"]

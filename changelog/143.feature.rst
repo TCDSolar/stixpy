@@ -1,0 +1,1 @@
+Update `Fido` client to optionally take root path or url. Also add attributes to enable searching for specific versions for example latest version available.

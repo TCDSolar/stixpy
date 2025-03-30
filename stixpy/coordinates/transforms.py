@@ -68,7 +68,7 @@ def get_hpc_info(times, end_time=None):
     -------
 
     """
-    aux = _get_aux_data(times.min(), times.max())
+    aux = _get_ephemeris_data(times.min(), end_time or times.max())
 
     indices = np.argwhere((aux["time"] >= times.min()) & (aux["time"] <= times.max()))
     if end_time is not None:
@@ -122,9 +122,11 @@ def get_hpc_info(times, end_time=None):
 
         sas_x = np.interp(x, xp, aux["y_srf"])
         sas_y = np.interp(x, xp, aux["z_srf"])
-
-        good_solution = np.where(aux[indices]["sas_ok"] == 1)
-        good_sas = aux[good_solution]
+        if x.size == 1:
+            good_sas = [True] if np.interp(x, xp, aux["sas_ok"]).astype(bool) else []
+        else:
+            sas_ok = np.interp(x, xp, aux["sas_ok"]).astype(bool)
+            good_sas = sas_ok[sas_ok == True]  # noqa E712
 
     # Convert the spacecraft pointing to STIX frame
     rotated_yaw = -yaw * np.cos(roll) + pitch * np.sin(roll)
@@ -153,7 +155,7 @@ def get_hpc_info(times, end_time=None):
 
 
 @lru_cache
-def _get_aux_data(start_time, end_time=None):
+def _get_ephemeris_data(start_time, end_time=None):
     r"""
     Search, download and read L2 pointing data.
 
@@ -173,9 +175,9 @@ def _get_aux_data(start_time, end_time=None):
     query = Fido.search(
         a.Time(start_time, end_time),
         a.Instrument.stix,
-        a.Level.l2,
-        a.stix.DataType.aux,
-        a.stix.DataProduct.aux_ephemeris,
+        a.Level.anc,
+        a.stix.DataType.asp,
+        a.stix.DataProduct.asp_ephemeris,
     )
     if len(query["stix"]) == 0:
         raise ValueError(f"No STIX pointing data found for time range {start_time} to {end_time}.")

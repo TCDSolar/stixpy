@@ -1,14 +1,36 @@
+import numpy as np
 from sunpy.net import attrs as a
+from sunpy.net.attr import SimpleAttr
 from sunpy.net.dataretriever import GenericClient
 from sunpy.net.dataretriever.client import QueryResponse
 from sunpy.time import TimeRange
+
+from stixpy.net.attrs import MaxVersion, MaxVersionU, MinVersion, MinVersionU, Version, VersionU
 
 try:
     from sunpy.net.scraper import Scraper
 except ModuleNotFoundError:
     from sunpy.util.scraper import Scraper
 
-__all__ = ["STIXClient"]
+__all__ = ["STIXClient", "StixQueryResponse"]
+
+
+class StixQueryResponse(QueryResponse):
+    def filter_for_latest_version(self, allow_uncompleted=False):
+        self["tidx"] = range(len(self))
+        grouped_res = self.group_by(
+            ["Start Time", "End Time", "Instrument", "Level", "DataType", "DataProduct", "Request ID"]
+        )
+        keep = np.zeros(len(self), dtype=bool)
+        for key, group in zip(grouped_res.groups.keys, grouped_res.groups):
+            group.sort("Ver")
+            if not allow_uncompleted:
+                incomplete = np.char.endswith(group["Ver"].data, "U")
+                keep[group[~incomplete][-1]["tidx"]] = True
+            else:
+                keep[group[-1]["tidx"]] = True
+        self.remove_column("tidx")
+        self.remove_rows(np.where(~keep))
 
 
 class STIXClient(GenericClient):
@@ -35,9 +57,11 @@ class STIXClient(GenericClient):
     <BLANKLINE>
     """
 
-    baseurl = r"https://pub099.cs.technik.fhnw.ch/data/fits/" r"{level}/{year:4d}/{month:02d}/{day:02d}/{datatype}/"
-    ql_filename = r"solo_{level}_stix-{product}_\d{{8}}_V\d{{2}}\D?.fits"
-    sci_filename = r"solo_{level}_stix-{product}_" r"\d{{8}}T\d{{6}}-\d{{8}}T\d{{6}}_V\d{{2}}\D?_.*.fits"
+    baseurl = r"https://pub099.cs.technik.fhnw.ch/data/fits"
+    datapath = r"{level}/{year:4d}/{month:02d}/{day:02d}/{datatype}/"
+
+    ql_filename = r"solo_{level}_stix-{product}_[0-9]{{8}}_V.*.fits"
+    sci_filename = r"solo_{level}_stix-{product}_[0-9]{{8}}T[0-9]{{6}}-[0-9]{{8}}T[0-9]{{6}}_V.*.fits"
 
     base_pattern = r"{}/{Level}/{year:4d}/{month:02d}/{day:02d}/{DataType}/"
     ql_pattern = r"solo_{Level}_{descriptor}_{time}_{Ver}.fits"
@@ -45,7 +69,18 @@ class STIXClient(GenericClient):
 
     required = {a.Time, a.Instrument}
 
-    def search(self, *args, **kwargs):
+    def __init__(self, *, source="https://pub099.cs.technik.fhnw.ch/data/fits") -> None:
+        """Creates a Fido client to search and download STIX data from the STIX instrument archive
+
+        Parameters
+        ----------
+        source : str, optional
+            a url like path to alternative data source. You can provide a local filesystem path here. by default "https://pub099.cs.technik.fhnw.ch/data/fits/"
+        """
+        super().__init__()
+        self.baseurl = source + r"/{level}/{year:4d}/{month:02d}/{day:02d}/{datatype}/"
+
+    def search(self, *args, **kwargs) -> StixQueryResponse:
         """
         Query this client for a list of results.
 
@@ -62,6 +97,12 @@ class STIXClient(GenericClient):
         """
         matchdict = self._get_match_dict(*args, **kwargs)
         levels = matchdict["Level"]
+
+        versions = []
+        for versionAttrType in [Version, VersionU, MinVersion, MinVersionU, MaxVersion, MaxVersionU]:
+            if versionAttrType.__name__ in matchdict:
+                for version in matchdict[versionAttrType.__name__]:
+                    versions.append(versionAttrType(int(version)))
 
         metalist = []
         tr = TimeRange(matchdict["Start Time"], matchdict["End Time"])
@@ -85,7 +126,7 @@ class STIXClient(GenericClient):
                         elif datatype.lower() == "cal" and product.startswith("cal"):
                             url = self.baseurl + self.ql_filename
                             pattern = self.base_pattern + self.ql_pattern
-                        elif datatype.lower() == "aux" and product.startswith("aux"):
+                        elif datatype.lower() in ["asp"] and product.endswith("ephemeris"):
                             url = self.baseurl + self.ql_filename
                             pattern = self.base_pattern + self.ql_pattern
 
@@ -99,24 +140,54 @@ class STIXClient(GenericClient):
                         )
 
                         scraper = Scraper(url, regex=True)
-                        filesmeta = scraper._extract_files_meta(tr, extractor=pattern)
-                        for i in filesmeta:
-                            rowdict = self.post_search_hook(i, matchdict)
-                            file_tr = rowdict.pop("tr", None)
-                            if file_tr is not None:
-                                # 4 cases file time full in, fully our start in or end in
-                                if file_tr.start >= tr.start and file_tr.end <= tr.end:
-                                    metalist.append(rowdict)
-                                elif tr.start <= file_tr.start and tr.end >= file_tr.end:
-                                    metalist.append(rowdict)
-                                elif file_tr.start <= tr.start <= file_tr.end:
-                                    metalist.append(rowdict)
-                                elif file_tr.start <= tr.end <= file_tr.end:
-                                    metalist.append(rowdict)
-                            else:
-                                metalist.append(rowdict)
+                        try:
+                            filesmeta = scraper._extract_files_meta(tr, extractor=pattern)
 
-        return QueryResponse(metalist, client=self)
+                            for i in filesmeta:
+                                rowdict = self.post_search_hook(i, matchdict)
+
+                                versionTest = True
+                                for versionAttr in versions:
+                                    versionTest &= versionAttr.matches(rowdict["Ver"])
+                                    if not versionTest:
+                                        break
+                                if not versionTest:
+                                    continue
+
+                                file_tr = rowdict.pop("tr", None)
+                                if file_tr is not None:
+                                    # 4 cases file time full in, fully our start in or end in
+                                    if file_tr.start >= tr.start and file_tr.end <= tr.end:
+                                        metalist.append(rowdict)
+                                    elif tr.start <= file_tr.start and tr.end >= file_tr.end:
+                                        metalist.append(rowdict)
+                                    elif file_tr.start <= tr.start <= file_tr.end:
+                                        metalist.append(rowdict)
+                                    elif file_tr.start <= tr.end <= file_tr.end:
+                                        metalist.append(rowdict)
+                                else:
+                                    metalist.append(rowdict)
+                        except FileNotFoundError:
+                            continue
+        return StixQueryResponse(metalist, client=self)
+
+    @classmethod
+    def _can_handle_query(cls, *query):
+        """
+        Method the
+        `sunpy.net.fido_factory.UnifiedDownloaderFactory`
+        class uses to dispatch queries to this Client.
+        """
+        regattrs_dict = cls.register_values()
+        optional = {k for k in regattrs_dict.keys()} - cls.required
+        if not cls.check_attr_types_in_query(query, cls.required, optional):
+            return False
+        for key in regattrs_dict:
+            all_vals = [i[0].lower() for i in regattrs_dict[key]]
+            for x in query:
+                if isinstance(x, key) and issubclass(key, SimpleAttr) and str(x.value).lower() not in all_vals:
+                    return False
+        return True
 
     def post_search_hook(self, exdict, matchdict):
         rowdict = super().post_search_hook(exdict, matchdict)
@@ -150,15 +221,17 @@ class STIXClient(GenericClient):
         adict = {
             attrs.Instrument: [("STIX", "Spectrometer/Telescope for Imaging X-rays")],
             attrs.Level: [
-                ("L0", "STIX: Decommutated, uncompressed, uncalibrated data."),
+                ("L0", "STIX: commutated, uncompressed, uncalibrated data."),
                 ("L1", "STIX: Engineering and UTC time conversion ."),
+                ("ANC", "STIX: Ancillary Data like aspect."),
                 ("L2", "STIX: Calibrated data."),
+                ("ANC", "STIX: Ancillary data."),
             ],
             attrs.stix.DataType: [
                 ("QL", "Quick Look"),
                 ("SCI", "Science Data"),
                 ("CAL", "Calibration"),
-                ("AUX", "Auxiliary"),
+                ("ASP", "Aspect"),
                 ("HK", "House Keeping"),
             ],
             attrs.stix.DataProduct: [
@@ -176,7 +249,7 @@ class STIXClient(GenericClient):
                 ("sci_xray_scpd", "Summed Compressed Pixel Data"),
                 ("sci_xray_vis", "Visibilities"),
                 ("sci_xray_spec", "Spectrogram"),
-                ("aux_ephemeris", "Auxiliary ephemeris data"),
+                ("asp-ephemeris", "Aspect Solution and Ephemeris data"),
             ],
         }
         return adict

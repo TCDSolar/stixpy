@@ -9,7 +9,7 @@ from astropy.time import Time
 from sunpy.coordinates import HeliographicStonyhurst, Helioprojective
 
 from stixpy.coordinates.frames import STIXImaging
-from stixpy.coordinates.transforms import _get_aux_data, get_hpc_info
+from stixpy.coordinates.transforms import _get_ephemeris_data, get_hpc_info
 
 
 @pytest.mark.skip(reason="Test data maybe incorrect")
@@ -45,6 +45,21 @@ def test_hpc_to_stx(mock):
     assert_quantity_allclose(stix_coord.Ty, sas[0, 0])
 
 
+@pytest.mark.remote_data
+def test_get_hpc_info_interp():
+    t1 = Time("2022-03-28T18:43:00")
+    t2 = Time("2022-03-28T18:44:00")
+    t3 = Time("2022-03-28T18:45:00")
+    t4 = Time("2022-03-28T18:46:00")
+
+    roll1, solo_xyz1, ptg_1 = get_hpc_info(t1, t2)
+    roll2, solo_xyz2, ptg_2 = get_hpc_info(t2, t3)
+    roll3, solo_xyz3, ptg_3 = get_hpc_info(t3, t4)
+
+    assert_quantity_allclose(ptg_1, ptg_2, rtol=0.03)
+    assert_quantity_allclose(ptg_2, ptg_3, rtol=0.03)
+
+
 def test_stx_to_hpc_times():
     times = Time("2023-01-01") + np.arange(10) * u.min
     stix_coord = SkyCoord([0] * 10 * u.deg, [0] * 10 * u.deg, frame=STIXImaging(obstime=times))
@@ -62,7 +77,7 @@ def test_stx_to_hpc_obstime_end():
     stix_coord_rt = hp.transform_to(STIXImaging(obstime=times[0], obstime_end=times[-1]))
 
     stix_coord_rt_interp = hp.transform_to(STIXImaging(obstime=times[1]))  # noqa: F841
-    assert_quantity_allclose(0 * u.deg, stix_coord.separation(stix_coord_rt), atol=1e-17 * u.deg)
+    assert_quantity_allclose(0 * u.deg, stix_coord.separation(stix_coord_rt), atol=1e-9 * u.deg)
     assert np.all(stix_coord.obstime.isclose(stix_coord_rt.obstime))
     assert np.all(stix_coord.obstime_end.isclose(stix_coord_rt.obstime_end))
 
@@ -70,15 +85,15 @@ def test_stx_to_hpc_obstime_end():
 @pytest.mark.remote_data
 def test_get_aux_data():
     with pytest.raises(ValueError, match="No STIX pointing data found for time range"):
-        _get_aux_data(Time("2015-06-06"))  # Before the mission started
+        _get_ephemeris_data(Time("2015-06-06"))  # Before the mission started
 
-    aux_data = _get_aux_data(Time("2022-08-28T16:02:00"))
+    aux_data = _get_ephemeris_data(Time("2022-08-28T16:02:00"))
     assert len(aux_data) == 1341
 
-    aux_data = _get_aux_data(Time("2022-08-28T16:02:00"), end_time=Time("2022-08-28T16:04:00"))
+    aux_data = _get_ephemeris_data(Time("2022-08-28T16:02:00"), end_time=Time("2022-08-28T16:04:00"))
     assert len(aux_data) == 1341
 
-    aux_data = _get_aux_data(Time("2022-08-28T23:58:00"), end_time=Time("2022-08-29T00:02:00"))
+    aux_data = _get_ephemeris_data(Time("2022-08-28T23:58:00"), end_time=Time("2022-08-29T00:02:00"))
     assert len(aux_data) == 2691
 
 

@@ -65,7 +65,7 @@ used in the above steps)
 
 The ``stixpy`` repository uses git submodules to include external resources, such as the STIX calibration database.
 Git submodules are essentially repositories embedded within the main repository at a fixed commit.
- This setup ensures that specific versions of external data or code are tracked alongside the main codebase.
+This setup ensures that specific versions of external data or code are tracked alongside the main codebase.
 
 After cloning the repository, you will need initialize and update the submodules to make these linked repositories available locally:
 

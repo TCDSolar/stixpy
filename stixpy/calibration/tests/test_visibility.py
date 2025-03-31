@@ -137,6 +137,18 @@ def test_create_meta_pixels_timebins(flare_cpd):
     assert_quantity_allclose(np.sum(flare_cpd.duration[0:3]), meta_pixels["time_range"].dt.to(u.s))
 
 
+def test_create_meta_pixels_shadow(flare_cpd):
+    energy_range = [6, 12] * u.keV
+    time_range = [flare_cpd.times[0], flare_cpd.times[2]]
+    create_meta_pixels(
+        flare_cpd,
+        time_range=time_range,
+        energy_range=energy_range,
+        flare_location=STIXImaging(0 * u.arcsec, 0 * u.arcsec),
+        no_shadowing=False,
+    )
+
+
 @pytest.mark.parametrize(
     "pix_set, real_comp",
     [

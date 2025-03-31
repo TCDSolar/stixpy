@@ -198,7 +198,7 @@ def create_meta_pixels(
         if not isinstance(flare_location, STIXImaging) and flare_location.obstime != time_range.center:
             roll, solo_heeq, stix_pointing = get_hpc_info(time_range.start, time_range.end)
             flare_location = flare_location.transform_to(STIXImaging(obstime=time_range.center, observer=solo_heeq))
-        grid_shadowing = get_grid_transmission(flare_location.xyz[::-1])
+        grid_shadowing = get_grid_transmission(flare_location)
         ct_summed = ct_summed / grid_shadowing.reshape(-1, 1) / 4  # transmission grid ~ 0.5*0.5 = .25
         ct_error_summed = ct_error_summed / grid_shadowing.reshape(-1, 1) / 4
 

@@ -1,1 +1,1 @@
-Fix typo in `~stixpy.calibration.visibility.create_meta_pixels` which cased error if grid shadow correction was enabled
+Fix typo in `~stixpy.calibration.visibility.create_meta_pixels` which cased error if grid shadow correction was enabled. Also update grid calculations to use `Skycoord` objects.

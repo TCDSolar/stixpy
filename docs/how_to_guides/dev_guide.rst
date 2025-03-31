@@ -3,10 +3,10 @@ Developers Guide
 
 The instructions in this following section are based upon resources:
 
-* `Astropy Dev Workflow <https://docs.astropy.org/en/latest/development/workflow/development_workflow.html>`_
-* `Astropy Dev environment <https://docs.astropy.org/en/latest/development/workflow/get_devel_version.html#get-devel>`_
-* `Astropy Pull Request Example <https://docs.astropy.org/en/latest/development/workflow/git_edit_workflow_examples.html#astropy-fix-example>`_
-* `Sunpy Newcomers' Guide <https://docs.sunpy.org/en/latest/dev_guide/newcomers.html>`_
+* `Astropy Dev Workflow <https://docs.astropy.org/en/latest/development/git_edit_workflow_examples.html>`_
+* `Astropy Dev environment <https://docs.astropy.org/en/latest/development/quickstart.html#creating-a-development-environment>`_
+* `Astropy Pull Request Example <https://docs.astropy.org/en/latest/development/quickstart.html#creating-and-submitting-a-pull-request>`_
+* `Sunpy Newcomers' Guide <https://docs.sunpy.org/en/latest/dev_guide/contents/newcomers.html>`_
 
 Fork and Clone Repository
 -------------------------
@@ -61,6 +61,23 @@ used in the above steps)
     python -m pip install -e .
     # to install all development dependencies documentation, testing etc use
     python -m pip install -e .[dev]
+
+
+The ``stixpy`` repository uses git submodules to include external resources, such as the STIX calibration database.
+Git submodules are essentially repositories embedded within the main repository at a fixed commit.
+This setup ensures that specific versions of external data or code are tracked alongside the main codebase.
+
+After cloning the repository, you will need initialize and update the submodules to make these linked repositories available locally:
+
+.. code-block:: bash
+
+    git submodule update --init
+
+If you later pull updates from the main repository and those updates include changes to the submodules, run the following to fetch the latest commits from the submodules' remote:
+
+.. code-block:: bash
+
+    git submodule update --remote
 
 
 Working on code

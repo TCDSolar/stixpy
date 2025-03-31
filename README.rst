@@ -31,6 +31,9 @@ It is strongly advised that you use and isolated environment through python's ve
 
    pip install stixpy
 
+To install the developer version and set up a development environment, follow the instructions in our [Developer Guide](https://stixpy.readthedocs.io/en/latest/how_to_guides/dev_guide.html).
+
+
 Usage
 -----
 

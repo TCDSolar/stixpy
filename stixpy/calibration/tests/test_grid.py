@@ -1,8 +1,10 @@
 import astropy.units as u
 import numpy as np
 import pytest
+from astropy.coordinates import SkyCoord
 
 from stixpy.calibration.grid import get_grid_transmission
+from stixpy.coordinates.frames import STIXImaging
 
 
 # Output values taken from IDL routine
@@ -10,7 +12,7 @@ from stixpy.calibration.grid import get_grid_transmission
     "input,out",
     [
         (
-            [0, 0] * u.arcsec,
+            SkyCoord(*[0, 0] * u.arcsec, frame=STIXImaging),
             [
                 [
                     0.38359416,
@@ -49,7 +51,7 @@ from stixpy.calibration.grid import get_grid_transmission
             ],
         ),
         (
-            [0, 500.0] * u.arcsec,
+            SkyCoord(*[0, 500.0] * u.arcsec, frame=STIXImaging),
             [
                 0.38119361,
                 0.23916472,

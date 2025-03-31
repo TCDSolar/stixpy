@@ -10,8 +10,10 @@ from astropy.table import Table
 
 __all__ = ["get_grid_transmission", "_calculate_grid_transmission"]
 
+from stixpy.coordinates.frames import STIXImaging
 
-def get_grid_transmission(xy_flare):
+
+def get_grid_transmission(flare_location: STIXImaging):
     r"""
     Return the grid transmission for the 32 sub-collimators corrected for internal shadowing.
 
@@ -20,11 +22,8 @@ def get_grid_transmission(xy_flare):
 
     Parameters
     ----------
-    xy_flare
-
-    Returns
-    -------
-
+    flare_location :
+        Location of the flare
     """
     column_names = ["sc", "p", "o", "phase", "slit", "grad", "rms", "thick", "bwidth", "bpitch"]
 
@@ -33,10 +32,8 @@ def get_grid_transmission(xy_flare):
     front = Table.read(grid_info / "grid_param_front.txt", format="ascii", names=column_names)
     rear = Table.read(grid_info / "grid_param_rear.txt", format="ascii", names=column_names)
 
-    xy_flare_stix = np.array([xy_flare[0].value, xy_flare[1].value]) * u.arcsec
-
-    transmission_front = _calculate_grid_transmission(front, xy_flare_stix)
-    transmission_rear = _calculate_grid_transmission(rear, xy_flare_stix)
+    transmission_front = _calculate_grid_transmission(front, flare_location)
+    transmission_rear = _calculate_grid_transmission(rear, flare_location)
     total_transmission = transmission_front * transmission_rear
 
     # The finest grids are made from multiple layers for the moment remove these and set 1
@@ -49,7 +46,7 @@ def get_grid_transmission(xy_flare):
     return final_transmission
 
 
-def _calculate_grid_transmission(grid_params, xy_flare_stix):
+def _calculate_grid_transmission(grid_params, flare_location):
     r"""
     Calculate grid transmission accounting for internal shadowing.
 
@@ -57,7 +54,7 @@ def _calculate_grid_transmission(grid_params, xy_flare_stix):
     ----------
     grid_params
         Grid parameter tables
-    xy_flare_stix
+    flare_location
         Position of flare in stix imaging frame
 
     Returns
@@ -68,7 +65,7 @@ def _calculate_grid_transmission(grid_params, xy_flare_stix):
     pitch = grid_params["p"]
     slit = grid_params["slit"]
     thick = grid_params["thick"]
-    flare_dist = np.abs(xy_flare_stix[0] * np.cos(orient)) + xy_flare_stix[1] * np.sin(orient)
+    flare_dist = np.abs(flare_location.Tx * np.cos(orient)) + flare_location.Ty * np.sin(orient)
     shadow_width = thick * np.tan(flare_dist)
     transmission = (slit - shadow_width) / pitch
     return transmission

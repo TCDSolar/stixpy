@@ -1,48 +1,5 @@
-#!/usr/bin/env python
-# Licensed under a 3-clause BSD style license - see LICENSE.rst
+# We can remove this file when the default pip version
+# that Python installs is pip >= 21.3
+from setuptools import setup
 
-import os
-from itertools import chain
-
-from setuptools import setup  # isort:skip
-
-try:
-    # Recommended for setuptools 61.0.0+
-    # (though may disappear in the future)
-    from setuptools.config.setupcfg import read_configuration
-except ImportError:
-    from setuptools.config import read_configuration
-
-################################################################################
-# Programmatically generate some extras combos.
-################################################################################
-extras = read_configuration("setup.cfg")["options"]["extras_require"]
-
-# Dev is everything
-extras["dev"] = list(chain(*extras.values()))
-
-# All is everything but tests and docs
-exclude_keys = ("tests", "docs", "dev")
-ex_extras = dict(filter(lambda i: i[0] not in exclude_keys, extras.items()))
-# Concatenate all the values together for 'all'
-extras["all"] = list(chain.from_iterable(ex_extras.values()))
-
-################################################################################
-# Version configuration and setup call
-################################################################################
-
-VERSION_TEMPLATE = """
-# Note that we need to fall back to the hard-coded version if either
-# setuptools_scm can't be imported or setuptools_scm can't determine the
-# version, so we catch the generic 'Exception'.
-try:
-    from setuptools_scm import get_version
-    __version__ = get_version(root='..', relative_to=__file__)
-except Exception:
-    __version__ = '{version}'
-""".lstrip()
-
-setup(
-    extras_require=extras,
-    use_scm_version={"write_to": os.path.join("stixpy", "version.py"), "write_to_template": VERSION_TEMPLATE},
-)
+setup()

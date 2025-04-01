@@ -21,7 +21,7 @@ def clientlocal():
     TestData dir contains the following files and directories.
     The files are empty but the structure and names are used to test the client.
     .
-    ├── ANC
+    ├── AND
     │   └── 2022
     │       └── 01
     │           ├── 01
@@ -95,10 +95,10 @@ def test_client(urlopen, client, http_response, time_range, nfiles):
         (("2022-01-01T02:45:00", "2022-01-01T05:00:00"), "L1", a.stix.DataType.sci, 1),
         (("2023-01-01T02:45:00", "2023-01-01T05:00:00"), "L1", a.stix.DataType.sci, 0),
         (("2022-01-01T00:00:00", "2022-01-01T03:00:00"), "L1", a.stix.DataType.ql, 4),
-        (("2022-01-01T00:00:00", "2022-01-01T03:00:00"), "ANC", a.stix.DataType.asp, 1),
-        (("2022-01-01T00:00:00", "2022-01-02T03:00:00"), "ANC", a.stix.DataType.asp, 2),
-        (("2022-01-01T00:00:00", "2022-01-03T03:00:00"), "ANC", a.stix.DataType.asp, 3),
-        (("2022-01-01T00:00:00", "2022-01-05T03:00:00"), "ANC", a.stix.DataType.asp, 3),
+        (("2022-01-01T00:00:00", "2022-01-01T03:00:00"), "AND", a.stix.DataType.asp, 1),
+        (("2022-01-01T00:00:00", "2022-01-02T03:00:00"), "AND", a.stix.DataType.asp, 2),
+        (("2022-01-01T00:00:00", "2022-01-03T03:00:00"), "AND", a.stix.DataType.asp, 3),
+        (("2022-01-01T00:00:00", "2022-01-05T03:00:00"), "AND", a.stix.DataType.asp, 3),
     ],
 )
 def test_local_client(clientlocal, time_range, level, dtype, nfiles):
@@ -115,7 +115,7 @@ def test_local_client(clientlocal, time_range, level, dtype, nfiles):
 def test_search_date(client):
     res = client.search(a.Time("2020-05-01T00:00", "2020-05-01T23:59"), a.Instrument.stix)
     assert len(res) == 39
-    # this might need fixed when we change to ANC to become an level of its own
+    # this might need fixed when we change to AND to become an level of its own
 
 
 def test_search_max_version(clientlocal):
@@ -234,7 +234,7 @@ def test_search_date_product_sci():
 def test_fido():
     res = Fido.search(a.Time("2020-11-17T00:00", "2020-11-17T23:59"), a.Instrument.stix)
     assert len(res["stix"]) == 52
-    # this might need fixed when we change to ANC to become an level of its own
+    # this might need fixed when we change to AND to become an level of its own
 
     res_ql = Fido.search(a.Time("2020-11-17T00:00", "2020-11-17T23:59"), a.Instrument.stix, a.stix.DataType.ql)
     assert len(res_ql["stix"]) == 6

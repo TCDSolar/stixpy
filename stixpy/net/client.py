@@ -223,9 +223,9 @@ class STIXClient(GenericClient):
             attrs.Level: [
                 ("L0", "STIX: commutated, uncompressed, uncalibrated data."),
                 ("L1", "STIX: Engineering and UTC time conversion ."),
-                ("ANC", "STIX: Ancillary Data like aspect."),
+                ("AND", "STIX: Ancillary Data like aspect."),
                 ("L2", "STIX: Calibrated data."),
-                ("ANC", "STIX: Ancillary data."),
+                ("AND", "STIX: Ancillary data."),
             ],
             attrs.stix.DataType: [
                 ("QL", "Quick Look"),
@@ -241,7 +241,7 @@ class STIXClient(GenericClient):
                 ("ql_background", "Quick look background light curve"),
                 ("ql_variance", "Quick look variance curve"),
                 ("ql_spectra", "Quick look spectra"),
-                ("ql_calibration_spectrum", "Quick look energy " "calibration spectrum"),
+                ("ql_calibration_spectrum", "Quick look energy calibration spectrum"),
                 ("ql_flareflag", "Quick look flare flag including location"),
                 ("ql_tmstatusflarelist", "Quick look TM Status and flare list"),
                 ("sci_xray_rpd", "Raw Pixel Data"),

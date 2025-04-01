@@ -223,9 +223,8 @@ class STIXClient(GenericClient):
             attrs.Level: [
                 ("L0", "STIX: commutated, uncompressed, uncalibrated data."),
                 ("L1", "STIX: Engineering and UTC time conversion ."),
-                ("AND", "STIX: Ancillary Data like aspect."),
                 ("L2", "STIX: Calibrated data."),
-                ("AND", "STIX: Ancillary data."),
+                ("ANC", "STIX: Ancillary data."),
             ],
             attrs.stix.DataType: [
                 ("QL", "Quick Look"),

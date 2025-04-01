@@ -15,7 +15,7 @@ license = "BSD-3-Clause"
 license-files = ["LICENSE.rst"]
 authors = [{name="Shane Maloney", email = "shane.maloney@dias.ie"}]
 dependencies = [
-    "sunpy>=5.1.0",
+    "sunpy[net,timeseries]>=5.1.0",
     "packaging>=23.0",
     "reproject",
     "astroquery",
@@ -56,7 +56,7 @@ docs = [
     "sphinx-design>=0.2.0",
     "sphinx-gallery>=0.13.0",
     "sphinxext-opengraph>=0.6.0",
-    "xrayvisim[all]",
+    "stixpy[all]",
     "pydata-sphinx-theme>=0.16.0"
 ]
 dev = ["stixpy[tests,docs]"]

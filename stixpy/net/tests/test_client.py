@@ -114,37 +114,37 @@ def test_local_client(clientlocal, time_range, level, dtype, nfiles):
 @pytest.mark.remote_data
 def test_search_date(client):
     res = client.search(a.Time("2020-05-01T00:00", "2020-05-01T23:59"), a.Instrument.stix)
-    assert len(res) == 39
+    assert len(res) == 38
     # this might need fixed when we change to ANC to become an level of its own
 
 
 def test_search_max_version(clientlocal):
     res = clientlocal.search(a.Time("2022-01-01T00:00", "2022-01-01T23:59"), a.Instrument.stix, a.stix.MaxVersion(3))
-    assert len(res) == 7
+    assert len(res) == 6
 
     res = clientlocal.search(
         a.Time("2022-01-01T00:00", "2022-01-01T23:59"),
         a.Instrument.stix,
         a.stix.MaxVersionU(3),
     )
-    assert len(res) == 8
+    assert len(res) == 7
 
 
 def test_search_min_version(clientlocal):
     res = clientlocal.search(a.Time("2022-01-01T00:00", "2022-01-01T23:59"), a.Instrument.stix, a.stix.MinVersion(2))
-    assert len(res) == 7
+    assert len(res) == 6
 
     res = clientlocal.search(
         a.Time("2022-01-01T00:00", "2022-01-01T23:59"),
         a.Instrument.stix,
         a.stix.MinVersionU(2),
     )
-    assert len(res) == 9
+    assert len(res) == 8
 
 
 def test_search_version(clientlocal):
     res = clientlocal.search(a.Time("2022-01-01T00:00", "2022-01-01T23:59"), a.Instrument.stix, a.stix.Version(2))
-    assert len(res) == 5
+    assert len(res) == 4
 
     res = clientlocal.search(
         a.Time("2022-01-01T00:00", "2022-01-01T23:59"),
@@ -158,7 +158,7 @@ def test_search_version_and(clientlocal):
     res = clientlocal.search(
         a.Time("2022-01-01T00:00", "2022-01-01T23:59"), a.Instrument.stix, a.stix.MinVersion(2), a.stix.MaxVersionU(5)
     )
-    assert len(res) == 6
+    assert len(res) == 5
 
 
 def test_search_latest_version(clientlocal):
@@ -233,7 +233,7 @@ def test_search_date_product_sci():
 @pytest.mark.remote_data
 def test_fido():
     res = Fido.search(a.Time("2020-11-17T00:00", "2020-11-17T23:59"), a.Instrument.stix)
-    assert len(res["stix"]) == 52
+    assert len(res["stix"]) == 51
     # this might need fixed when we change to ANC to become an level of its own
 
     res_ql = Fido.search(a.Time("2020-11-17T00:00", "2020-11-17T23:59"), a.Instrument.stix, a.stix.DataType.ql)

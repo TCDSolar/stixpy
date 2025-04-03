@@ -161,6 +161,12 @@ def test_search_version_and(clientlocal):
     assert len(res) == 5
 
 
+def test_search_latest_version_empty(clientlocal):
+    res = clientlocal.search(a.Time("2023-01-01T00:00", "2023-01-01T23:59"), a.Instrument.stix)
+    res.filter_for_latest_version()
+    assert len(res) == 0
+
+
 def test_search_latest_version(clientlocal):
     res = clientlocal.search(a.Time("2022-01-01T00:00", "2022-01-01T23:59"), a.Instrument.stix)
     res.filter_for_latest_version(allow_uncompleted=True)

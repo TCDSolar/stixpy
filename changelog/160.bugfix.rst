@@ -1,0 +1,1 @@
+Fix error in `~stixpy.net.client.StixQueryResponse.filter_for_latest_version` if the result table was empty.

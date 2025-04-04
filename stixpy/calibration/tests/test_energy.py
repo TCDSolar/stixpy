@@ -20,7 +20,7 @@ def test_get_elut():
 @pytest.mark.skip(reason="Better test data")
 def test_correct_counts():
     uncorrected_prod = Product(
-        "/Users/shane/Downloads/solo_L1_stix-sci-xray-cpd-" "2109270021_20210927T085625_20210927T092350_V01_63392.fits"
+        "/Users/shane/Downloads/solo_L1_stix-sci-xray-cpd-2109270021_20210927T085625_20210927T092350_V01_63392.fits"
     )
     corrected_prod = correct_counts(uncorrected_prod)
     assert corrected_prod.e_cal == "rebin"

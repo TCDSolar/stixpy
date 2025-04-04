@@ -26,6 +26,7 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
+stixpy/_version.py
 
 # PyInstaller
 #  Usually these files are written by a python script from a template
@@ -147,7 +148,6 @@ docs/_build
 docs/generated
 docs/api
 docs/whatsnew/latest_changelog.txt
-stixpy/version.py
 htmlcov/
 sg_execution_times.rst
 

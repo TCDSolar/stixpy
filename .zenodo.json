@@ -1,0 +1,59 @@
+{
+    "description": "An open-source Python analysis library for the Spectrometer Telescope for Imaging X-rays (STIX) instrument on Solar Obriter.",
+    "license": "BSD-3-Clause",
+    "title": "STIXpy",
+    "upload_type": "software",
+    "creators": [
+        {
+            "name": "Shane Maloney",
+            "orcid": "0000-0002-4715-1805",
+            "affiliation": "Dublin Institute for Advanced Studies"
+        },
+        {
+            "name": "Brendan Clarke",
+            "orcid": "",
+            "affiliation": "Trinity College Dublin / Dublin Institute for Advanced Studies"
+        },
+        {
+            "name": "Laura Hayes",
+            "orcid": "0000-0002-6835-2390",
+            "affiliation": "Dublin Institute for Advanced Studies"
+        },
+        {
+            "name": "Daniel F. Ryan",
+            "orcid": "0000-0001-8661-3825",
+            "affiliation": "University College London, Mullard Space Science Laboratory (UCL/MSSL)"
+        },
+        {
+            "name": "Paolo Massa",
+            "orcid": "0000-0002-0993-1974",
+            "affiliation": "University of Applied Sciences and Arts Northwestern Switzerland (FHNW)"
+        },
+        {
+            "name": "Alasdair Wilson",
+            "orcid": "",
+            "affiliation": ""
+        },
+        {
+            "name": "Nicky Hochmuth",
+            "orcid": "",
+            "affiliation": ""
+        },
+        {
+            "name": "Steven Christe",
+            "orcid": "0000-0001-6127-795X",
+            "affiliation": "NASA Goddard Space Flight Center"
+        },
+        {
+            "name": "Hannah Collier",
+            "orcid": "0000-0001-5592-8023",
+            "affiliation": "University of Applied Sciences and Arts Northwestern Switzerland (FHNW)"
+        },
+        {
+            "name": "Thomas Long",
+            "orcid": "",
+            "affiliation": ""
+        }
+    ],
+    "access_right": "open"
+}

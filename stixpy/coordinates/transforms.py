@@ -142,7 +142,7 @@ def get_hpc_info(times, end_time=None):
             stix_pointing = np.where(pointing_diff < 200 * u.arcsec, sas_pointing, spacecraft_pointing)
         else:
             warnings.warn(
-                f"Using spacecraft pointing: {spacecraft_pointing}" f" large difference between SAS and spacecraft."
+                f"Using spacecraft pointing: {spacecraft_pointing} large difference between SAS and spacecraft."
             )
     else:
         warnings.warn(f"SAS solution not available using spacecraft pointing: {stix_pointing}.")

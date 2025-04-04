@@ -76,8 +76,7 @@ class IndexMasks(PPrintMixin):
         text = f"{self.__class__.__name__}\n"
         for m, i in zip(self.masks, self.indices):
             text += (
-                f'    {self._pprint_indices(i)}: '
-                f'[{",".join(np.where(m, np.arange(m.size), np.full(m.size, "_")))}]\n'
+                f"    {self._pprint_indices(i)}: [{','.join(np.where(m, np.arange(m.size), np.full(m.size, '_')))}]\n"
             )
         return text
 
@@ -128,7 +127,7 @@ class PixelMasks(PPrintMixin):
     def __repr__(self):
         text = f"{self.__class__.__name__}\n"
         for m, i in zip(self.masks, self.indices):
-            text += f'    {self._pprint_indices(i)}: ' f'[{str(np.where(m.shape[0], m, np.full(m.shape, "_")))}]\n'
+            text += f"    {self._pprint_indices(i)}: [{str(np.where(m.shape[0], m, np.full(m.shape, '_')))}]\n"
         return text
 
 
@@ -187,9 +186,7 @@ class SpectrogramPlotMixin:
                         "detector or summed over a number of detectors"
                     )
                 elif det_idx_arr.ndim == 2 and det_idx_arr.shape[0] != 1:
-                    raise ValueError(
-                        "Spectrogram plots can only one sum " "detector or summed over a number of detectors"
-                    )
+                    raise ValueError("Spectrogram plots can only one sum detector or summed over a number of detectors")
                 did = detector_indices
 
             if pixel_indices == "all":
@@ -202,9 +199,7 @@ class SpectrogramPlotMixin:
                         "detector or summed over a number of detectors"
                     )
                 elif pix_idx_arr.ndim == 2 and pix_idx_arr.shape[0] != 1:
-                    raise ValueError(
-                        "Spectrogram plots can only one sum " "detector or summed over a number of detectors"
-                    )
+                    raise ValueError("Spectrogram plots can only one sum detector or summed over a number of detectors")
                 pid = pixel_indices
 
         counts, errors, times, timedeltas, energies = self.get_data(

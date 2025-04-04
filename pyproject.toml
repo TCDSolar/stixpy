@@ -1,12 +1,89 @@
 [build-system]
-
 requires = [
-    "setuptools>=56,!=61.0.0",
-    "setuptools_scm[toml]>=6.2",
+    "setuptools>=62.0.0",
+    "setuptools_scm[toml]>=8.0.1",
     "wheel"
 ]
-
 build-backend = 'setuptools.build_meta'
+
+[project]
+name = "stixpy"
+description = "An open-source Python analysis library for the Spectrometer Telescope for Imaging X-rays (STIX) instrument on Solar Obriter."
+requires-python = ">=3.9"
+readme = {file = "README.rst", content-type="text/x-rst"}
+license = "BSD-3-Clause"
+license-files = ["LICENSE.rst"]
+authors = [{name="Shane Maloney", email = "shane.maloney@dias.ie"}]
+dependencies = [
+    "sunpy[net,timeseries]>=5.1.0",
+    "packaging>=23.0",
+    "reproject",
+    "astroquery",
+    "intervaltree",
+    "roentgen",
+    "matplotlib",
+    "xrayvisim~=0.2.0rc"
+]
+dynamic = ["version"]
+keywords = ["solar physics", "solar", "sun", "x-rays"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Science/Research",
+  "Natural Language :: English",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Scientific/Engineering :: Physics"
+]
+
+[project.optional-dependencies]
+tests = [
+    "matplotlib>=3.8.0",
+    "pytest-astropy>=0.11.0",
+    "pytest-mpl>=0.16",
+    "pytest-xdist>=3.0.2",
+    "pytest>=7.1.0"
+]
+docs = [
+    "sphinx>=6.0.0",
+    "sphinx-automodapi>=0.14.1",
+    "packaging>=23.0",
+    "sphinx-changelog>=1.5.0",
+    "sphinx-design>=0.2.0",
+    "sphinx-gallery>=0.13.0",
+    "sphinxext-opengraph>=0.6.0",
+    "stixpy[all]",
+    "pydata-sphinx-theme>=0.16.0"
+]
+dev = ["stixpy[tests,docs]"]
+
+[project.urls]
+Homepage = "https://stixpy.readthedocs.io"
+"Source Code" = "https://github.com/TCDSolar/stixpy"
+Download = "https://pypi.org/project/stixpy"
+Documentation = "https://stixpy.readthedocs.io"
+Changelog = "https://stixpy.readthedocs.io/en/latest/whatsnew/changelog.html"
+"Issue Tracker" = "https://github.com/TCDSolar/stixpy/issues"
+
+[tool.setuptools]
+zip-safe = false
+include-package-data = true
+platforms = ["any"]
+provides = ["stixpy"]
+
+[tool.setuptools.packages.find]
+include = ["stixpy*"]
+exclude = ["stixpy._dev*"]
+
+[tool.setuptools.package-data]
+xrayvisim = ["data/*"]
+
+[tool.setuptools_scm]
+version_file = "stixpy/_version.py"
 
 [ tool.gilesbot ]
 

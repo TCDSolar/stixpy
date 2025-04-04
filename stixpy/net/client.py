@@ -17,6 +17,15 @@ __all__ = ["STIXClient", "StixQueryResponse"]
 
 class StixQueryResponse(QueryResponse):
     def filter_for_latest_version(self, allow_uncompleted=False):
+        r"""
+        Filter the response to only include the most recent versions of results.
+
+        Parameters
+        ----------
+        allow_uncompleted
+            Include incomplete version (e.g. V02U)
+
+        """
         if len(self) > 0 and "Start Time" in self.columns:
             self["_tidx"] = range(len(self))
             grouped_res = self.group_by(

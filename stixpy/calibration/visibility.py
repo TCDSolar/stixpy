@@ -401,7 +401,7 @@ def get_uv_points_data(d_det: u.Quantity[u.mm] = 47.78 * u.mm, d_sep: u.Quantity
     return uv_data
 
 
-def calibrate_visibility(vis: Visibilities, flare_location: SkyCoord = STIXImaging(0 * u.arcsec, 0 * u.arcsec)):
+def calibrate_visibility(vis: Visibilities, flare_location: SkyCoord = SkyCoord(Tx=0 * u.arcsec, Ty=0 * u.arcsec, frame=STIXImaging)):
     """
     Calibrate visibility phase and amplitudes.
 
@@ -458,11 +458,11 @@ def calibrate_visibility(vis: Visibilities, flare_location: SkyCoord = STIXImagi
     calibrated_visibility = (np.cos(calibrated_phase) + np.sin(calibrated_phase) * 1j) * calibrated_amplitude
 
     vis.meta["calibrated"] = True
-    vis.meta["offset"] = flare_location
     cal_vis = Visibilities(
         calibrated_visibility,
         u=vis.u,
         v=vis.v,
+        phase_center=flare_location,
         amplitude=calibrated_amplitude,
         amplitude_uncertainty=calibrated_amplitude_error,
         meta=vis.meta,

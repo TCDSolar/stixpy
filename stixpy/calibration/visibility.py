@@ -227,6 +227,7 @@ def create_meta_pixels(
         "time_range": time_range,
         "energy_range": energy_range,
         "pixels": pixels,
+        "areas": areas,
     }
 
     return meta_pixels

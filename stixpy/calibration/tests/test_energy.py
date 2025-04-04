@@ -14,7 +14,7 @@ def test_get_elut():
     assert elut.file == "elut_table_20200519.csv"
 
     elut = get_elut(datetime(2024, 4, 9))
-    assert elut.file == "elut_table_20231019.csv"
+    assert elut.file == "elut_table_20240205.csv"
 
 
 @pytest.mark.skip(reason="Better test data")

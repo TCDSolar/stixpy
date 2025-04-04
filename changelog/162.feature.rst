@@ -1,0 +1,1 @@
+Add the pixel area normalisation from `~stixpy.calibration.visibility.create_meta_pixels` to dictionary returned.

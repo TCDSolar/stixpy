@@ -38,42 +38,47 @@ def test_get_uv_points_data():
 
 
 @pytest.mark.parametrize(
-    "pixel_set,expected_abcd_rate_kev,expected_abcd_rate_kev_cm0,expected_abcd_rate_kev_cm1",
+    "pixel_set,expected_abcd_rate_kev,expected_abcd_rate_kev_cm0,expected_abcd_rate_kev_cm1,areas",
     [
         (
             "all",
             [0.03509001, 0.03432438, 0.03248172, 0.03821136] * u.ct / u.keV / u.s,
             [0.17336964, 0.16958685, 0.1604828, 0.1887913] * u.ct / u.keV / u.s / u.cm**2,
             [0.18532299, 0.17855843, 0.1802053, 0.17609046] * u.ct / u.keV / u.s / u.cm**2,
+            [0.20239999, 0.20239999, 0.20239999, 0.20239999] * u.cm**2,
         ),
         (
             "top+bot",
             [0.0339154, 0.03319087, 0.03131242, 0.03684958] * u.ct / u.keV / u.s,
             [0.17628464, 0.17251869, 0.16275495, 0.19153585] * u.ct / u.keV / u.s / u.cm**2,
             [0.18701911, 0.18205339, 0.18328145, 0.17945563] * u.ct / u.keV / u.s / u.cm**2,
+            [0.192389994, 0.192389994, 0.192389994, 0.192389994] * u.cm**2,
         ),
         (
             "small",
             [0.00117461, 0.00113351, 0.00116929, 0.00136178] * u.ct / u.keV / u.s,
             [0.1173439, 0.11323753, 0.11681252, 0.13604156] * u.ct / u.keV / u.s / u.cm**2,
             [0.15272384, 0.11138607, 0.12108232, 0.11141279] * u.ct / u.keV / u.s / u.cm**2,
+            [0.010009999, 0.010009999, 0.010009999, 0.010009999] * u.cm**2,
         ),
         (
             "top",
             [0.01742041, 0.01738642, 0.01624934, 0.01833627] * u.ct / u.keV / u.s,
             [0.18109474, 0.18074145, 0.16892087, 0.19061566] * u.ct / u.keV / u.s / u.cm**2,
             [0.18958941, 0.17299885, 0.17864632, 0.17571344] * u.ct / u.keV / u.s / u.cm**2,
+            [0.096194997, 0.096194997, 0.096194997, 0.096194997] * u.cm**2,
         ),
         (
             "bot",
             [0.01649499, 0.01580445, 0.01506308, 0.01851331] * u.ct / u.keV / u.s,
             [0.17147454, 0.16429592, 0.15658903, 0.19245605] * u.ct / u.keV / u.s / u.cm**2,
             [0.18444881, 0.19110794, 0.18791658, 0.18319781] * u.ct / u.keV / u.s / u.cm**2,
+            [0.096194997, 0.096194997, 0.096194997, 0.096194997] * u.cm**2,
         ),
     ],
 )
 def test_create_meta_pixels(
-    background_cpd, pixel_set, expected_abcd_rate_kev, expected_abcd_rate_kev_cm0, expected_abcd_rate_kev_cm1
+    background_cpd, pixel_set, expected_abcd_rate_kev, expected_abcd_rate_kev_cm0, expected_abcd_rate_kev_cm1, areas
 ):
     time_range = Time(["2022-08-24T14:00:37.271", "2022-08-24T14:50:17.271"])
     energy_range = [20, 76] * u.keV

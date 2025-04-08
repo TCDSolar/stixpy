@@ -1,3 +1,4 @@
+from typing import Union, Callable
 from itertools import product
 from collections import defaultdict
 
@@ -31,8 +32,47 @@ __all__ = [
     "EnergyEdgeMasks",
 ]
 
+from stixpy.utils.time import times_to_indices
 
 quantity_support()
+
+# fmt: off
+PIXEL_MAPPING = {
+    "all": slice(0, 12),  # All pixels (top, bottom and small)
+    "big": slice(0, 8),  # All big pixel top + bot
+    "top": slice(0, 4),  # Top row pixels only
+    "bottom": slice(4, 8),  # Bottom row pixels only
+    "small": slice(8, 12),  # Small, middle row pixels only
+}
+
+
+DETECTOR_MAPPING = {
+    "all": slice(0, 32),  # all detectors
+    "imaging": [2, 19, 21, 15, 13, 31, 20, 25, 3, 23, 7, 27, 14, 26, 30, 5, 29, 1, 24, 4, 22, 6, 28, 0,],  # 30 imaging detectors (excluding BKG and CFL)
+    "imaging_24": [2, 19, 21, 15, 13, 31, 20, 25, 3, 23, 7, 27, 14, 26, 30, 5, 29, 1,],  # 24 standard (not fine) imaging detectors
+    "imaging_fine": [4, 22, 6, 28, 0],  # 6 finest imaging detectors
+    "cfl": 9,  # Only CLF detector
+    "bkg": 8,  # Only BKG detector
+}
+# fmt: on
+
+
+def parse_time(times):
+    pass
+
+
+def parse_energy():
+    pass
+
+
+def parse_detectors(detectors):
+    if isinstance(detectors, str):
+        pass
+
+
+def parse_pixels(pixels):
+    if isinstance(pixels, str):
+        return PIXEL_MAPPING.get(pixels, None)
 
 
 class PPrintMixin:
@@ -67,6 +107,7 @@ class IndexMasks(PPrintMixin):
     """
 
     def __init__(self, mask_array):
+        mask_array = np.atleast_2d(mask_array)
         masks = np.unique(mask_array, axis=0)
         indices = [np.argwhere(np.all(mask_array == mask, axis=1)).reshape(-1) for mask in masks]
         self.masks = masks
@@ -484,7 +525,7 @@ class ScienceData(L1Product):
         if "pixel_masks" in self.data.colnames:
             self.pixel_masks = PixelMasks(self.data["pixel_masks"])
         if "energy_bin_edge_mask" in self.control.colnames:
-            self.energy_masks = EnergyEdgeMasks(self.control["energy_bin_edge_mask"])
+            self.energy_masks = EnergyEdgeMasks(self.control["energy_bin_edge_mask"].squeeze())
             self.dE = energies["e_high"] - energies["e_low"]
 
     @property
@@ -492,9 +533,7 @@ class ScienceData(L1Product):
         """
         A `sunpy.time.TimeRange` for the data.
         """
-        return TimeRange(
-            self.data["time"][0] - self.data["timedel"][0] / 2, self.data["time"][-1] + self.data["timedel"][-1] / 2
-        )
+        return TimeRange(self.time[0] - self.data["timedel"][0] / 2, self.time[-1] + self.data["timedel"][-1] / 2)
 
     @property
     def pixels(self):
@@ -531,8 +570,111 @@ class ScienceData(L1Product):
         """
         return self.data["timedel"]
 
+    def crop_by_value(
+        self,
+        values,
+    ):
+        r"""
+        Crop the data by a values e.g time, energy.
+
+        Parameters
+        ----------
+        values
+
+        Returns
+        -------
+
+        Examples
+        --------
+        >>> cpd.crop_by_value()
+
+        """
+
+    def rebin(self, *indices, operator: Callable = np.sum):
+        r"""
+        Rebin the data using the given indices.
+
+        Parameters
+        ----------
+        operator :
+        indices :
+
+        Returns
+        -------
+
+        Examples
+        --------
+        cpd.rebin(None, None, None, [1, 5])
+        cpd.rebin(None, None, None, [[1, 5], [5, 10]])
+        cpd.rebin([0:-10], None, None, [[1, 5], [5, 10]])
+
+
+        """
+
+    def rebin_by_vales(self, *values, operator: Callable = np.sum):
+        r"""
+        Rebin the data using the given values.
+
+        Parameters
+        ----------
+        values
+
+        Returns
+        -------
+
+        Examples
+        --------
+        cpd.rebin_by_vales('all', 'imaging', 'big', [4, 10]*u.keV)
+        cpd.rebin_by_vales([t1, t2]', 'imaging', 'big', [[4, 10], [10, 15]]*u.keV)
+        cpd.rebin_by_vales([[t1, t2], [t2, t3]]', 'imaging', 'big', [[4, 10], [10, 15]]*u.keV)
+
+
+        """
+
+    def __getitem__(self, item: Union[int, tuple[int, ...], slice]):
+        r"""Slicing"""
+        if isinstance(item, int):
+            # single
+            data = self.data[item : item + 1].copy()
+            energies = self.energies.copy()
+            meta = self.meta.copy()
+            idb = self.idb_versions.copy()
+            ci = data["control_index"]
+            control = self.control[np.argwhere(self.control["index"] == ci)].copy()
+            return type(self)(meta=meta, control=control, data=data, energies=energies, idb_versions=idb)
+        elif isinstance(item, tuple):
+            time_slice = item[0]
+            missing_dims = len(self.data["counts"].shape) - len(item)
+            count_slice = list(item[1:]) + [None] * missing_dims
+            data = self.data[time_slice].copy()
+            data["counts"] = data["counts"][*count_slice]
+            energies = self.energies.copy()
+            meta = self.meta.copy()
+            idb = self.idb_versions.copy()
+            ci = set(data["control_index"])
+            control = self.control[np.argwhere(np.isin(self.control["index"], list(ci)))].copy()
+            return type(self)(meta=meta, control=control, data=data, energies=energies, idb_versions=idb)
+
+        elif isinstance(item, slice):
+            # Slice
+            data = self.data[item].copy()
+            energies = self.energies.copy()
+            meta = self.meta.copy()
+            idb = self.idb_versions.copy()
+            ci = set(data["control_index"])
+            control = self.control[np.argwhere(np.isin(self.control["index"], list(ci)))].copy()
+            return type(self)(meta=meta, control=control, data=data, energies=energies, idb_versions=idb)
+        else:
+            raise TypeError(f"Index must be int, not {type(item)}.")
+
     def get_data(
-        self, time_indices=None, energy_indices=None, detector_indices=None, pixel_indices=None, sum_all_times=False
+        self,
+        time=None,
+        time_indices=None,
+        energy_indices=None,
+        detector_indices=None,
+        pixel_indices=None,
+        sum_all_times=False,
     ):
         """
         Return the counts, errors, times, durations and energies for selected data.
@@ -642,6 +784,8 @@ class ScienceData(L1Product):
                 energies = QTable(energies * u.keV, names=["e_low", "e_high"])
 
         t_norm = self.data["timedel"]
+        if time is not None:
+            time_indices = times_to_indices(time, times)
         if time_indices is not None:
             time_indices = np.asarray(time_indices)
             if time_indices.ndim == 1:

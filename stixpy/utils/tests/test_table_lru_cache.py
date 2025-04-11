@@ -124,7 +124,7 @@ def test_get_range_in_block(cache):
     should return all data in the range or None if any gaps in range
     """
     now = Time(datetime.now())
-    times = now + np.arange(10) * timedelta(seconds=1)
+    times = now + np.arange(10) * u.s
     times[5:] += 2 * u.s  # introduce a gap in the data
     data = QTable({"time": times, "value": np.full((10,), 1)})
     cache.put(data)

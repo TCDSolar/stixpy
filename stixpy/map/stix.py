@@ -82,5 +82,5 @@ def fix_docstring(docstring):
     return cleandoc[:first_notes]
 
 
-# Because we pull in note from generic map which relies on sphinxcontrib.bibtex
+# Because we pull in notes from generic map which relies on sphinxcontrib.bibtex
 STIXMap.__doc__ = fix_docstring(STIXMap.__doc__)

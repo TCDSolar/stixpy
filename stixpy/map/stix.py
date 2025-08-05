@@ -1,3 +1,5 @@
+import inspect
+
 import astropy.units as u
 from astropy import wcs
 from sunpy.map import GenericMap
@@ -72,3 +74,13 @@ class STIXMap(GenericMap):
         # Validate the WCS here.
         w2.wcs.set()
         return w2
+
+
+def fix_docstring(docstring):
+    cleandoc = inspect.cleandoc(docstring)
+    first_notes = cleandoc.find("Notes\n-----")
+    return cleandoc[:first_notes]
+
+
+# Because we pull in note from generic map which relies on sphinxcontrib.bibtex
+STIXMap.__doc__ = fix_docstring(STIXMap.__doc__)

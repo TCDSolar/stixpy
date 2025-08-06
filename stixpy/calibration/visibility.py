@@ -197,7 +197,7 @@ def create_meta_pixels(
     if not no_shadowing:
         if flare_location is None or not isinstance(flare_location, SkyCoord):
             raise ValueError("flare_location must be a SkyCoord object if using grid shadowing correction.")
-        if not isinstance(flare_location, STIXImaging) and flare_location.obstime != time_range.center:
+        if not isinstance(flare_location.frame, STIXImaging) and flare_location.obstime != time_range.center:
             roll, solo_heeq, stix_pointing = get_hpc_info(time_range.start, time_range.end)
             flare_location = flare_location.transform_to(STIXImaging(obstime=time_range.center, observer=solo_heeq))
         grid_shadowing = get_grid_transmission(flare_location)

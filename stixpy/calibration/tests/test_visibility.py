@@ -1,6 +1,7 @@
 import astropy.units as u
 import numpy as np
 import pytest
+from astropy.coordinates import SkyCoord
 from astropy.tests.helper import assert_quantity_allclose
 from astropy.time import Time
 from numpy.ma.testutils import assert_equal
@@ -84,7 +85,7 @@ def test_create_meta_pixels(
         background_cpd,
         time_range=time_range,
         energy_range=energy_range,
-        flare_location=STIXImaging(0 * u.arcsec, 0 * u.arcsec),
+        flare_location=SkyCoord(0 * u.arcsec, 0 * u.arcsec, frame=STIXImaging),
         pixels=pixel_set,
         no_shadowing=True,
     )
@@ -109,7 +110,7 @@ def test_create_meta_pixels_timebins(flare_cpd):
         flare_cpd,
         time_range=time_range,
         energy_range=energy_range,
-        flare_location=STIXImaging(0 * u.arcsec, 0 * u.arcsec),
+        flare_location=SkyCoord(0 * u.arcsec, 0 * u.arcsec, frame=STIXImaging),
         no_shadowing=True,
     )
 
@@ -121,7 +122,7 @@ def test_create_meta_pixels_timebins(flare_cpd):
         flare_cpd,
         time_range=time_range,
         energy_range=energy_range,
-        flare_location=STIXImaging(0 * u.arcsec, 0 * u.arcsec),
+        flare_location=SkyCoord(0 * u.arcsec, 0 * u.arcsec, frame=STIXImaging),
         no_shadowing=True,
     )
 
@@ -133,7 +134,7 @@ def test_create_meta_pixels_timebins(flare_cpd):
         flare_cpd,
         time_range=time_range,
         energy_range=energy_range,
-        flare_location=STIXImaging(0 * u.arcsec, 0 * u.arcsec),
+        flare_location=SkyCoord(0 * u.arcsec, 0 * u.arcsec, frame=STIXImaging),
         no_shadowing=True,
     )
 
@@ -147,7 +148,7 @@ def test_create_meta_pixels_shadow(flare_cpd):
         flare_cpd,
         time_range=time_range,
         energy_range=energy_range,
-        flare_location=STIXImaging(0 * u.arcsec, 0 * u.arcsec),
+        flare_location=SkyCoord(0 * u.arcsec, 0 * u.arcsec, frame=STIXImaging),
         no_shadowing=False,
     )
 

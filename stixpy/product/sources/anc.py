@@ -52,4 +52,4 @@ class Ephemeris(ANCProduct):
             return True
 
     def __repr__(self):
-        return f"{self.__class__.__name__}\n" f"    {self.time_range}"
+        return f"{self.__class__.__name__}\n    {self.time_range}"

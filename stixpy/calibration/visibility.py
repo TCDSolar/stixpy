@@ -99,7 +99,7 @@ def create_meta_pixels(
     pixel_data: Union[RawPixelData, CompressedPixelData, SummedCompressedPixelData],
     time_range: Time,
     energy_range: Quantity["energy"],  # noqa: F821
-    flare_location: SkyCoord,
+    flare_location: SkyCoord | None = None,
     pixels: str = "top+bot",
     no_shadowing: bool = False,
 ):
@@ -195,7 +195,9 @@ def create_meta_pixels(
     ct_error_summed = np.sqrt(np.sum(ct_error**2, axis=(0, 3)))
 
     if not no_shadowing:
-        if not isinstance(flare_location, STIXImaging) and flare_location.obstime != time_range.center:
+        if flare_location is None or not isinstance(flare_location, SkyCoord):
+            raise ValueError("flare_location must be a SkyCoord object if using grid shadowing correction.")
+        if not isinstance(flare_location.frame, STIXImaging) and flare_location.obstime != time_range.center:
             roll, solo_heeq, stix_pointing = get_hpc_info(time_range.start, time_range.end)
             flare_location = flare_location.transform_to(STIXImaging(obstime=time_range.center, observer=solo_heeq))
         grid_shadowing = get_grid_transmission(flare_location)
@@ -401,7 +403,7 @@ def get_uv_points_data(d_det: u.Quantity[u.mm] = 47.78 * u.mm, d_sep: u.Quantity
     return uv_data
 
 
-def calibrate_visibility(vis: Visibilities, flare_location: SkyCoord = STIXImaging(0 * u.arcsec, 0 * u.arcsec)):
+def calibrate_visibility(vis: Visibilities, flare_location: SkyCoord) -> Visibilities:
     """
     Calibrate visibility phase and amplitudes.
 
@@ -410,7 +412,8 @@ def calibrate_visibility(vis: Visibilities, flare_location: SkyCoord = STIXImagi
     vis :
         Uncalibrated Visibilities
     flare_location
-        The location of the flare the visibility are shifted to have the phase center at this location
+        The location of the flare the visibility are shifted to have the phase center at this location if not given will
+        default to sun center `Helioprojective(0,0)`
 
     Returns
     -------
@@ -430,7 +433,7 @@ def calibrate_visibility(vis: Visibilities, flare_location: SkyCoord = STIXImagi
 
     tr = TimeRange(vis.meta.time_range)
 
-    if not isinstance(flare_location, STIXImaging) and flare_location.obstime != tr.center:
+    if not isinstance(flare_location.frame, STIXImaging) or flare_location.obstime != tr.center:
         roll, solo_heeq, stix_pointing = get_hpc_info(vis.meta.time_range[0], vis.meta.time_range[1])
         solo_coord = HeliographicStonyhurst(solo_heeq, representation_type="cartesian", obstime=tr.center)
         flare_location = flare_location.transform_to(STIXImaging(obstime=tr.center, observer=solo_coord))

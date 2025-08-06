@@ -1,12 +1,19 @@
 import astropy.units as u
 import numpy as np
 import pytest
+from astropy.coordinates import SkyCoord
 from astropy.tests.helper import assert_quantity_allclose
 from astropy.time import Time
 from numpy.ma.testutils import assert_equal
+from sunpy.coordinates import HeliographicStonyhurst, Helioprojective
 from sunpy.time import TimeRange
 
-from stixpy.calibration.visibility import create_meta_pixels, create_visibility, get_uv_points_data
+from stixpy.calibration.visibility import (
+    calibrate_visibility,
+    create_meta_pixels,
+    create_visibility,
+    get_uv_points_data,
+)
 from stixpy.coordinates.frames import STIXImaging
 from stixpy.product import Product
 
@@ -84,7 +91,7 @@ def test_create_meta_pixels(
         background_cpd,
         time_range=time_range,
         energy_range=energy_range,
-        flare_location=STIXImaging(0 * u.arcsec, 0 * u.arcsec),
+        flare_location=SkyCoord(0 * u.arcsec, 0 * u.arcsec, frame=STIXImaging),
         pixels=pixel_set,
         no_shadowing=True,
     )
@@ -100,6 +107,7 @@ def test_create_meta_pixels(
     )
 
 
+@pytest.mark.remote_data
 def test_create_meta_pixels_timebins(flare_cpd):
     energy_range = [6, 12] * u.keV
 
@@ -109,7 +117,7 @@ def test_create_meta_pixels_timebins(flare_cpd):
         flare_cpd,
         time_range=time_range,
         energy_range=energy_range,
-        flare_location=STIXImaging(0 * u.arcsec, 0 * u.arcsec),
+        flare_location=SkyCoord(0 * u.arcsec, 0 * u.arcsec, frame=STIXImaging),
         no_shadowing=True,
     )
 
@@ -121,7 +129,7 @@ def test_create_meta_pixels_timebins(flare_cpd):
         flare_cpd,
         time_range=time_range,
         energy_range=energy_range,
-        flare_location=STIXImaging(0 * u.arcsec, 0 * u.arcsec),
+        flare_location=SkyCoord(0 * u.arcsec, 0 * u.arcsec, frame=STIXImaging),
         no_shadowing=True,
     )
 
@@ -133,7 +141,7 @@ def test_create_meta_pixels_timebins(flare_cpd):
         flare_cpd,
         time_range=time_range,
         energy_range=energy_range,
-        flare_location=STIXImaging(0 * u.arcsec, 0 * u.arcsec),
+        flare_location=SkyCoord(0 * u.arcsec, 0 * u.arcsec, frame=STIXImaging),
         no_shadowing=True,
     )
 
@@ -147,7 +155,7 @@ def test_create_meta_pixels_shadow(flare_cpd):
         flare_cpd,
         time_range=time_range,
         energy_range=energy_range,
-        flare_location=STIXImaging(0 * u.arcsec, 0 * u.arcsec),
+        flare_location=SkyCoord(0 * u.arcsec, 0 * u.arcsec, frame=STIXImaging),
         no_shadowing=False,
     )
 
@@ -176,3 +184,21 @@ def test_create_visibility(pix_set, real_comp):
     else:
         vis = create_visibility(fake_meta_pixels)
         assert_equal(np.real(vis[0].visibilities.value), real_comp)
+
+
+@pytest.mark.remote_data
+def test_calibrate_visibility(flare_cpd):
+    energy_range = [6, 12] * u.keV
+    time_range = [flare_cpd.times[0], flare_cpd.times[2]]
+    meta_pixels = create_meta_pixels(
+        flare_cpd,
+        time_range=time_range,
+        energy_range=energy_range,
+        no_shadowing=True,
+    )
+    vis = create_visibility(meta_pixels)
+    time_centre = time_range[0] + np.diff(time_range) / 2
+    obs = HeliographicStonyhurst(0 * u.deg, 0 * u.deg, 1 * u.AU, obstime=time_centre)
+    coord = SkyCoord(0 * u.deg, 0 * u.deg, frame=Helioprojective(obstime=time_centre, observer=obs))
+    cal_vis = calibrate_visibility(vis, flare_location=coord)
+    assert_quantity_allclose(cal_vis.meta["offset"].data.xyz, coord.transform_to(STIXImaging).data.xyz)

@@ -15,6 +15,7 @@ from stixpy.calibration.visibility import (
     get_uv_points_data,
 )
 from stixpy.coordinates.frames import STIXImaging
+from stixpy.io.readers import read_det_adc_mapping
 from stixpy.product import Product
 
 
@@ -40,6 +41,14 @@ def test_get_uv_points_data():
     assert uv_data["v"][0] == 0.005908224739704219 / u.arcsec
     assert uv_data["isc"][0] == 1
     assert uv_data["label"][0] == "3c"
+
+
+def test_get_read_det_adc_mapping():
+    det_map = np.array(read_det_adc_mapping()["Adc #"])
+    assert (
+        det_map
+        == [0, 0, 7, 7, 2, 1, 1, 6, 6, 5, 2, 3, 3, 4, 4, 5, 13, 12, 12, 11, 11, 10, 13, 14, 14, 9, 9, 10, 15, 15, 8, 8]
+    ).all()
 
 
 @pytest.mark.parametrize(

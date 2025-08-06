@@ -16,5 +16,6 @@ Reference
    science
    timeseries
    visualisation
+   instrument
 
    ../whatsnew/index

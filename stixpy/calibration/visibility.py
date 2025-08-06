@@ -15,9 +15,9 @@ from xrayvision.visibility import Visibilities, VisMeta
 from stixpy.calibration.energy import get_elut
 from stixpy.calibration.grid import get_grid_transmission
 from stixpy.calibration.livetime import get_livetime_fraction
+from stixpy.config.instrument import STIX_INSTRUMENT, _get_uv_points_data
 from stixpy.coordinates.frames import STIXImaging
 from stixpy.coordinates.transforms import get_hpc_info
-from stixpy.io.readers import read_subc_params
 from stixpy.product.sources import CompressedPixelData, RawPixelData, SummedCompressedPixelData
 
 __all__ = [
@@ -35,6 +35,37 @@ _PIXEL_SLICES = {
     "all": slice(None),
     "small": slice(8, None),
 }
+
+
+@u.quantity_input
+def get_uv_points_data(d_det: u.Quantity[u.mm] = 47.78 * u.mm, d_sep: u.Quantity[u.mm] = 545.30 * u.mm):
+    r"""
+    Return the STIX (u,v) points coordinates defined in [1], ordered with respect to the detector index.
+
+    It will return the precalculated cached data if the default values for `d_det` and `d_sep` are used.
+
+    Parameters
+    ----------
+    d_det: `u.Quantity[u.mm]` optional
+        Distance between the rear grid and the detector plane (in mm). Default, 47.78 * u.mm
+
+    d_sep: `u.Quantity[u.mm]` optional
+        Distance between the front and the rear grid (in mm). Default, 545.30 * u.mm
+
+    Returns
+    -------
+    A dictionary containing sub-collimator indices, sub-collimator labels and coordinates of the STIX (u,v) points (defined in arcsec :sup:`-1`)
+
+    References
+    ----------
+    [1] Massa et al., 2023, The STIX Imaging Concept, Solar Physics, 298,
+        https://doi.org/10.1007/s11207-023-02205-7
+
+    """
+    if d_det == 47.78 * u.mm and d_sep == 545.30 * u.mm:
+        # If the default values are used, return the cached data
+        return STIX_INSTRUMENT.vis_info
+    return _get_uv_points_data(d_det=d_det, d_sep=d_sep)
 
 
 def get_subcollimator_info():
@@ -161,11 +192,7 @@ def create_meta_pixels(
             f"please select a time interval where these are constant."
         )
 
-    # fmt: off
-    # For the moment copied from idl
-    trigger_to_detector = [0, 0, 7, 7, 2, 1, 1, 6, 6, 5, 2, 3, 3, 4, 4, 5, 13, 12,
-                           12, 11, 11, 10, 13, 14, 14, 9, 9, 10, 15, 15, 8, 8,]
-    # fmt: on
+    trigger_to_detector = STIX_INSTRUMENT.subcol_adc_mapping
 
     # Map the triggers to all 32 detectors
     triggers = pixel_data.data["triggers"][:, trigger_to_detector].astype(float)[...]
@@ -214,12 +241,7 @@ def create_meta_pixels(
     abcd_rate_kev = abcd_rate / e_bin
     abcd_rate_error_kev = abcd_rate_error / e_bin
 
-    # fmt: off
-    # Taken from IDL
-    pixel_areas = [0.096194997, 0.096194997, 0.096194997, 0.096194997, 0.096194997, 0.096194997,
-                   0.096194997, 0.096194997, 0.010009999, 0.010009999, 0.010009999, 0.010009999,] * u.cm**2
-    # fmt: on
-
+    pixel_areas = STIX_INSTRUMENT.pixel_config["Area"].to("cm2")
     areas = pixel_areas[idx_pix].reshape(-1, 4).sum(axis=0)
 
     meta_pixels = {
@@ -338,72 +360,7 @@ def create_visibility(meta_pixels):
     return vis
 
 
-@u.quantity_input
-def get_uv_points_data(d_det: u.Quantity[u.mm] = 47.78 * u.mm, d_sep: u.Quantity[u.mm] = 545.30 * u.mm):
-    r"""
-    Return the STIX (u,v) points coordinates defined in [1], ordered with respect to the detector index.
-
-    Parameters
-    ----------
-    d_det: `u.Quantity[u.mm]` optional
-        Distance between the rear grid and the detector plane (in mm). Default, 47.78 * u.mm
-
-    d_sep: `u.Quantity[u.mm]` optional
-        Distance between the front and the rear grid (in mm). Default, 545.30 * u.mm
-
-    Returns
-    -------
-    A dictionary containing sub-collimator indices, sub-collimator labels and coordinates of the STIX (u,v) points (defined in arcsec :sup:`-1`)
-
-    References
-    ----------
-    [1] Massa et al., 2023, The STIX Imaging Concept, Solar Physics, 298,
-        https://doi.org/10.1007/s11207-023-02205-7
-
-    """
-
-    subc = read_subc_params()
-    imaging_ind = np.where((subc["Grid Label"] != "cfl") & (subc["Grid Label"] != "bkg"))
-
-    # filter out background monitor and flare locator
-    subc_imaging = subc[imaging_ind]
-
-    # assign detector numbers to visibility index of subcollimator (isc)
-    isc = subc_imaging["Det #"]
-
-    # assign the stix sc label for convenience
-    label = subc_imaging["Grid Label"]
-
-    # save phase orientation of the grids to the visibility
-    phase_sense = subc_imaging["Phase Sense"]
-
-    # see Equation (9) in [1]
-    front_unit_vector_comp = (((d_det + d_sep) / subc_imaging["Front Pitch"]) / u.rad).to(1 / u.arcsec)
-    rear_unit_vector_comp = ((d_det / subc_imaging["Rear Pitch"]) / u.rad).to(1 / u.arcsec)
-
-    uu = (
-        np.cos(subc_imaging["Front Orient"].to("deg")) * front_unit_vector_comp
-        - np.cos(subc_imaging["Rear Orient"].to("deg")) * rear_unit_vector_comp
-    )
-    vv = (
-        np.sin(subc_imaging["Front Orient"].to("deg")) * front_unit_vector_comp
-        - np.sin(subc_imaging["Rear Orient"].to("deg")) * rear_unit_vector_comp
-    )
-
-    uu = -uu * phase_sense
-    vv = -vv * phase_sense
-
-    uv_data = {
-        "isc": isc,  # sub-collimator indices
-        "label": label,  # sub-collimator labels
-        "u": uu,
-        "v": vv,
-    }
-
-    return uv_data
-
-
-def calibrate_visibility(vis: Visibilities, flare_location: SkyCoord) -> Visibilities:
+def calibrate_visibility(vis: Visibilities, flare_location: SkyCoord = STIXImaging(0 * u.arcsec, 0 * u.arcsec)):
     """
     Calibrate visibility phase and amplitudes.
 

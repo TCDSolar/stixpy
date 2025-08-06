@@ -12,7 +12,6 @@ from stixpy.product import Product
 
 
 @pytest.fixture
-@pytest.mark.remote_data
 def flare_cpd():
     return Product(
         "https://pub099.cs.technik.fhnw.ch/fits/L1/2022/08/28/SCI/"
@@ -21,7 +20,6 @@ def flare_cpd():
 
 
 @pytest.fixture
-@pytest.mark.remote_data
 def background_cpd():
     return Product(
         "https://pub099.cs.technik.fhnw.ch/fits/L1/2022/08/24/SCI/"

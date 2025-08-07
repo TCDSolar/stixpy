@@ -1,0 +1,1 @@
+Fix bug in STIX Fido client which caused data that spanned midnight to be missed.

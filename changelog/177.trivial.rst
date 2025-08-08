@@ -1,0 +1,1 @@
+Update `~stixpy.net.client.STIXClient` Fido client to use format keyword and ``parse`` syntax, internal changes only.

@@ -70,18 +70,13 @@ class STIXClient(GenericClient):
     """
 
     baseurl = r"https://pub099.cs.technik.fhnw.ch/data/fits"
-    datapath = r"{level}/{year:4d}/{month:02d}/{day:02d}/{datatype}/"
-
-    ql_filename = r"solo_{level}_stix-{product}_[0-9]{{8}}_V.*.fits"
-    sci_filename = r"solo_{level}_stix-{product}_[0-9]{{8}}T[0-9]{{6}}-[0-9]{{8}}T[0-9]{{6}}_V.*.fits"
-
-    base_pattern = r"{}/{Level}/{year:4d}/{month:02d}/{day:02d}/{DataType}/"
-    ql_pattern = r"solo_{Level}_{descriptor}_{time}_{Ver}.fits"
-    sci_pattern = r"solo_{Level}_{descriptor}_{start}-{end}_{Ver}_{Request}-{tc}.fits"
+    base_pattern = r"/{Level}/{{year:4d}}/{{month:2d}}/{{day:2d}}/{DataType}/"
+    ql_pattern = r"solo_{Level}_{{descriptor}}_{{time}}_{{Ver}}.fits"
+    sci_pattern = r"solo_{Level}_{{descriptor}}_{{start}}-{{end}}_{{Ver}}_{{Request}}-{{tc}}.fits"
 
     required = {a.Time, a.Instrument}
 
-    def __init__(self, *, source="https://pub099.cs.technik.fhnw.ch/data/fits") -> None:
+    def __init__(self, *, source=None) -> None:
         """Creates a Fido client to search and download STIX data from the STIX instrument archive
 
         Parameters
@@ -90,7 +85,8 @@ class STIXClient(GenericClient):
             a url like path to alternative data source. You can provide a local filesystem path here. by default "https://pub099.cs.technik.fhnw.ch/data/fits/"
         """
         super().__init__()
-        self.baseurl = source + r"/{level}/{year:4d}/{month:02d}/{day:02d}/{datatype}/"
+        source = source if source else self.baseurl
+        self.pattern = source + self.base_pattern
 
     def search(self, *args, **kwargs) -> StixQueryResponse:
         """
@@ -108,6 +104,12 @@ class STIXClient(GenericClient):
         A `QueryResponse` instance containing the query result.
         """
         matchdict = self._get_match_dict(*args, **kwargs)
+
+        # Try to minimise requests by update possible type and product using the given attributes
+        types_from_product = set([prod.split("_")[0].casefold() for prod in matchdict["DataProduct"]])
+        datatypes = list(types_from_product.intersection([t.casefold() for t in matchdict["DataType"]]))
+        products = [prod for prod in matchdict["DataProduct"] if prod.split("_")[0].casefold() in datatypes]
+        matchdict.update({"DataType": datatypes, "DataProduct": products})
         levels = matchdict["Level"]
 
         versions = []
@@ -127,67 +129,56 @@ class STIXClient(GenericClient):
 
         metalist = []
 
-        for date in path_tr.get_dates():
-            year = date.datetime.year
-            month = date.datetime.month
-            day = date.datetime.day
-            for level in levels:
-                for datatype in matchdict["DataType"]:
-                    products = [p for p in matchdict["DataProduct"] if p.startswith(datatype.lower())]
-                    for product in products:
-                        if datatype.lower() == "ql" and product.startswith("ql"):
-                            url = self.baseurl + self.ql_filename
-                            pattern = self.base_pattern + self.ql_pattern
-                        if datatype.lower() == "hk" and product.startswith("hk"):
-                            url = self.baseurl + self.ql_filename
-                            pattern = self.base_pattern + self.ql_pattern
-                        elif datatype.lower() == "sci" and product.startswith("sci"):
-                            url = self.baseurl + self.sci_filename
-                            pattern = self.base_pattern + self.sci_pattern
-                        elif datatype.lower() == "cal" and product.startswith("cal"):
-                            url = self.baseurl + self.ql_filename
-                            pattern = self.base_pattern + self.ql_pattern
-                        elif datatype.lower() in ["asp"] and product.endswith("ephemeris"):
-                            url = self.baseurl + self.ql_filename
-                            pattern = self.base_pattern + self.ql_pattern
+        # for date in path_tr.get_dates():
+        for level in levels:
+            for datatype in matchdict["DataType"]:
+                if datatype.lower() == "sci":
+                    pattern = self.pattern + self.sci_pattern
+                else:
+                    pattern = self.pattern + self.ql_pattern
 
-                        url = url.format(
-                            level=level.upper(),
-                            year=year,
-                            month=month,
-                            day=day,
-                            datatype=datatype.upper(),
-                            product=product.replace("_", "-"),
-                        )
+                pattern = pattern.format(
+                    Level=level.upper(),
+                    DataType=datatype.upper(),
+                )
+                pattern = pattern.replace(r"{", r"{{").replace(r"}", r"}}")
+                scraper = Scraper(format=pattern)
+                try:
+                    filesmeta = scraper._extract_files_meta(path_tr)
 
-                        scraper = Scraper(url, regex=True)
-                        try:
-                            filesmeta = scraper._extract_files_meta(path_tr, extractor=pattern)
+                    products = [p.replace("_", "-") for p in matchdict["DataProduct"] if p.startswith(datatype.lower())]
+                    if len(products) > 0:
+                        for meta in filesmeta:
+                            current_matchdict = {
+                                **matchdict,
+                                **{"DataType": [datatype], "DataProduct": products, "Level": [level]},
+                            }
+                            rowdict = self.post_search_hook(meta, current_matchdict)
 
-                            for i in filesmeta:
-                                rowdict = self.post_search_hook(i, matchdict)
-
-                                versionTest = True
-                                for versionAttr in versions:
-                                    versionTest &= versionAttr.matches(rowdict["Ver"])
-                                    if not versionTest:
-                                        break
+                            versionTest = True
+                            for versionAttr in versions:
+                                versionTest &= versionAttr.matches(rowdict["Ver"])
                                 if not versionTest:
-                                    continue
+                                    break
+                            if not versionTest:
+                                continue
 
-                                file_tr = rowdict.pop("tr", TimeRange(rowdict["Start Time"], rowdict["End Time"]))
-                                # 4 cases file time full in, fully our start in or end in
-                                if file_tr.start >= tr.start and file_tr.end <= tr.end:
-                                    metalist.append(rowdict)
-                                elif tr.start <= file_tr.start and tr.end >= file_tr.end:
-                                    metalist.append(rowdict)
-                                elif file_tr.start <= tr.start <= file_tr.end:
-                                    metalist.append(rowdict)
-                                elif file_tr.start <= tr.end <= file_tr.end:
-                                    metalist.append(rowdict)
+                            if rowdict["DataProduct"].replace("-", "_") not in matchdict["DataProduct"]:
+                                continue
 
-                        except FileNotFoundError:
-                            continue
+                            file_tr = rowdict.pop("tr", TimeRange(rowdict["Start Time"], rowdict["End Time"]))
+                            # 4 cases file time full in, fully our start in or end in
+                            if file_tr.start >= tr.start and file_tr.end <= tr.end:
+                                metalist.append(rowdict)
+                            elif tr.start <= file_tr.start and tr.end >= file_tr.end:
+                                metalist.append(rowdict)
+                            elif file_tr.start <= tr.start <= file_tr.end:
+                                metalist.append(rowdict)
+                            elif file_tr.start <= tr.end <= file_tr.end:
+                                metalist.append(rowdict)
+
+                except FileNotFoundError:
+                    continue
         return StixQueryResponse(metalist, client=self)
 
     @classmethod
@@ -219,8 +210,8 @@ class STIXClient(GenericClient):
             te = rowdict.pop("end")
             tr = TimeRange(ts, te)
             rowdict["tr"] = tr
-            rowdict["Start Time"] = tr.start.iso
-            rowdict["End Time"] = tr.end.iso
+            rowdict["Start Time"] = tr.start
+            rowdict["End Time"] = tr.end
             rowdict.pop("tc")
             rowdict.pop("Request")
         else:
@@ -267,7 +258,7 @@ class STIXClient(GenericClient):
                 ("sci_xray_scpd", "Summed Compressed Pixel Data"),
                 ("sci_xray_vis", "Visibilities"),
                 ("sci_xray_spec", "Spectrogram"),
-                ("asp-ephemeris", "Aspect Solution and Ephemeris data"),
+                ("asp_ephemeris", "Aspect Solution and Ephemeris data"),
             ],
         }
         return adict

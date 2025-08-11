@@ -1,3 +1,4 @@
+import numpy as np
 from astropy.time import Time
 
 __all__ = ["BaseProduct", "GenericProduct", "LevelBinary", "L1Product", "Level2"]
@@ -85,14 +86,14 @@ class L1Product(GenericProduct):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        meta = kwargs["meta"]
-        data = kwargs["data"]
 
-        # TODO don't change the data add new property or similar
+    @property
+    def time(self):
         try:
-            data["time"] = Time(meta["date-obs"]) + data["time"]
+            time = Time(self.meta["date-obs"]) + np.atleast_1d(self.data["time"])
         except KeyError:
-            data["time"] = Time(meta["date_obs"]) + data["time"]
+            time = Time(self.meta["date_obs"]) + np.atleast_1d(self.data["time"])
+        return time
 
 
 class Level2(GenericProduct):
@@ -105,5 +106,5 @@ class Level2(GenericProduct):
     def is_datasource_for(cls, *, meta, **kwargs):
         """Determines if meta data meach Raw Pixel Data"""
         level = meta["level"]
-        if level == "LB":
+        if level == "L2":
             return True

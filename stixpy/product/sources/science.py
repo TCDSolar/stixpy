@@ -41,7 +41,7 @@ quantity_support()
 
 
 SubCollimatorConfig = read_subc_params(
-    Path(read_subc_params.__code__.co_filename).parent / "data" / "common" / "detector" / "stx_subc_params.csv"
+    Path(__file__).parent.parent.parent / "config" / "data" / "detector" / "stx_subc_params.csv"
 )
 
 
@@ -400,6 +400,17 @@ class PixelPlotMixin:
         axes_font = {"weight": "regular", "size": 7}
         quadrant_font = {"weight": "regular", "size": 15}
 
+        # pad counts back to have 12 pixels
+        unit = counts.unit
+        counts_pad = np.full((*counts.shape[:2], 12, counts.shape[-1]), np.nan)
+        counts_pad[..., self.pixel_masks.masks.astype(bool).flatten(), :] = counts
+
+        count_err_pad = np.full((*counts.shape[:2], 12, counts.shape[-1]), np.nan)
+        count_err_pad[..., self.pixel_masks.masks.astype(bool).flatten(), :] = count_err
+
+        counts = counts_pad << unit
+        count_err = count_err_pad << unit
+
         if cmap is None:
             clrmap = copy.copy(cm.get_cmap("viridis"))
             clrmap.set_over("w")
@@ -731,7 +742,7 @@ class PixelPlotMixin:
 
             for did in range(32):
                 r, c = divmod(did, 8)
-                axes[r, c].set_ylim(0, counts[time_index, imaging_mask, :, energy_index].max() * 1.2)
+                axes[r, c].set_ylim(0, np.nanmax(counts[time_index, imaging_mask, :, energy_index]) * 1.2)
 
                 for i, pid in enumerate(pids_):
                     lines, caps, bars = containers[r, c][0][i]
@@ -739,25 +750,25 @@ class PixelPlotMixin:
 
                     # horizontal bars at value
                     segs = np.array(bars[0].get_segments())
-                    segs[:, 0, 0] = [0.0, 1.0, 2.0, 3.0]
-                    segs[:, 1, 0] = [1.0, 2.0, 3.0, 4.0]
-                    segs[:, 0, 1] = counts[time_index, did, pid, energy_index]
-                    segs[:, 1, 1] = counts[time_index, did, pid, energy_index]
-                    bars[0].set_segments(segs)
-                    # vertical bars at +/- error
-                    segs = np.array(bars[1].get_segments())
-                    segs[:, 0, 0] = [0.5, 1.5, 2.5, 3.5]
-                    segs[:, 1, 0] = [0.5, 1.5, 2.5, 3.5]
-                    segs[:, 0, 1] = (
-                        counts[time_index, did, pid, energy_index] - count_err[time_index, did, pid, energy_index]
-                    )
-                    segs[:, 1, 1] = (
-                        counts[time_index, did, pid, energy_index] + count_err[time_index, did, pid, energy_index]
-                    )
-                    bars[1].set_segments(segs)
+                    if segs.size > 0:
+                        segs[:, 0, 0] = [0.0, 1.0, 2.0, 3.0]
+                        segs[:, 1, 0] = [1.0, 2.0, 3.0, 4.0]
+                        segs[:, 0, 1] = counts[time_index, did, pid, energy_index]
+                        segs[:, 1, 1] = counts[time_index, did, pid, energy_index]
+                        bars[0].set_segments(segs)
+                        # vertical bars at +/- error
+                        segs = np.array(bars[1].get_segments())
+                        segs[:, 0, 0] = [0.5, 1.5, 2.5, 3.5]
+                        segs[:, 1, 0] = [0.5, 1.5, 2.5, 3.5]
+                        segs[:, 0, 1] = (
+                            counts[time_index, did, pid, energy_index] - count_err[time_index, did, pid, energy_index]
+                        )
+                        segs[:, 1, 1] = (
+                            counts[time_index, did, pid, energy_index] + count_err[time_index, did, pid, energy_index]
+                        )
+                        bars[1].set_segments(segs)
 
         update_function = update_pixels
-
         if kind == "config":
             update_function = update_void
         elif kind == "errorbar":

@@ -85,50 +85,48 @@ class ANCAspect(GenericTimeSeries):
             The plot axes.
         """
 
-        import matplotlib.pyplot as plt
-        import numpy as np
-        from sunpy.net import attrs as a
-
         if columns is None:
             columns = ["y_srf", "z_srf"]
             axes, columns = self._setup_axes_columns(axes, columns)
 
-            sas_ok_values = self.data["sas_ok"]
-            has_false = np.any(~sas_ok_values)
+            sas_ok_values = self.data["sas_ok"].values
 
-            if has_false:
-                # copy data to destroy reference and keep original data
-                y_srf_cp_t = self.to_dataframe()["y_srf"].copy().to_numpy()
-                z_srf_cp_t = self.to_dataframe()["z_srf"].copy().to_numpy()
-                # overwrite False data with nan such that there is a break in the plot when results are invalid
-                y_srf_cp_t[self.data["sas_ok"] == False] = np.nan  # noqa:  E712
-                z_srf_cp_t[self.data["sas_ok"] == False] = np.nan  # noqa:  E712
+            # plot graphs where sas_ok is True with a solid line
+            a = axes.plot(
+                self._data.index[sas_ok_values],
+                self._data["y_srf"][sas_ok_values],
+                linestyle="solid",
+                label="sun y = valid",
+                **plot_args,
+            )
+            b = axes.plot(
+                self._data.index[sas_ok_values],
+                self._data["z_srf"][sas_ok_values],
+                linestyle="solid",
+                label="sun z = valid",
+                **plot_args,
+            )
 
-                # copy data to destroy reference and keep original data
-                y_srf_cp_f = self.to_dataframe()["y_srf"].copy().to_numpy()
-                z_srf_cp_f = self.to_dataframe()["z_srf"].copy().to_numpy()
-                # overwrite True data with nan such that there is a break in the plot when results are valid
-                y_srf_cp_f[self.data["sas_ok"] == True] = np.nan  # noqa:  E712
-                z_srf_cp_f[self.data["sas_ok"] == True] = np.nan  # noqa:  E712
+            a = a[0].get_color()
+            b = b[0].get_color()
 
-                # plot graphs where sas_ok is True with a solid line
-                a = axes.plot(self._data.index, y_srf_cp_t, linestyle="solid", label="sun y = valid", **plot_args)
-                b = axes.plot(self._data.index, z_srf_cp_t, linestyle="solid", label="sun z = valid", **plot_args)
-
-                a = a[0].get_color()
-                b = b[0].get_color()
-
-                # plot graphs where sas_ok is False with a dashed line
-                axes.plot(
-                    self._data.index, y_srf_cp_f, linestyle="dashed", color=a, label="sun y = invalid", **plot_args
-                )
-                axes.plot(
-                    self._data.index, z_srf_cp_f, linestyle="dashed", color=b, label="sun z = invalid", **plot_args
-                )
-
-            else:
-                axes = self._data[columns].plot(ax=axes, **plot_args)
-
+            # plot graphs where sas_ok is False with a dashed line
+            axes.plot(
+                self._data.index[~sas_ok_values],
+                self._data["y_srf"][~sas_ok_values],
+                linestyle="dashed",
+                color=a,
+                label="sun y = invalid",
+                **plot_args,
+            )
+            axes.plot(
+                self._data.index[~sas_ok_values],
+                self._data["z_srf"][~sas_ok_values],
+                linestyle="dashed",
+                color=b,
+                label="sun z = invalid",
+                **plot_args,
+            )
         else:
             axes, columns = self._setup_axes_columns(axes, columns)
             axes = self.data[columns].plot(ax=axes, **plot_args)
@@ -143,7 +141,7 @@ class ANCAspect(GenericTimeSeries):
         axes.set_title("STIX Aspect solutions")
         axes.legend()
         self._setup_x_axis(axes)
-        plt.xlabel("UTC")
+        axes.set_xlabel("UTC")
         return axes
 
     @classmethod

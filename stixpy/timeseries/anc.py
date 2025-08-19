@@ -1,4 +1,3 @@
-import re
 from collections import OrderedDict
 
 import astropy.units as u
@@ -9,9 +8,9 @@ from astropy.table import QTable
 from astropy.time.core import Time, TimeDelta
 from sunpy.timeseries.timeseriesbase import GenericTimeSeries
 
-from stixpy.calibration.livetime import get_livetime_fraction
-
-__all__ = ["ANCAspect", ]
+__all__ = [
+    "ANCAspect",
+]
 
 
 def _hdu_to_qtable(hdupair):
@@ -50,7 +49,7 @@ class ANCAspect(GenericTimeSeries):
     >>> import stixpy.timeseries
     >>> asp = TimeSeries("https://pub099.cs.technik.fhnw.ch/data/fits/ANC/2022/03/14/ASP/solo_ANC_stix-asp-ephemeris_20220314_V02.fits") # doctest: +REMOTE_DATA
     >>> asp # doctest: +SKIP
-    
+
     ANCAspect
         <sunpy.time.timerange.TimeRange object at 0x2b3d0a96890>
         Start: 2022-03-14 00:00:23
@@ -85,63 +84,62 @@ class ANCAspect(GenericTimeSeries):
         axes : `~matplotlib.axes.Axes`
             The plot axes.
         """
-        
+
         import matplotlib.pyplot as plt
         import numpy as np
         from sunpy.net import attrs as a
-        
+
         if columns is None:
-            columns = ['y_srf', 'z_srf']
-            
-            axes, columns = self._setup_axes_columns(axes, columns)  
-            
-            pam = self.data['sas_ok']
-            
-            sas_ok_values = self.data['sas_ok']
-            
-            has_false = (sas_ok_values == False).any()
-            
+            columns = ["y_srf", "z_srf"]
+            axes, columns = self._setup_axes_columns(axes, columns)
+
+            sas_ok_values = self.data["sas_ok"]
+            has_false = np.any(~sas_ok_values)
+
             if has_false:
-                
-                # copy data to destroy reference and keep original data 
-                y_srf_cp_t = self.to_dataframe()['y_srf'].copy().to_numpy()
-                z_srf_cp_t = self.to_dataframe()['z_srf'].copy().to_numpy()
+                # copy data to destroy reference and keep original data
+                y_srf_cp_t = self.to_dataframe()["y_srf"].copy().to_numpy()
+                z_srf_cp_t = self.to_dataframe()["z_srf"].copy().to_numpy()
                 # overwrite False data with nan such that there is a break in the plot when results are invalid
-                y_srf_cp_t[self.data['sas_ok']==False] = np.nan
-                z_srf_cp_t[self.data['sas_ok']==False] = np.nan
+                y_srf_cp_t[self.data["sas_ok"] == False] = np.nan  # noqa:  E712
+                z_srf_cp_t[self.data["sas_ok"] == False] = np.nan  # noqa:  E712
 
                 # copy data to destroy reference and keep original data
-                y_srf_cp_f = self.to_dataframe()['y_srf'].copy().to_numpy()
-                z_srf_cp_f = self.to_dataframe()['z_srf'].copy().to_numpy()   
+                y_srf_cp_f = self.to_dataframe()["y_srf"].copy().to_numpy()
+                z_srf_cp_f = self.to_dataframe()["z_srf"].copy().to_numpy()
                 # overwrite True data with nan such that there is a break in the plot when results are valid
-                y_srf_cp_f[self.data['sas_ok']==True] = np.nan
-                z_srf_cp_f[self.data['sas_ok']==True] = np.nan           
-                
+                y_srf_cp_f[self.data["sas_ok"] == True] = np.nan  # noqa:  E712
+                z_srf_cp_f[self.data["sas_ok"] == True] = np.nan  # noqa:  E712
+
                 # plot graphs where sas_ok is True with a solid line
-                a = axes.plot(self._data.index, y_srf_cp_t, linestyle='solid', label=f'sun y = valid', **plot_args)
-                b = axes.plot(self._data.index, z_srf_cp_t, linestyle='solid', label=f'sun z = valid', **plot_args)
-            
+                a = axes.plot(self._data.index, y_srf_cp_t, linestyle="solid", label="sun y = valid", **plot_args)
+                b = axes.plot(self._data.index, z_srf_cp_t, linestyle="solid", label="sun z = valid", **plot_args)
+
                 a = a[0].get_color()
                 b = b[0].get_color()
-                
+
                 # plot graphs where sas_ok is False with a dashed line
-                axes.plot(self._data.index, y_srf_cp_f, linestyle='dashed', color=a, label=f'sun y = invalid', **plot_args)
-                axes.plot(self._data.index, z_srf_cp_f, linestyle='dashed', color=b, label=f'sun z = invalid', **plot_args)
-                
-            else: 
+                axes.plot(
+                    self._data.index, y_srf_cp_f, linestyle="dashed", color=a, label="sun y = invalid", **plot_args
+                )
+                axes.plot(
+                    self._data.index, z_srf_cp_f, linestyle="dashed", color=b, label="sun z = invalid", **plot_args
+                )
+
+            else:
                 axes = self._data[columns].plot(ax=axes, **plot_args)
 
         else:
             axes, columns = self._setup_axes_columns(axes, columns)
             axes = self.data[columns].plot(ax=axes, **plot_args)
-        
+
         units = set([self.units[col] for col in columns])
         if len(units) == 1 and list(units)[0] is not None:
             # If units of all columns being plotted are the same, add a unit
             # label to the y-axis.
             unit = u.Unit(list(units)[0])
             axes.set_ylabel(unit.to_string())
-            
+
         axes.set_title("STIX Aspect solutions")
         axes.legend()
         self._setup_x_axis(axes)
@@ -204,5 +202,4 @@ class ANCAspect(GenericTimeSeries):
             return kwargs["meta"].get("telescop", "") == "SOLO/STIX" and "asp-ephemeris" in kwargs["meta"]["filename"]
 
     def __repr__(self):
-        return f"{self.__class__.__name__}\n" f"    {self.time_range}"
- 
+        return f"{self.__class__.__name__}\n    {self.time_range}"

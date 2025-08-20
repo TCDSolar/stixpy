@@ -1,6 +1,7 @@
 from collections import OrderedDict
 
 import astropy.units as u
+import numpy as np
 from astropy.io import fits
 from astropy.io.fits import BinTableHDU, Header
 from astropy.io.fits.connect import read_table_fits
@@ -93,17 +94,17 @@ class ANCAspect(GenericTimeSeries):
 
             # plot graphs where sas_ok is True with a solid line
             a = axes.plot(
-                self._data.index[sas_ok_values],
-                self._data["y_srf"][sas_ok_values],
+                self._data.index,
+                np.where(sas_ok_values, self._data["y_srf"], np.nan),
                 linestyle="solid",
-                label="sun y = valid",
+                label="y_srf",
                 **plot_args,
             )
             b = axes.plot(
-                self._data.index[sas_ok_values],
-                self._data["z_srf"][sas_ok_values],
+                self._data.index,
+                np.where(sas_ok_values, self._data["z_srf"], np.nan),
                 linestyle="solid",
-                label="sun z = valid",
+                label="z_srf",
                 **plot_args,
             )
 
@@ -112,20 +113,24 @@ class ANCAspect(GenericTimeSeries):
 
             # plot graphs where sas_ok is False with a dashed line
             axes.plot(
-                self._data.index[~sas_ok_values],
-                self._data["y_srf"][~sas_ok_values],
+                self._data.index,
+                np.where(~sas_ok_values, self._data["y_srf"], np.nan),
                 linestyle="dashed",
                 color=a,
-                label="sun y = invalid",
+                label="y_srf (invalid)",
                 **plot_args,
             )
             axes.plot(
-                self._data.index[~sas_ok_values],
-                self._data["z_srf"][~sas_ok_values],
+                self._data.index,
+                np.where(~sas_ok_values, self._data["z_srf"], np.nan),
                 linestyle="dashed",
                 color=b,
-                label="sun z = invalid",
+                label="z_srf (invalid)",
                 **plot_args,
+            )
+            axes.set_ylim(
+                np.min([self._data["y_srf"][sas_ok_values], self._data["z_srf"][sas_ok_values]]) * 1.1,
+                np.max([self._data["y_srf"][sas_ok_values], self._data["z_srf"][sas_ok_values]]) * 1.1,
             )
         else:
             axes, columns = self._setup_axes_columns(axes, columns)
@@ -138,7 +143,7 @@ class ANCAspect(GenericTimeSeries):
             unit = u.Unit(list(units)[0])
             axes.set_ylabel(unit.to_string())
 
-        axes.set_title("STIX Aspect solutions")
+        axes.set_title("STIX Aspect Solutions")
         axes.legend()
         self._setup_x_axis(axes)
         axes.set_xlabel("UTC")

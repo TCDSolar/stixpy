@@ -1,1 +1,1 @@
-Add new timeseries source for STIX ANX aspect data ~`stixpy.timeseries.anc.ANCAspect`.
+Add new timeseries source for STIX ANC aspect data ~`stixpy.timeseries.anc.ANCAspect`.

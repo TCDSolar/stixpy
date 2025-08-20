@@ -39,9 +39,14 @@ def _hdu_to_qtable(hdupair):
 
 class ANCAspect(GenericTimeSeries):
     r"""
-    Aspect solution time series
+    STIX pointing and ephemeris data
 
-    tbd
+    The pointing is derived from aspect data in daily housekeeping.
+
+    Notes
+    -----
+    Invalid aspect solution are possible, use this data cautation. Two of the main reasons for invalid solutions are
+    significant off-pointing and too far from the Sun.
 
     Examples
     --------
@@ -49,10 +54,9 @@ class ANCAspect(GenericTimeSeries):
     >>> from sunpy.timeseries import TimeSeries
     >>> import stixpy.timeseries
     >>> asp = TimeSeries("https://pub099.cs.technik.fhnw.ch/data/fits/ANC/2022/03/14/ASP/solo_ANC_stix-asp-ephemeris_20220314_V02.fits") # doctest: +REMOTE_DATA
-    >>> asp # doctest: +SKIP
-
+    >>> asp  # doctest: +REMOTE_DATA
     ANCAspect
-        <sunpy.time.timerange.TimeRange object at 0x2b3d0a96890>
+        <sunpy.time.timerange.TimeRange object at ...
         Start: 2022-03-14 00:00:23
         End:   2022-03-14 23:59:18
         Center:2022-03-14 11:59:51

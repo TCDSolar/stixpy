@@ -1,0 +1,1 @@
+Add enhanced pixel plot ~`stixpy.product.sources.science.PixelPlotMixin` improved layout now shows detector quadrant and labels. Pixel plots now support three options a normal bar plot an error bar plot and configuration plot.

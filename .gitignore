@@ -159,3 +159,4 @@ sg_execution_times.rst
 
 # stixpy
 stixpy/data/*.fits
+.vscode/*

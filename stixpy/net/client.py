@@ -1,4 +1,6 @@
+import astropy.units as u
 import numpy as np
+from astropy.time import Time
 from sunpy.net import attrs as a
 from sunpy.net.attr import SimpleAttr
 from sunpy.net.dataretriever import GenericClient
@@ -114,9 +116,18 @@ class STIXClient(GenericClient):
                 for version in matchdict[versionAttrType.__name__]:
                     versions.append(versionAttrType(int(version)))
 
-        metalist = []
         tr = TimeRange(matchdict["Start Time"], matchdict["End Time"])
-        for date in tr.get_dates():
+
+        # Because of the way the data is organised on the server products which start on one day but end on the next
+        # will only be present in the "path" for the start date the longest request we practically make are ~6 hours
+        # so need to extend the paths we search by ~6 hours but not alter the actual request search range
+        path_tr = TimeRange(matchdict["Start Time"], matchdict["End Time"])
+        if "sci" in (t.casefold() for t in matchdict["DataType"]):
+            path_tr = TimeRange(Time(matchdict["Start Time"]) - 6.5 * u.h, matchdict["End Time"])
+
+        metalist = []
+
+        for date in path_tr.get_dates():
             year = date.datetime.year
             month = date.datetime.month
             day = date.datetime.day
@@ -151,7 +162,7 @@ class STIXClient(GenericClient):
 
                         scraper = Scraper(url, regex=True)
                         try:
-                            filesmeta = scraper._extract_files_meta(tr, extractor=pattern)
+                            filesmeta = scraper._extract_files_meta(path_tr, extractor=pattern)
 
                             for i in filesmeta:
                                 rowdict = self.post_search_hook(i, matchdict)
@@ -164,19 +175,17 @@ class STIXClient(GenericClient):
                                 if not versionTest:
                                     continue
 
-                                file_tr = rowdict.pop("tr", None)
-                                if file_tr is not None:
-                                    # 4 cases file time full in, fully our start in or end in
-                                    if file_tr.start >= tr.start and file_tr.end <= tr.end:
-                                        metalist.append(rowdict)
-                                    elif tr.start <= file_tr.start and tr.end >= file_tr.end:
-                                        metalist.append(rowdict)
-                                    elif file_tr.start <= tr.start <= file_tr.end:
-                                        metalist.append(rowdict)
-                                    elif file_tr.start <= tr.end <= file_tr.end:
-                                        metalist.append(rowdict)
-                                else:
+                                file_tr = rowdict.pop("tr", TimeRange(rowdict["Start Time"], rowdict["End Time"]))
+                                # 4 cases file time full in, fully our start in or end in
+                                if file_tr.start >= tr.start and file_tr.end <= tr.end:
                                     metalist.append(rowdict)
+                                elif tr.start <= file_tr.start and tr.end >= file_tr.end:
+                                    metalist.append(rowdict)
+                                elif file_tr.start <= tr.start <= file_tr.end:
+                                    metalist.append(rowdict)
+                                elif file_tr.start <= tr.end <= file_tr.end:
+                                    metalist.append(rowdict)
+
                         except FileNotFoundError:
                             continue
         return StixQueryResponse(metalist, client=self)

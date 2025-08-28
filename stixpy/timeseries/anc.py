@@ -132,10 +132,6 @@ class ANCAspect(GenericTimeSeries):
                 label="z_srf (invalid)",
                 **plot_args,
             )
-            axes.set_ylim(
-                np.min([self._data["y_srf"][sas_ok_values], self._data["z_srf"][sas_ok_values]]) * 1.1,
-                np.max([self._data["y_srf"][sas_ok_values], self._data["z_srf"][sas_ok_values]]) * 1.1,
-            )
         else:
             axes, columns = self._setup_axes_columns(axes, columns)
             axes = self.data[columns].plot(ax=axes, **plot_args)

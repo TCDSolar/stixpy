@@ -1,0 +1,1 @@
+Created new `stixpy.visualisation.plotters.PixelPlotter` class to create pixel plots move and refactored code from current mixin. This new approach now allows easy animations.

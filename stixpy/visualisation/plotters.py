@@ -6,7 +6,7 @@ import numpy as np
 from matplotlib import cm
 from matplotlib import pyplot as plt
 from matplotlib.colors import LogNorm, Normalize
-from matplotlib.patches import Circle
+from matplotlib.patches import Circle, Patch
 from matplotlib.widgets import Slider
 
 from stixpy.io.readers import read_subc_params
@@ -303,8 +303,65 @@ class PixelPlotter:
 
     def _det_config_plot(self, detector_config, axes, detector_id):
         """Shows a plot with detector configurations."""
-        # ... (config plot logic remains the same) ...
-        return None  # Config plot does not need updating
+
+        # Create Functions to convert 'Front' and 'Rear Orient'.
+        def mm2deg(x):
+            return x * 360.0 / 1
+
+        def deg2mm(x):
+            return x / 360.0 * 1
+
+        # get the information that will be plotted
+        if detector_config["Phase Sense"] > 0:
+            phase_sense = "+"
+        elif detector_config["Phase Sense"] < 0:
+            phase_sense = "-"
+        else:
+            phase_sense = "n"
+
+        y = [
+            detector_config["Slit Width"],
+            detector_config["Front Pitch"],
+            detector_config["Rear Pitch"],
+            0,
+            deg2mm(detector_config["Front Orient"]),
+            deg2mm(detector_config["Rear Orient"]),
+        ]
+
+        x = np.arange(len(y))
+        color = ["black", "orange", "#1f77b4", "b", "orange", "#1f77b4"]
+
+        # plot the information on axes
+        axes.bar(x, y, color=color)
+        axes.text(x=0.8, y=0.7, s=f"Phase: {phase_sense}", **self.axes_font)
+        axes.set_ylim(0, 1)
+        axes.axes.get_xaxis().set_visible(False)
+
+        # Create secondary y axis
+        ax2 = axes.secondary_yaxis("right", functions=(mm2deg, deg2mm))
+        ax2.set_yticks([0, 90, 270, 360])
+        ax2.set_yticklabels(["0°", "90°", "270°", "360°"], fontsize=8)
+        ax2.set_visible(False)
+        axes.axes.get_yaxis().set_visible(False)
+
+        # Create axes labeling and legend
+        if detector_id == 0:
+            axes.set_yticks([0, 1])
+            axes.set_ylabel("mm", **self.axes_font)
+            axes.yaxis.set_label_coords(-0.1, 0.5)
+            axes.axes.get_yaxis().set_visible(True)
+            legend_bars = [Patch(facecolor="orange"), Patch(facecolor="#1f77b4")]
+            axes.legend(legend_bars, ["Front", "Rear"], loc="center right", bbox_to_anchor=(0, 2.5))
+        if detector_id == 31:
+            ax2.set_visible(True)
+            axes.axes.get_xaxis().set_visible(True)
+            axes.set_xticks([0, 1.5, 4.5])
+            axes.set_xticklabels(["Slit Width", "Pitch", "Orientation"], rotation=90)
+            # leave the spaces to set the correct x position of the label!
+            ax2.set_ylabel("               deg °", rotation=0, **self.axes_font)
+            # x parameter doesn't change anything because it's a secondary
+            # y axis (has only 1 x position).
+            ax2.yaxis.set_label_coords(x=1, y=0.55)
 
     def _create_hover_tooltip(self, axes, artists_list, last):
         """Creates and manages the hover annotation for a subplot."""

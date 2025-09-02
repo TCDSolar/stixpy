@@ -392,21 +392,26 @@ class PixelPlotMixin:
         imaging_mask = np.ones(32, bool)
         imaging_mask[8:10] = False
 
-        max_counts = counts[:, imaging_mask, :, :].max().value
-        min_counts = counts[:, imaging_mask, :, :].min().value
+        max_counts = counts[counts.value > 0].max().value
+        min_counts = counts[counts.value > 0].min().value
 
-        norm = plt.Normalize(min_counts, max_counts)  # Needed to select the color values for the pixels plot.
+        norm = LogNorm(min_counts, max_counts)  # Needed to select the color values for the pixels plot.
         det_font = {"weight": "regular", "size": 8}
         axes_font = {"weight": "regular", "size": 7}
         quadrant_font = {"weight": "regular", "size": 15}
 
-        # pad counts back to have 12 pixels
         unit = counts.unit
-        counts_pad = np.full((*counts.shape[:2], 12, counts.shape[-1]), np.nan)
-        counts_pad[..., self.pixel_masks.masks.astype(bool).flatten(), :] = counts
+        # pad counts back to have 32 detectors and 12 pixels
+        full_shape = (counts.shape[0], 32, 12, counts.shape[-1])
+        counts_pad = np.full(full_shape, np.nan)
+        count_err_pad = np.full(full_shape, np.nan)
 
-        count_err_pad = np.full((*counts.shape[:2], 12, counts.shape[-1]), np.nan)
-        count_err_pad[..., self.pixel_masks.masks.astype(bool).flatten(), :] = count_err
+        # put real count back into padded array
+        dmask = self.detector_masks.masks[0].astype(bool)
+        largest_pmask = self.pixel_masks.masks.astype(bool)[self.pixel_masks.masks.astype(bool).sum(axis=1).argmax()]
+        indices = (slice(None), *np.ix_(dmask, largest_pmask))
+        counts_pad[indices] = counts
+        count_err_pad[indices] = count_err
 
         counts = counts_pad << unit
         count_err = count_err_pad << unit
@@ -742,7 +747,7 @@ class PixelPlotMixin:
 
             for did in range(32):
                 r, c = divmod(did, 8)
-                axes[r, c].set_ylim(0, np.nanmax(counts[time_index, imaging_mask, :, energy_index]) * 1.2)
+                axes[r, c].set_ylim(0, np.nanmax(counts[time_index, :, :, energy_index]) * 1.2)
 
                 for i, pid in enumerate(pids_):
                     lines, caps, bars = containers[r, c][0][i]

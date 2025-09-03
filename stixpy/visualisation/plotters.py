@@ -5,7 +5,7 @@ from collections import defaultdict
 import numpy as np
 from matplotlib import cm
 from matplotlib import pyplot as plt
-from matplotlib.colors import LogNorm, Normalize
+from matplotlib.colors import Normalize
 from matplotlib.patches import Circle, Patch
 from matplotlib.widgets import Slider
 
@@ -49,8 +49,7 @@ class PixelPlotter:
 
     Returns
     -------
-    axes : `matplotlib.axes.Axes`
-
+    `tuple[matplotlib.figure.Figure,matplotlib.axes.Axes]`
     """
 
     def __init__(self, prod, time_indices=None, energy_indices=None):
@@ -92,7 +91,7 @@ class PixelPlotter:
         if fig is None:
             fig, axes = plt.subplots(nrows=4, ncols=8, sharex=True, sharey=True, figsize=(7, 7))
         else:
-            fig, axes = fig.subplots(nrows=4, ncols=8, sharex=True, sharey=True, figsize=(7, 7))
+            axes = fig.subplots(nrows=4, ncols=8, sharex=True, sharey=True)
 
         self.fig = fig
         self.axes = axes
@@ -108,14 +107,15 @@ class PixelPlotter:
         """Sets up normalization, colormaps, and fonts."""
         max_counts = self.counts[self.counts.value > 0].max().value
         min_counts = self.counts[self.counts.value > 0].min().value
-        self.norm = LogNorm(min_counts, max_counts)
+        self.norm = Normalize(min_counts, max_counts)
         self.det_font = {"weight": "regular", "size": 8}
         self.axes_font = {"weight": "regular", "size": 7}
         self.quadrant_font = {"weight": "regular", "size": 15}
 
         if cmap is None:
             self.clrmap = copy.copy(cm.get_cmap("viridis"))
-            self.clrmap.set_over("w")
+            self.clrmap.set_bad("gray")
+            self.clrmap.set_under("white")
         elif isinstance(cmap, str):
             self.clrmap = copy.copy(cm.get_cmap(cmap))
         else:
@@ -257,10 +257,10 @@ class PixelPlotter:
         counts = counts.reshape(3, 4)
 
         top = axes.bar(
-            x_pos, bar1, color=self.clrmap(self.norm(counts[0, :])), width=1, zorder=1, edgecolor="w", linewidth=0.5
+            x_pos, bar1, color=self.clrmap(self.norm(counts[0, :])), width=1, zorder=1, edgecolor="k", linewidth=0.5
         )
         bottom = axes.bar(
-            x_pos, bar2, color=self.clrmap(self.norm(counts[1, :])), width=1, zorder=1, edgecolor="w", linewidth=0.5
+            x_pos, bar2, color=self.clrmap(self.norm(counts[1, :])), width=1, zorder=1, edgecolor="k", linewidth=0.5
         )
         small = axes.bar(
             x_pos,
@@ -270,7 +270,7 @@ class PixelPlotter:
             align="edge",
             bottom=-0.1,
             zorder=1,
-            edgecolor="w",
+            edgecolor="k",
             linewidth=0.5,
         )
 
@@ -380,7 +380,7 @@ class PixelPlotter:
             center_x = artist.get_x() + artist.get_width() / 2
             center_y = artist.get_y() + artist.get_height() / 2
             annot.xy = (center_x, center_y)
-            annot.set_text(artist.data.round(decimals=3))
+            annot.set_text(format(artist.data, ".2e"))
 
         def hover(event):
             annot.set_visible(False)
@@ -419,24 +419,25 @@ class PixelPlotter:
         energy_index, time_index = self.senergy.val, self.stime.val
         for detector_id in range(32):
             row, col = divmod(detector_id, 8)
-            cnts = self.counts[time_index, detector_id, :, energy_index]
             top, bottom, small = self.containers[row, col][0]
-            cnts = cnts.reshape([3, 4])
-            for pix_artist, pix in zip(range(4), range(12)):
-                norm_counts = self.norm(cnts[0][pix].value)
-                top[pix_artist].set_color(self.clrmap(norm_counts))
-                top[pix_artist].data = cnts[0][pix]
-                top[pix_artist].set_edgecolor("w")
+            cnts = self.counts[time_index, detector_id, :, energy_index].reshape([3, 4])
 
-                norm_counts = self.norm(cnts[1][pix].value)
-                bottom[pix_artist].set_color(self.clrmap(norm_counts))
-                bottom[pix_artist].data = cnts[1][pix]
-                bottom[pix_artist].set_edgecolor("w")
+            for idx in range(4):
+                norm_counts = self.norm(cnts[0][idx].value)
+                top[idx].set_color(self.clrmap(norm_counts))
+                top[idx].data = cnts[0][idx]
+                top[idx].set_edgecolor("k")
 
-                norm_counts = self.norm(cnts[2][pix].value)
-                small[pix_artist].set_color(self.clrmap(norm_counts))
-                small[pix_artist].data = cnts[2][pix]
-                small[pix_artist].set_edgecolor("w")
+                norm_counts = self.norm(cnts[1][idx].value)
+                bottom[idx].set_color(self.clrmap(norm_counts))
+                bottom[idx].data = cnts[1][idx]
+                bottom[idx].set_edgecolor("k")
+
+                norm_counts = self.norm(cnts[2][idx].value)
+                small[idx].set_color(self.clrmap(norm_counts))
+                small[idx].data = cnts[2][idx]
+                small[idx].set_edgecolor("k")
+
         self.fig.canvas.draw_idle()
 
     def _update_errorbar(self, _):
@@ -475,6 +476,7 @@ class PixelPlotter:
                         + self.count_err[time_index, did, pid, energy_index]
                     )
                     bars[1].set_segments(segs)
+
         self.fig.canvas.draw_idle()
 
 

@@ -17,6 +17,9 @@ SubCollimatorConfig = read_subc_params(
 )
 
 
+__all__ = ["PixelPlotter", "SliderCustomValue"]
+
+
 class PixelPlotter:
     """
     Plot individual pixel data for each detector.

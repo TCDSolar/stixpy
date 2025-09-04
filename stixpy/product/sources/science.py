@@ -347,7 +347,7 @@ class PixelPlotMixin:
 
     def plot_pixels(self, *, kind="pixel", time_indices=None, energy_indices=None, fig=None, cmap=None, **kwargs):
         pixel_plotter = PixelPlotter(self, time_indices=time_indices, energy_indices=energy_indices)
-        pixel_plotter.plot(kind=kind, fig=fig, cmap=cmap)
+        pixel_plotter.plot(kind=kind, fig=fig, cmap=cmap, **kwargs)
         return pixel_plotter
 
 

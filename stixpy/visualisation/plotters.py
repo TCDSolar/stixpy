@@ -2,6 +2,7 @@ import copy
 from pathlib import Path
 from collections import defaultdict
 
+import astropy.units as u
 import numpy as np
 from matplotlib import cm
 from matplotlib import pyplot as plt
@@ -183,7 +184,14 @@ class PixelPlotter:
                 ]
             )
             self.containers[row, col].append(plot_container)
-            ax.set_title(f"Det {SubCollimatorConfig['Grid Label'][det_id]}", y=0.89, **self.det_font)
+            resolutions = np.atan2(0.5 * SubCollimatorConfig["Front Pitch"].to("um"), 545.30 * u.mm).to("arcsec")
+            ax.set_title(
+                f"{SubCollimatorConfig['Det #'][det_id]}"
+                f" {SubCollimatorConfig['Grid Label'][det_id]}"
+                f'{resolutions[det_id].value: 0.1f}"',
+                y=0.89,
+                **self.det_font,
+            )
 
     def _create_sliders(self):
         """Creates the time and energy sliders."""

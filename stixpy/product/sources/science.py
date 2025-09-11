@@ -8,7 +8,7 @@ from astropy.time import Time
 from astropy.visualization import quantity_support
 from matplotlib import pyplot as plt
 from matplotlib.colors import LogNorm
-from matplotlib.dates import DateFormatter, HourLocator
+from matplotlib.dates import ConciseDateFormatter, DateFormatter, HourLocator
 from matplotlib.widgets import Slider
 from sunpy.time.timerange import TimeRange
 
@@ -333,9 +333,7 @@ class TimesSeriesPlotMixin:
                 lines = axes.plot(times.to_datetime(), counts[:, did, pid, eid], label=labels[eid], **plot_kwarg)
 
         axes.set_yscale("log")
-        axes.xaxis.set_major_formatter(DateFormatter("%d %H:%M"))
-        fig.autofmt_xdate()
-        fig.tight_layout()
+        axes.xaxis.set_major_formatter(ConciseDateFormatter(axes.xaxis.get_major_locator()))
 
         return lines
 
@@ -574,7 +572,7 @@ class ScienceData(L1Product):
             e_norm = e_norm.reshape(1, 1, 1, -1)
 
         if t_norm.size != 1:
-            t_norm = t_norm.reshape(-1, 1, 1, 1)
+            t_norm = t_norm.reshape(-1, 1, 1, 1).to("s")
 
         counts_err = np.sqrt(counts * u.ct + counts_var) / (e_norm * t_norm)
         counts = counts / (e_norm * t_norm)

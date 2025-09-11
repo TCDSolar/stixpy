@@ -6,7 +6,7 @@ import astropy.units as u
 import numpy as np
 from matplotlib import cm
 from matplotlib import pyplot as plt
-from matplotlib.colors import Normalize
+from matplotlib.colors import LogNorm, Normalize
 from matplotlib.patches import Circle, Patch
 from matplotlib.widgets import Slider
 
@@ -109,17 +109,19 @@ class PixelPlotter:
 
     def _setup_plot_elements(self, cmap):
         """Sets up normalization, colormaps, and fonts."""
-        max_counts = self.counts[self.counts.value > 0].max().value
-        min_counts = self.counts[self.counts.value > 0].min().value
-        self.norm = Normalize(min_counts, max_counts)
+        max_counts = np.max(self.counts[np.isfinite(self.counts)]).value
+        min_counts = np.min(self.counts[self.counts > 0]).value
+        self.norm = CountNorm(min_counts, max_counts)
         self.det_font = {"weight": "regular", "size": 8}
         self.axes_font = {"weight": "regular", "size": 7}
         self.quadrant_font = {"weight": "regular", "size": 15}
 
         if cmap is None:
             self.clrmap = copy.copy(cm.get_cmap("viridis"))
-            self.clrmap.set_bad("gray")
+            self.clrmap.set_over("gray")
             self.clrmap.set_under("white")
+            self.clrmap.set_bad("gray")
+
         elif isinstance(cmap, str):
             self.clrmap = copy.copy(cm.get_cmap(cmap))
         else:
@@ -131,19 +133,22 @@ class PixelPlotter:
             time_indices=self.time_indices, energy_indices=self.energy_indices
         )
 
-        # Pad the data arrays back to (...,32,12,...) so can loop over for the plot
-        full_shape = (counts.shape[0], 32, 12, counts.shape[-1])
-        counts_pad = np.full(full_shape, np.nan)
-        count_err_pad = np.full(full_shape, np.nan)
-
+        nt, ndet, npix, ne = counts.shape
         dmask = self.prod.detector_masks.masks[0].astype(bool)
-        largest_pmask = self.prod.pixel_masks.masks.astype(bool)[
-            self.prod.pixel_masks.masks.astype(bool).sum(axis=1).argmax()
-        ]
 
-        indices = (slice(None), *np.ix_(dmask, largest_pmask))
-        counts_pad[indices] = counts
-        count_err_pad[indices] = count_err
+        counts_pad = []
+        count_err_pad = []
+        for i, pm in enumerate(self.prod.data["pixel_masks"].value):
+            tmp_counts = np.full((32, 12, ne), np.nan)
+            tmp_err = np.full((32, 12, ne), np.nan)
+            tmp_counts[np.ix_(dmask, pm.astype(bool))] = counts[i][:, pm.astype(bool), :]
+            tmp_err[np.ix_(dmask, pm.astype(bool))] = count_err[i][:, pm.astype(bool), :]
+
+            counts_pad.append(tmp_counts)
+            count_err_pad.append(tmp_err)
+
+        counts_pad = np.stack(counts_pad)
+        count_err_pad = np.stack(count_err)
 
         self.times = times
         self.energies = energies
@@ -187,7 +192,7 @@ class PixelPlotter:
                 ]
             )
             self.containers[row, col].append(plot_container)
-            resolutions = np.atan2(0.5 * SubCollimatorConfig["Front Pitch"].to("um"), 545.30 * u.mm).to("arcsec")
+            resolutions = np.arctan2(0.5 * SubCollimatorConfig["Front Pitch"].to("um"), 545.30 * u.mm).to("arcsec")
             ax.set_title(
                 f"{SubCollimatorConfig['Det #'][det_id]}"
                 f" {SubCollimatorConfig['Grid Label'][det_id]}"
@@ -230,11 +235,8 @@ class PixelPlotter:
 
     def _draw_colorbar(self):
         """Creates a colormap on the left side of the figure."""
-        min_c = self.counts[self.counts.value > 0].min().value
-        max_c = self.counts[self.counts.value > 0].max().value
-        norm = Normalize(vmin=min_c, vmax=max_c)
         cax = self.fig.add_axes([0.05, 0.15, 0.025, 0.8])
-        cbar = self.fig.colorbar(cm.ScalarMappable(norm=norm, cmap=self.clrmap), orientation="vertical", cax=cax)
+        cbar = self.fig.colorbar(cm.ScalarMappable(norm=self.norm, cmap=self.clrmap), orientation="vertical", cax=cax)
         cbar.ax.set_title(f"{str(self.counts.unit)}", rotation=90, x=-0.8, y=0.4)
 
     def _draw_instrument_layout(self):
@@ -500,3 +502,29 @@ class SliderCustomValue(Slider):
         if format_func is not None:
             self._format = format_func
         super().__init__(*args, **kwargs)
+
+
+class CountNorm(Normalize):
+    """
+    A LogNorm but allows 0s to be kept and plotted with colormaps under color
+    """
+
+    def __init__(self, vmin=None, vmax=None, **kwargs):
+        super().__init__(vmin, vmax, **kwargs)
+        self.lognorm = LogNorm(vmin=vmin, vmax=vmax)
+
+    def __call__(self, value):
+        tmp, is_scaler = self.process_value(value)
+        unit = tmp.unit if hasattr(tmp, "unit") else 1
+        zeros = np.nonzero(tmp == 0)
+        tmp[zeros] = np.finfo(np.float32).tiny * unit
+        res = self.lognorm(tmp)
+        return res if not is_scaler else res[0]
+
+    def inverse(self, value):
+        tmp, is_scaler = self.process_value(value)
+        unit = tmp.unit if hasattr(tmp, "unit") else 1
+        zeros = np.nonzero(tmp == 0)
+        tmp[zeros] = np.finfo(np.float32).tiny * unit
+        res = self.lognorm.inverse(tmp)
+        return res if not is_scaler else res[0]

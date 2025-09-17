@@ -66,7 +66,7 @@ def read_sci_energy_channels(path):
 
 
 def read_subc_params(path=None):
-    """Read the configuration of the sub-collimator from the configuration file.
+    """Reads the configuration of the sub-collimator from the configuration file.
 
     Parameters
     ----------
@@ -80,6 +80,42 @@ def read_subc_params(path=None):
     """
     if path is None:
         path = Path(__file__).parent.parent / "config" / "data" / "detector" / "stx_subc_params.csv"
+    return Table.read(path, format="ascii.ecsv")
+
+
+def read_pixel_params(path=None):
+    """Reads the configuration of the detector pixels from the configuration file.
+
+    Parameters
+    ----------
+    path : `pathlib.Path`
+        path to the config file
+
+    Returns
+    -------
+    `Table`
+        params for all 12 pixels - assuming equal for all 32 sub-collimators
+    """
+    if path is None:
+        path = Path(__file__).parent.parent / "config" / "data" / "detector" / "stx_det_pixels.csv"
+    return Table.read(path, format="ascii.ecsv")
+
+
+def read_det_adc_mapping(path=None):
+    """Reads the mapping configuration form detectors to ADC pairs from the configuration file.
+
+    Parameters
+    ----------
+    path : `pathlib.Path`
+        path to the config file
+
+    Returns
+    -------
+    `Table`
+        params for all 32 sub-collimators
+    """
+    if path is None:
+        path = Path(__file__).parent.parent / "config" / "data" / "detector" / "stx_det_adc.csv"
     return Table.read(path, format="ascii.ecsv")
 
 

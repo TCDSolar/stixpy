@@ -78,7 +78,7 @@ def http_response():
 @mock.patch(MOCK_PATH)
 def test_client(urlopen, client, http_response, time_range, nfiles):
     urlopen.return_value.read = mock.MagicMock()
-    urlopen.return_value.read.side_effect = [http_response] * 5
+    urlopen.return_value.read.side_effect = ["", http_response] * 5
     urlopen.close = mock.MagicMock(return_value=None)
     query = client.search(a.Time(*time_range), a.Instrument.stix, a.Level("L1"), a.stix.DataType.sci)
     assert len(query) == nfiles
@@ -114,7 +114,7 @@ def test_local_client(clientlocal, time_range, level, dtype, nfiles):
 @pytest.mark.remote_data
 def test_search_date(client):
     res = client.search(a.Time("2020-05-01T00:00", "2020-05-01T23:59"), a.Instrument.stix)
-    assert len(res) == 38
+    assert len(res) == 64
     # this might need fixed when we change to ANC to become an level of its own
 
 
@@ -216,7 +216,7 @@ def test_search_date_product():
     assert len(res2[0]) == 2
 
     res3 = Fido.search(a.Time("2022-01-20 05:40", "2022-01-20 06:20"), a.Instrument("STIX"), a.stix.DataType("sci"))
-    assert len(res3[0]) == 18
+    assert len(res3[0]) == 24
 
 
 @pytest.mark.remote_data
@@ -239,11 +239,33 @@ def test_search_date_product_sci():
 @pytest.mark.remote_data
 def test_fido():
     res = Fido.search(a.Time("2020-11-17T00:00", "2020-11-17T23:59"), a.Instrument.stix)
-    assert len(res["stix"]) == 51
-    # this might need fixed when we change to ANC to become an level of its own
+    len_total = len(res["stix"])
+    assert len_total == 67
 
     res_ql = Fido.search(a.Time("2020-11-17T00:00", "2020-11-17T23:59"), a.Instrument.stix, a.stix.DataType.ql)
-    assert len(res_ql["stix"]) == 6
+    len_ql = len(res_ql["stix"])
+    assert len_ql == 6
 
     res_sci = Fido.search(a.Time("2020-11-17T00:00", "2020-11-17T23:59"), a.Instrument.stix, a.stix.DataType.sci)
-    assert len(res_sci["stix"]) == 42
+    len_sci = len(res_sci["stix"])
+    assert len_sci == 58
+
+    res_hk = Fido.search(a.Time("2020-11-17T00:00", "2020-11-17T23:59"), a.Instrument.stix, a.stix.DataType.hk)
+    len_kh = len(res_hk["stix"])
+    assert len_kh == 1
+
+    res_asp = Fido.search(a.Time("2020-11-17T00:00", "2020-11-17T23:59"), a.Instrument.stix, a.stix.DataType.asp)
+    len_asp = len(res_asp["stix"])
+    assert len_asp == 1
+
+    res_cal = Fido.search(a.Time("2020-11-17T00:00", "2020-11-17T23:59"), a.Instrument.stix, a.stix.DataType.cal)
+    len_cal = len(res_cal["stix"])
+    assert len_cal == 1
+
+    assert len_ql + len_sci + len_kh + len_asp + len_cal == len_total
+
+
+@pytest.mark.remote_data
+def test_fido_file_crosses_date_boundary():
+    q = Fido.search(a.Time("2023-06-01T00:00", "2023-06-01T00:30"), a.Instrument.stix, a.stix.DataProduct.sci_xray_spec)
+    assert len(q["stix"]) == 2

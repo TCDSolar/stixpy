@@ -9,13 +9,13 @@ build-backend = 'setuptools.build_meta'
 [project]
 name = "stixpy"
 description = "An open-source Python analysis library for the Spectrometer Telescope for Imaging X-rays (STIX) instrument on Solar Obriter."
-requires-python = ">=3.9"
+requires-python = ">=3.11"
 readme = {file = "README.rst", content-type="text/x-rst"}
 license = "BSD-3-Clause"
 license-files = ["LICENSE.rst"]
 authors = [{name="Shane Maloney", email = "shane.maloney@dias.ie"}]
 dependencies = [
-    "sunpy[net,timeseries]>=5.1.0",
+    "sunpy[map,net,timeseries]>=6.0.0",
     "packaging>=23.0",
     "reproject",
     "astroquery",

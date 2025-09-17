@@ -13,6 +13,7 @@ from matplotlib.widgets import Slider
 from sunpy.time.timerange import TimeRange
 
 from stixpy.product.product import L1Product
+from stixpy.calibration.livetime import get_livetime_fraction
 
 __all__ = [
     "ScienceData",
@@ -566,6 +567,17 @@ class ScienceData(L1Product):
             Counts, errors, times, deltatimes,  energies
 
         """
+
+        # fmt: off
+        # For the moment copied from idl
+        trigger_to_detector = [0, 0, 7, 7, 2, 1, 1, 6, 6, 5, 2, 3, 3, 4, 4, 5, 13, 12,
+                            12, 11, 11, 10, 13, 14, 14, 9, 9, 10, 15, 15, 8, 8,]
+        # fmt: on
+
+        triggers = self.data["triggers"][:, trigger_to_detector].astype(float)[...]
+
+        _, livefrac, _ = get_livetime_fraction(triggers / self.data["timedel"].to("s").reshape(-1, 1))   
+
         counts = self.data["counts"]
         try:
             counts_var = self.data["counts_comp_err"] ** 2
@@ -586,6 +598,7 @@ class ScienceData(L1Product):
                 detector_mask[detecor_indices] = True
                 counts = counts[:, detector_mask, ...]
                 counts_var = counts_var[:, detector_mask, ...]
+                livefrac = livefrac[...,detector_mask]
             elif detecor_indices.ndim == 2:
                 counts = np.hstack(
                     [np.sum(counts[:, dl : dh + 1, ...], axis=1, keepdims=True) for dl, dh in detecor_indices]
@@ -595,6 +608,7 @@ class ScienceData(L1Product):
                     [np.sum(counts_var[:, dl : dh + 1, ...], axis=1, keepdims=True) for dl, dh in detecor_indices],
                     axis=1,
                 )
+        
 
         if pixel_indices is not None:
             pixel_indices = np.asarray(pixel_indices)
@@ -611,6 +625,8 @@ class ScienceData(L1Product):
                 counts_var = np.concatenate(
                     [np.sum(counts_var[..., pl : ph + 1, :], axis=2, keepdims=True) for pl, ph in pixel_indices], axis=2
                 )
+
+   
 
         e_norm = self.dE
         if energy_indices is not None:
@@ -642,6 +658,9 @@ class ScienceData(L1Product):
                 energies = QTable(energies * u.keV, names=["e_low", "e_high"])
 
         t_norm = self.data["timedel"]
+
+        print('t_norm = ', np.shape(t_norm))
+
         if time_indices is not None:
             time_indices = np.asarray(time_indices)
             if time_indices.ndim == 1:
@@ -650,6 +669,7 @@ class ScienceData(L1Product):
                 counts = counts[time_mask, ...]
                 counts_var = counts_var[time_mask, ...]
                 t_norm = self.data["timedel"][time_mask]
+                livefrac = livefrac[time_mask,...] 
                 times = times[time_mask]
                 # dT = self.data['timedel'][time_mask]
             elif time_indices.ndim == 2:
@@ -681,6 +701,12 @@ class ScienceData(L1Product):
 
         if t_norm.size != 1:
             t_norm = t_norm.reshape(-1, 1, 1, 1)
+
+            livefrac_new_shape = livefrac.shape + (1, 1)  
+            livefrac = livefrac.reshape(livefrac_new_shape)
+
+
+        t_norm = t_norm * livefrac
 
         counts_err = np.sqrt(counts * u.ct + counts_var) / (e_norm * t_norm)
         counts = counts / (e_norm * t_norm)

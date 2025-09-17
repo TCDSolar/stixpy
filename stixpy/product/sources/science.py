@@ -12,8 +12,8 @@ from matplotlib.dates import DateFormatter, HourLocator
 from matplotlib.widgets import Slider
 from sunpy.time.timerange import TimeRange
 
-from stixpy.product.product import L1Product
 from stixpy.calibration.livetime import get_livetime_fraction
+from stixpy.product.product import L1Product
 
 __all__ = [
     "ScienceData",
@@ -533,7 +533,13 @@ class ScienceData(L1Product):
         return self.data["timedel"]
 
     def get_data(
-        self, time_indices=None, energy_indices=None, detector_indices=None, pixel_indices=None, sum_all_times=False
+        self,
+        time_indices=None,
+        energy_indices=None,
+        detector_indices=None,
+        pixel_indices=None,
+        sum_all_times=False,
+        livetime_correction=False,
     ):
         """
         Return the counts, errors, times, durations and energies for selected data.
@@ -576,7 +582,7 @@ class ScienceData(L1Product):
 
         triggers = self.data["triggers"][:, trigger_to_detector].astype(float)[...]
 
-        _, livefrac, _ = get_livetime_fraction(triggers / self.data["timedel"].to("s").reshape(-1, 1))   
+        _, livefrac, _ = get_livetime_fraction(triggers / self.data["timedel"].to("s").reshape(-1, 1))
 
         counts = self.data["counts"]
         try:
@@ -584,6 +590,7 @@ class ScienceData(L1Product):
         except KeyError:
             counts_var = self.data["counts_comp_comp_err"] ** 2
         shape = counts.shape
+
         if len(shape) < 4:
             counts = counts.reshape(shape[0], 1, 1, shape[-1])
             counts_var = counts_var.reshape(shape[0], 1, 1, shape[-1])
@@ -598,7 +605,7 @@ class ScienceData(L1Product):
                 detector_mask[detecor_indices] = True
                 counts = counts[:, detector_mask, ...]
                 counts_var = counts_var[:, detector_mask, ...]
-                livefrac = livefrac[...,detector_mask]
+                livefrac = livefrac[..., detector_mask]
             elif detecor_indices.ndim == 2:
                 counts = np.hstack(
                     [np.sum(counts[:, dl : dh + 1, ...], axis=1, keepdims=True) for dl, dh in detecor_indices]
@@ -608,7 +615,6 @@ class ScienceData(L1Product):
                     [np.sum(counts_var[:, dl : dh + 1, ...], axis=1, keepdims=True) for dl, dh in detecor_indices],
                     axis=1,
                 )
-        
 
         if pixel_indices is not None:
             pixel_indices = np.asarray(pixel_indices)
@@ -625,8 +631,6 @@ class ScienceData(L1Product):
                 counts_var = np.concatenate(
                     [np.sum(counts_var[..., pl : ph + 1, :], axis=2, keepdims=True) for pl, ph in pixel_indices], axis=2
                 )
-
-   
 
         e_norm = self.dE
         if energy_indices is not None:
@@ -659,8 +663,6 @@ class ScienceData(L1Product):
 
         t_norm = self.data["timedel"]
 
-        print('t_norm = ', np.shape(t_norm))
-
         if time_indices is not None:
             time_indices = np.asarray(time_indices)
             if time_indices.ndim == 1:
@@ -669,7 +671,7 @@ class ScienceData(L1Product):
                 counts = counts[time_mask, ...]
                 counts_var = counts_var[time_mask, ...]
                 t_norm = self.data["timedel"][time_mask]
-                livefrac = livefrac[time_mask,...] 
+                livefrac = livefrac[time_mask, ...]
                 times = times[time_mask]
                 # dT = self.data['timedel'][time_mask]
             elif time_indices.ndim == 2:
@@ -702,11 +704,10 @@ class ScienceData(L1Product):
         if t_norm.size != 1:
             t_norm = t_norm.reshape(-1, 1, 1, 1)
 
-            livefrac_new_shape = livefrac.shape + (1, 1)  
-            livefrac = livefrac.reshape(livefrac_new_shape)
+            livefrac = livefrac.reshape(livefrac.shape + (1, 1))
 
-
-        t_norm = t_norm * livefrac
+        if livetime_correction:
+            t_norm = t_norm * livefrac
 
         counts_err = np.sqrt(counts * u.ct + counts_var) / (e_norm * t_norm)
         counts = counts / (e_norm * t_norm)

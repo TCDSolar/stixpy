@@ -45,67 +45,71 @@ def spec():
 @pytest.mark.remote_data
 def test_sciencedata_get_data(cpd):
     tot = cpd.data["counts"]
-    norm = cpd.data["timedel"].reshape(5, 1, 1, 1) * cpd.dE
+    norm = cpd.data["timedel"].reshape(5, 1, 1, 1).to(u.s) * cpd.dE
     rate = tot / norm
     error = np.sqrt(tot * u.ct + cpd.data["counts_comp_err"] ** 2) / norm
-    r, re, t, dt, e = cpd.get_data()
+    r, re, t, dt, e = cpd.get_data(vtype="dcr")
     assert_allclose(rate, r)
     assert_allclose(error, re)
 
     # Detector sum
     tot = cpd.data["counts"][:, 0:32, ...].sum(axis=1, keepdims=True)
-    norm = cpd.data["timedel"].reshape(5, 1, 1, 1) * cpd.dE
+    norm = cpd.data["timedel"].reshape(5, 1, 1, 1).to(u.s) * cpd.dE
     rate = tot / norm
     error = np.sqrt(tot * u.ct + cpd.data["counts_comp_err"][:, 0:32, ...].sum(axis=1, keepdims=True) ** 2) / norm
-    r, re, t, dt, e = cpd.get_data(detector_indices=[[0, 31]])
+    r, re, t, dt, e = cpd.get_data(vtype="dcr", detector_indices=[[0, 31]])
     assert_allclose(rate, r)
     assert_allclose(error, re, atol=1e-3)
 
     # Pixel sum
     tot = cpd.data["counts"][..., 0:12, :].sum(axis=2, keepdims=True)
-    norm = cpd.data["timedel"].reshape(5, 1, 1, 1) * cpd.dE
+    norm = cpd.data["timedel"].reshape(5, 1, 1, 1).to(u.s) * cpd.dE
     rate = tot / norm
     error = np.sqrt(tot * u.ct + cpd.data["counts_comp_err"][..., 0:12, :].sum(axis=2, keepdims=True) ** 2) / norm
-    r, re, t, dt, e = cpd.get_data(pixel_indices=[[0, 11]])
+    r, re, t, dt, e = cpd.get_data(vtype="dcr", pixel_indices=[[0, 11]])
     assert_allclose(rate, r)
     assert_allclose(error, re)
 
     # Detector and Pixel sum
     tot = cpd.data["counts"][:, 0:32, 0:12, :].sum(axis=(1, 2), keepdims=True)
-    norm = cpd.data["timedel"].reshape(5, 1, 1, 1) * cpd.dE
+    norm = cpd.data["timedel"].reshape(5, 1, 1, 1).to(u.s) * cpd.dE
     rate = tot / norm
     error = (
         np.sqrt(tot * u.ct + cpd.data["counts_comp_err"][:, 0:32, 0:12, :].sum(axis=(1, 2), keepdims=True) ** 2) / norm
     )
-    r, re, t, dt, e = cpd.get_data(pixel_indices=[[0, 11]], detector_indices=[[0, 31]])
+    r, re, t, dt, e = cpd.get_data(vtype="dcr", pixel_indices=[[0, 11]], detector_indices=[[0, 31]])
     assert_allclose(rate, r)
     assert_allclose(error, re, atol=1e-3)
 
     # Energy sum
     tot = cpd.data["counts"][..., 1:31].sum(axis=3, keepdims=True)
-    norm = cpd.data["timedel"].reshape(5, 1, 1, 1) * (cpd.energies[30]["e_high"] - cpd.energies[1]["e_low"])
+    norm = cpd.data["timedel"].reshape(5, 1, 1, 1).to(u.s) * (cpd.energies[30]["e_high"] - cpd.energies[1]["e_low"])
     rate = tot / norm
     error = np.sqrt(tot * u.ct + cpd.data["counts_comp_err"][..., 1:31].sum(axis=3, keepdims=True) ** 2) / norm
-    r, re, t, dt, e = cpd.get_data(energy_indices=[[1, 30]])
+    r, re, t, dt, e = cpd.get_data(vtype="dcr", energy_indices=[[1, 30]])
     assert_allclose(rate, r)
     assert_allclose(error, re, atol=1e-3)
 
     # Time sum
     tot = cpd.data["counts"][:, ...].sum(axis=0, keepdims=True)
-    norm = cpd.data["timedel"].sum() * cpd.dE
+    norm = cpd.data["timedel"].sum().to(u.s) * cpd.dE
     rate = tot / norm
     error = np.sqrt(tot * u.ct + cpd.data["counts_comp_err"][:, ...].sum(axis=0, keepdims=True) ** 2) / norm
-    r, re, t, dt, e = cpd.get_data(time_indices=[[0, 4]])
+    r, re, t, dt, e = cpd.get_data(vtype="dcr", time_indices=[[0, 4]])
     assert_allclose(rate, r)
     assert_allclose(error, re)
 
     # Sum everything down to one number
     tot = cpd.data["counts"][..., 1:31].sum(keepdims=True)
-    norm = cpd.data["timedel"].sum() * (cpd.energies[30]["e_high"] - cpd.energies[1]["e_low"])
+    norm = cpd.data["timedel"].sum().to(u.s) * (cpd.energies[30]["e_high"] - cpd.energies[1]["e_low"])
     rate = tot / norm
     error = np.sqrt(tot * u.ct + cpd.data["counts_comp_err"][..., 1:31].sum(keepdims=True) ** 2) / norm
     r, re, t, dt, e = cpd.get_data(
-        time_indices=[[0, 4]], energy_indices=[[1, 30]], pixel_indices=[[0, 11]], detector_indices=[[0, 31]]
+        vtype="dcr",
+        time_indices=[[0, 4]],
+        energy_indices=[[1, 30]],
+        pixel_indices=[[0, 11]],
+        detector_indices=[[0, 31]],
     )
     assert_allclose(rate, r)
     assert_allclose(error, re, atol=1e-3)
@@ -121,7 +125,9 @@ def test_sciencedata_get_data(cpd):
     cpd.energies["e_high"][1:-1] = ((np.arange(31) / 30)[1:] * u.keV).astype(np.float32)
     cpd.energies["e_low"][1:-1] = ((np.arange(31) / 30)[:-1] * u.keV).astype(np.float32)
     cpd.data["time"] = cpd.time_range.start + np.arange(5) / 5 * u.s
-    count, count_err, times, timedel, energies = cpd.get_data(time_indices=[[0, 4]], energy_indices=[[1, 30]])
+    count, count_err, times, timedel, energies = cpd.get_data(
+        vtype="dcr", time_indices=[[0, 4]], energy_indices=[[1, 30]]
+    )
     assert_allclose(count, 1 * u.ct / (u.s * u.keV))
     assert_allclose(count_err, np.sqrt(2) * u.ct / (u.s * u.keV))  # 1 + 1
 

@@ -12,6 +12,7 @@ from matplotlib.dates import ConciseDateFormatter, DateFormatter, HourLocator
 from matplotlib.widgets import Slider
 from sunpy.time.timerange import TimeRange
 
+from stixpy.config.instrument import STIX_INSTRUMENT
 from stixpy.io.readers import read_subc_params
 from stixpy.product.product import L1Product
 
@@ -424,7 +425,14 @@ class ScienceData(L1Product):
         return self.data["timedel"]
 
     def get_data(
-        self, time_indices=None, energy_indices=None, detector_indices=None, pixel_indices=None, sum_all_times=False
+        self,
+        *,
+        vtype="dcrf",
+        time_indices=None,
+        energy_indices=None,
+        detector_indices=None,
+        pixel_indices=None,
+        sum_all_times=False,
     ):
         """
         Return the counts, errors, times, durations and energies for selected data.
@@ -433,6 +441,12 @@ class ScienceData(L1Product):
 
         Parameters
         ----------
+        vtype : str
+            Type of value to return control the default normalisation:
+                * 'c' - count [c]
+                * 'cr' - count rate [c s$"{-1}"]
+                * 'dcr' - differential count rate [c s$"{-1} keV$"{^-1}"]
+                * 'dcrf' - differential count rate flux [c s$"{-1} keV$"{^-1}" cm$"{^-2}"]
         time_indices : `list` or `numpy.ndarray`
             If an 1xN array will be treated as mask if 2XN array will sum data between given
             indices. For example `time_indices=[0, 2, 5]` would return only the first, third and
@@ -569,14 +583,36 @@ class ScienceData(L1Product):
                     counts_var = np.sum(counts_var, axis=0, keepdims=True)
                     t_norm = np.sum(dt)
 
+        t_norm = t_norm.to("s")
+
         if e_norm.size != 1:
             e_norm = e_norm.reshape(1, 1, 1, -1)
 
         if t_norm.size != 1:
             t_norm = t_norm.reshape(-1, 1, 1, 1).to("s")
 
-        counts_err = np.sqrt(counts * u.ct + counts_var) / (e_norm * t_norm)
-        counts = counts / (e_norm * t_norm)
+        pixel_areas = STIX_INSTRUMENT.pixel_config["Area"].to("cm2")
+        a_norm = []
+        for pixel_mask in self.data["pixel_masks"]:
+            indices = np.nonzero(pixel_mask)
+            areas = np.full(12, 0 * u.cm**2)
+            areas[indices] = pixel_areas[indices].value
+            a_norm.append(areas)
+        a_norm = np.vstack(a_norm).reshape(t_norm.size, 1, -1, 1) * u.cm**2
+
+        if vtype == "c":
+            norm = 1
+        elif vtype == "cr":
+            norm = 1 / e_norm
+        elif vtype == "dcr":
+            norm = 1 / (e_norm * t_norm)
+        elif vtype == "dcrf":
+            norm = 1 / (e_norm * t_norm * a_norm)
+        else:
+            raise ValueError("Unknown vtype must be one of 'c', 'cr', or 'dcr', 'dcrf'.")
+
+        counts_err = np.sqrt(counts * u.ct + counts_var) * norm
+        counts = counts * norm
 
         return counts, counts_err, times, t_norm, energies
 

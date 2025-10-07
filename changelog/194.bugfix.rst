@@ -1,0 +1,1 @@
+Fix apparent bug in `~stixpy.calibration.visibility.create_meta_pixels` by improving naming and docstrings.

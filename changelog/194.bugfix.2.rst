@@ -1,0 +1,1 @@
+Fix ELUT reader `~stixpy.io.readers.read_elut` for column name change in upstream files.

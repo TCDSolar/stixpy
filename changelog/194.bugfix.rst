@@ -1,0 +1,1 @@
+Fix bug in `~stixpy.calibration.visibility.create_meta_pixels` where the incorrect livetime correction was being used.

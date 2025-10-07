@@ -109,12 +109,12 @@ def get_livetime_fraction(trigger_rate, *, eta=1.10 * u.us, tau=10.1 * u.us):
     Returns
     -------
     `float`, `float`, `float`:
-        The live time fraction
+        The correct live time fraction, two photon contribution, and number of input photon.
     """
     beta = 0.94059104  # pileup_correction_factor()
 
     photons_in = trigger_rate / (1.0 - trigger_rate * (tau + eta))
-    live_fracaction = 1 / (1.0 + (tau + eta) * photons_in)
+    live_fraction = 1 / (1.0 + (tau + eta) * photons_in)
     two_photon_correction = np.exp(-eta * beta * photons_in)
-    corrected_livetime = two_photon_correction * live_fracaction
+    corrected_livetime = two_photon_correction * live_fraction
     return corrected_livetime, two_photon_correction, photons_in

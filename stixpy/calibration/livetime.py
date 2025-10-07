@@ -114,6 +114,7 @@ def get_livetime_fraction(trigger_rate, *, eta=1.10 * u.us, tau=10.1 * u.us):
     beta = 0.94059104  # pileup_correction_factor()
 
     photons_in = trigger_rate / (1.0 - trigger_rate * (tau + eta))
-    livetime_fraction = 1 / (1.0 + (tau + eta) * photons_in)
-    two_photon = np.exp(-eta * beta * photons_in) * livetime_fraction
-    return livetime_fraction, two_photon, photons_in
+    live_fracaction = 1 / (1.0 + (tau + eta) * photons_in)
+    two_photon_correction = np.exp(-eta * beta * photons_in)
+    corrected_livetime = two_photon_correction * live_fracaction
+    return corrected_livetime, two_photon_correction, photons_in

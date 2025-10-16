@@ -434,7 +434,7 @@ class ScienceData(L1Product):
         pixel_indices=None,
         sum_all_times=False,
     ):
-        """
+        r"""
         Return the counts, errors, times, durations and energies for selected data.
 
         Optionally summing in time and or energy.
@@ -444,9 +444,9 @@ class ScienceData(L1Product):
         vtype : str
             Type of value to return control the default normalisation:
                 * 'c' - count [c]
-                * 'cr' - count rate [c s$"{-1}"]
-                * 'dcr' - differential count rate [c s$"{-1} keV$"{^-1}"]
-                * 'dcrf' - differential count rate flux [c s$"{-1} keV$"{^-1}" cm$"{^-2}"]
+                * 'cr' - count rate [c/s]
+                * 'dcr' - differential count rate [c/(s keV)]
+                * 'dcrf' - differential count rate flux (geometric area) [c/(s keV cm^2)]
         time_indices : `list` or `numpy.ndarray`
             If an 1xN array will be treated as mask if 2XN array will sum data between given
             indices. For example `time_indices=[0, 2, 5]` would return only the first, third and

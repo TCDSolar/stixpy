@@ -147,6 +147,7 @@ class SpectrogramPlotMixin:
     def plot_spectrogram(
         self,
         axes=None,
+        vtype="dcr",
         time_indices=None,
         energy_indices=None,
         detector_indices="all",
@@ -211,7 +212,11 @@ class SpectrogramPlotMixin:
                 pid = pixel_indices
 
         counts, errors, times, timedeltas, energies = self.get_data(
-            detector_indices=did, pixel_indices=pid, time_indices=time_indices, energy_indices=energy_indices
+            vtype=vtype,
+            detector_indices=did,
+            pixel_indices=pid,
+            time_indices=time_indices,
+            energy_indices=energy_indices,
         )
         counts = counts.to(u.ct / u.s / u.keV)
         errors = errors.to(u.ct / u.s / u.keV)
@@ -255,6 +260,7 @@ class TimesSeriesPlotMixin:
 
     def plot_timeseries(
         self,
+        vtype="dcr",
         time_indices=None,
         energy_indices=None,
         detector_indices="all",
@@ -268,8 +274,12 @@ class TimesSeriesPlotMixin:
 
         Parameters
         ----------
-        axes : optional `matplotlib.axes`
-            The axes the plot the spectrogram.
+        vtype : str
+           Type of value to return control the default normalisation:
+               * 'c' - count [c]
+               * 'cr' - count rate [c/s]
+               * 'dcr' - differential count rate [c/(s keV)]
+               * 'dcrf' - differential count rate flux (geometric area) [c/(s keV cm^2)]
         time_indices : `list` or `numpy.ndarray`
             If an 1xN array will be treated as mask if 2XN array will sum data between given
             indices. For example `time_indices=[0, 2, 5]` would return only the first, third and
@@ -286,6 +296,8 @@ class TimesSeriesPlotMixin:
             If an 1xN array will be treated as mask if 2XN array will sum data between given
             indices. For example `pixel_indices=[0, 2, 5]` would return only the first, third and
             sixth pixels while `pixel_indices=[[0, 2],[3, 5]]` would sum the data between.
+        axes : optional `matplotlib.axes`
+            The axes the plot the spectrogram.
         error_bar : optional `bool`
             Add error bars to plot.
         **plot_kwargs : `dict`
@@ -343,7 +355,6 @@ class PixelPlotMixin:
     """
     Pixel plot mixin providing pixel plotting for pixel data.
     """
-
     def plot_pixels(self, *, kind="pixel", time_indices=None, energy_indices=None, fig=None, cmap=None, **kwargs):
         pixel_plotter = PixelPlotter(self, time_indices=time_indices, energy_indices=energy_indices)
         pixel_plotter.plot(kind=kind, fig=fig, cmap=cmap, **kwargs)
@@ -427,7 +438,7 @@ class ScienceData(L1Product):
     def get_data(
         self,
         *,
-        vtype="dcrf",
+        vtype="dcr",
         time_indices=None,
         energy_indices=None,
         detector_indices=None,

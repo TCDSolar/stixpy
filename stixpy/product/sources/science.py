@@ -614,7 +614,7 @@ class ScienceData(L1Product):
         if vtype == "c":
             norm = 1
         elif vtype == "cr":
-            norm = 1 / e_norm
+            norm = 1 / t_norm
         elif vtype == "dcr":
             norm = 1 / (e_norm * t_norm)
         elif vtype == "dcrf":

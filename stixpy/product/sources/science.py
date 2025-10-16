@@ -16,6 +16,7 @@ from matplotlib.patches import Patch
 from matplotlib.widgets import Slider
 from sunpy.time.timerange import TimeRange
 
+from stixpy.config.instrument import STIX_INSTRUMENT
 from stixpy.io.readers import read_subc_params
 from stixpy.product.product import L1Product
 
@@ -149,6 +150,7 @@ class SpectrogramPlotMixin:
     def plot_spectrogram(
         self,
         axes=None,
+        vtype="dcr",
         time_indices=None,
         energy_indices=None,
         detector_indices="all",
@@ -213,7 +215,11 @@ class SpectrogramPlotMixin:
                 pid = pixel_indices
 
         counts, errors, times, timedeltas, energies = self.get_data(
-            detector_indices=did, pixel_indices=pid, time_indices=time_indices, energy_indices=energy_indices
+            vtype=vtype,
+            detector_indices=did,
+            pixel_indices=pid,
+            time_indices=time_indices,
+            energy_indices=energy_indices,
         )
         counts = counts.to(u.ct / u.s / u.keV)
         errors = errors.to(u.ct / u.s / u.keV)
@@ -257,6 +263,7 @@ class TimesSeriesPlotMixin:
 
     def plot_timeseries(
         self,
+        vtype="dcr",
         time_indices=None,
         energy_indices=None,
         detector_indices="all",
@@ -270,8 +277,12 @@ class TimesSeriesPlotMixin:
 
         Parameters
         ----------
-        axes : optional `matplotlib.axes`
-            The axes the plot the spectrogram.
+        vtype : str
+           Type of value to return control the default normalisation:
+               * 'c' - count [c]
+               * 'cr' - count rate [c/s]
+               * 'dcr' - differential count rate [c/(s keV)]
+               * 'dcrf' - differential count rate flux (geometric area) [c/(s keV cm^2)]
         time_indices : `list` or `numpy.ndarray`
             If an 1xN array will be treated as mask if 2XN array will sum data between given
             indices. For example `time_indices=[0, 2, 5]` would return only the first, third and
@@ -288,6 +299,8 @@ class TimesSeriesPlotMixin:
             If an 1xN array will be treated as mask if 2XN array will sum data between given
             indices. For example `pixel_indices=[0, 2, 5]` would return only the first, third and
             sixth pixels while `pixel_indices=[[0, 2],[3, 5]]` would sum the data between.
+        axes : optional `matplotlib.axes`
+            The axes the plot the spectrogram.
         error_bar : optional `bool`
             Add error bars to plot.
         **plot_kwargs : `dict`
@@ -348,12 +361,18 @@ class PixelPlotMixin:
     Pixel plot mixin providing pixel plotting for pixel data.
     """
 
-    def plot_pixels(self, *, kind="pixels", time_indices=None, energy_indices=None, fig=None, cmap=None):
+    def plot_pixels(self, *, vtype="dcr", kind="pixels", time_indices=None, energy_indices=None, fig=None, cmap=None):
         """
         Plot individual pixel data for each detector.
 
         Parameters
         ----------
+        vtype : str
+           Type of value to return control the default normalisation:
+               * 'c' - count [c]
+               * 'cr' - count rate [c/s]
+               * 'dcr' - differential count rate [c/(s keV)]
+               * 'dcrf' - differential count rate flux (geometric area) [c/(s keV cm^2)]
         kind : `string`         the options: 'pixels', 'errorbar', 'config'
             This sets the visualization type of the subplots. The data will then be shown in the selected style.
         time_indices : `list` or `numpy.ndarray`
@@ -387,7 +406,9 @@ class PixelPlotMixin:
         else:
             fig, axes = plt.subplots(nrows=4, ncols=8, sharex=True, sharey=True, figsize=(7, 7))
 
-        counts, count_err, times, dt, energies = self.get_data(time_indices=time_indices, energy_indices=energy_indices)
+        counts, count_err, times, dt, energies = self.get_data(
+            vtype=vtype, time_indices=time_indices, energy_indices=energy_indices
+        )
 
         imaging_mask = np.ones(32, bool)
         imaging_mask[8:10] = False
@@ -854,15 +875,28 @@ class ScienceData(L1Product):
         return self.data["timedel"]
 
     def get_data(
-        self, time_indices=None, energy_indices=None, detector_indices=None, pixel_indices=None, sum_all_times=False
+        self,
+        *,
+        vtype="dcr",
+        time_indices=None,
+        energy_indices=None,
+        detector_indices=None,
+        pixel_indices=None,
+        sum_all_times=False,
     ):
-        """
+        r"""
         Return the counts, errors, times, durations and energies for selected data.
 
         Optionally summing in time and or energy.
 
         Parameters
         ----------
+        vtype : str
+            Type of value to return control the default normalisation:
+                * 'c' - count [c]
+                * 'cr' - count rate [c/s]
+                * 'dcr' - differential count rate [c/(s keV)]
+                * 'dcrf' - differential count rate flux (geometric area) [c/(s keV cm^2)]
         time_indices : `list` or `numpy.ndarray`
             If an 1xN array will be treated as mask if 2XN array will sum data between given
             indices. For example `time_indices=[0, 2, 5]` would return only the first, third and
@@ -998,14 +1032,36 @@ class ScienceData(L1Product):
                     counts_var = np.sum(counts_var, axis=0, keepdims=True)
                     t_norm = np.sum(dt)
 
+        t_norm = t_norm.to("s")
+
         if e_norm.size != 1:
             e_norm = e_norm.reshape(1, 1, 1, -1)
 
         if t_norm.size != 1:
             t_norm = t_norm.reshape(-1, 1, 1, 1)
 
-        counts_err = np.sqrt(counts * u.ct + counts_var) / (e_norm * t_norm)
-        counts = counts / (e_norm * t_norm)
+        pixel_areas = STIX_INSTRUMENT.pixel_config["Area"].to("cm2")
+        a_norm = []
+        for pixel_mask in self.data["pixel_masks"]:
+            indices = np.nonzero(pixel_mask)
+            areas = np.full(12, 0 * u.cm**2)
+            areas[indices] = pixel_areas[indices].value
+            a_norm.append(areas)
+        a_norm = np.vstack(a_norm).reshape(t_norm.size, 1, -1, 1) * u.cm**2
+
+        if vtype == "c":
+            norm = 1
+        elif vtype == "cr":
+            norm = 1 / t_norm
+        elif vtype == "dcr":
+            norm = 1 / (e_norm * t_norm)
+        elif vtype == "dcrf":
+            norm = 1 / (e_norm * t_norm * a_norm)
+        else:
+            raise ValueError("Unknown vtype must be one of 'c', 'cr', or 'dcr', 'dcrf'.")
+
+        counts_err = np.sqrt(counts * u.ct + counts_var) * norm
+        counts = counts * norm
 
         return counts, counts_err, times, t_norm, energies
 

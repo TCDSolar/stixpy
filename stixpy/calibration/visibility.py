@@ -177,6 +177,8 @@ def create_meta_pixels(
     t_ind = np.argwhere(t_mask).ravel()
     e_ind = np.argwhere(e_mask).ravel()
 
+    print('e_ind = ', e_ind)
+
     time_range = TimeRange(
         pixel_data.times[t_ind[0]] - pixel_data.duration[t_ind[0]] / 2,
         pixel_data.times[t_ind[-1]] + pixel_data.duration[t_ind[-1]] / 2,
@@ -201,20 +203,35 @@ def create_meta_pixels(
 
     pixel_data.data["livefrac"] = livefrac
 
+    print('e_ind = ',e_ind)
+
     e_cor_high, e_cor_low = get_elut_correction(e_ind, pixel_data)
+
+    print('e_cor_high_shape = ',np.shape(e_cor_high))
+    print('counts shape = ',np.shape(pixel_data.data["counts"]))
 
     # Get counts and other data.
     idx_pix = _PIXEL_SLICES.get(pixels.lower(), None)
+
+    print('pix = ',np.shape(e_cor_low[..., idx_pix]))
+
     if idx_pix is None:
         raise ValueError(f"Unrecognised input for 'pixels': {pixels}. Supported values: {list(_PIXEL_SLICES.keys())}")
     counts = pixel_data.data["counts"].astype(float)
     count_errors = np.sqrt(pixel_data.data["counts_comp_err"].astype(float).value ** 2 + counts.value) * u.ct
     ct = counts[t_ind][..., idx_pix, e_ind]
+    # print('ct = ',np.shape(ct))
+    ct_or = ct
     ct[..., 0] = ct[..., 0] * e_cor_low[..., idx_pix]
     ct[..., -1] = ct[..., -1] * e_cor_high[..., idx_pix]
     ct_error = count_errors[t_ind][..., idx_pix, e_ind]
     ct_error[..., 0] = ct_error[..., 0] * e_cor_low[..., idx_pix]
     ct_error[..., -1] = ct_error[..., -1] * e_cor_high[..., idx_pix]
+
+    # print(np.where( ((ct / ct_or) != 1) & (np.isnan(ct / ct_or) == False) )[0])
+    
+    # indices = np.where(ct[...,0] != ct_or[...,0])
+    # print(indices)
 
     lt = (livefrac * pixel_data.data["timedel"].reshape(-1, 1).to("s"))[t_ind].sum(axis=0)
 
@@ -290,6 +307,8 @@ def get_elut_correction(e_ind, pixel_data):
     ebin_sci_edges_high = ebin_sci_edges_high[..., energy_mask]
     e_cor_low = (ebin_edges_high[..., e_ind[0]] - ebin_sci_edges_low[..., e_ind[0]]) / ebin_widths[..., e_ind[0]]
     e_cor_high = (ebin_sci_edges_high[..., e_ind[-1]] - ebin_edges_low[..., e_ind[-1]]) / ebin_widths[..., e_ind[-1]]
+
+
     return e_cor_high, e_cor_low
 
 

@@ -19,8 +19,9 @@ from sunpy.time.timerange import TimeRange
 
 from stixpy.calibration.livetime import get_livetime_fraction
 from stixpy.io.readers import read_subc_params
-
+from stixpy.calibration.elut import get_elut_correction
 from stixpy.product.product import L1Product
+from stixpy.config.instrument import STIX_INSTRUMENT, _get_uv_points_data
 
 __all__ = [
     "ScienceData",
@@ -37,6 +38,7 @@ __all__ = [
     "DetectorMasks",
     "PixelMasks",
     "EnergyEdgeMasks",
+    "calc_count_rate"
 ]
 
 
@@ -863,7 +865,8 @@ class ScienceData(L1Product):
         detector_indices=None,
         pixel_indices=None,
         sum_all_times=False,
-        livetime_correction=False,
+        livetime_correction=True,
+        elut_correction=True
     ):
         """
         Return the counts, errors, times, durations and energies for selected data.
@@ -898,22 +901,38 @@ class ScienceData(L1Product):
 
         """
 
-        # fmt: off
-        # For the moment copied from idl
-        trigger_to_detector = [0, 0, 7, 7, 2, 1, 1, 6, 6, 5, 2, 3, 3, 4, 4, 5, 13, 12,
-                            12, 11, 11, 10, 13, 14, 14, 9, 9, 10, 15, 15, 8, 8,]
-        # fmt: on
-
-        triggers = self.data["triggers"][:, trigger_to_detector].astype(float)[...]
-
-        _, livefrac, _ = get_livetime_fraction(triggers / self.data["timedel"].to("s").reshape(-1, 1))
-
+        e_norm = self.dE
+        t_norm = self.data["timedel"]
+        
         counts = self.data["counts"]
+
         try:
             counts_var = self.data["counts_comp_err"] ** 2
         except KeyError:
             counts_var = self.data["counts_comp_comp_err"] ** 2
         shape = counts.shape
+
+        if livetime_correction:
+
+            trigger_to_detector = STIX_INSTRUMENT.subcol_adc_mapping
+            triggers = self.data["triggers"][:, trigger_to_detector].astype(float)[...]
+            _, livefrac, _ = get_livetime_fraction(triggers, self.data["timedel"].to("s").reshape(-1, 1))
+
+            if t_norm.size != 1:
+
+                t_norm = t_norm.reshape(-1, 1, 1, 1)
+                livefrac = livefrac.reshape(livefrac.shape + (1, 1))
+
+            t_norm = t_norm * livefrac
+
+        if elut_correction:
+
+            _, _, elut_cor_fac = get_elut_correction(np.array(self.energies['channel']), self)
+
+            e_norm = e_norm / elut_cor_fac
+
+    
+ 
 
         if len(shape) < 4:
             counts = counts.reshape(shape[0], 1, 1, shape[-1])
@@ -929,7 +948,7 @@ class ScienceData(L1Product):
                 detector_mask[detecor_indices] = True
                 counts = counts[:, detector_mask, ...]
                 counts_var = counts_var[:, detector_mask, ...]
-                livefrac = livefrac[..., detector_mask]
+                t_norm = t_norm[..., detector_mask]
             elif detecor_indices.ndim == 2:
                 counts = np.hstack(
                     [np.sum(counts[:, dl : dh + 1, ...], axis=1, keepdims=True) for dl, dh in detecor_indices]
@@ -947,6 +966,7 @@ class ScienceData(L1Product):
                 pixel_mask[pixel_indices] = True
                 counts = counts[..., pixel_mask, :]
                 counts_var = counts_var[..., pixel_mask, :]
+                t_norm = t_norm[...,pixel_mask,:]
             elif pixel_indices.ndim == 2:
                 counts = np.concatenate(
                     [np.sum(counts[..., pl : ph + 1, :], axis=2, keepdims=True) for pl, ph in pixel_indices], axis=2
@@ -956,7 +976,7 @@ class ScienceData(L1Product):
                     [np.sum(counts_var[..., pl : ph + 1, :], axis=2, keepdims=True) for pl, ph in pixel_indices], axis=2
                 )
 
-        e_norm = self.dE
+
         if energy_indices is not None:
             energy_indices = np.asarray(energy_indices)
             if energy_indices.ndim == 1:
@@ -966,6 +986,7 @@ class ScienceData(L1Product):
                 counts_var = counts_var[..., energy_mask]
                 e_norm = self.dE[energy_mask]
                 energies = self.energies[energy_mask]
+
             elif energy_indices.ndim == 2:
                 counts = np.concatenate(
                     [np.sum(counts[..., el : eh + 1], axis=-1, keepdims=True) for el, eh in energy_indices], axis=-1
@@ -985,7 +1006,6 @@ class ScienceData(L1Product):
                 )
                 energies = QTable(energies * u.keV, names=["e_low", "e_high"])
 
-        t_norm = self.data["timedel"]
 
         if time_indices is not None:
             time_indices = np.asarray(time_indices)
@@ -1022,21 +1042,58 @@ class ScienceData(L1Product):
                     counts_var = np.sum(counts_var, axis=0, keepdims=True)
                     t_norm = np.sum(dt)
 
+
         if e_norm.size != 1:
             e_norm = e_norm.reshape(1, 1, 1, -1)
 
-        if t_norm.size != 1:
-            t_norm = t_norm.reshape(-1, 1, 1, 1)
+        if np.isnan(np.array(e_norm.value)).any():
 
-            livefrac = livefrac.reshape(livefrac.shape + (1, 1))
+            valid_mask = np.flatnonzero(~np.isnan(e_norm))
+ 
+            e_norm = e_norm[...,valid_mask]
+            counts = counts[...,valid_mask]
+            counts_var = counts_var[...,valid_mask]
 
-        if livetime_correction:
-            t_norm = t_norm * livefrac
+            energies = energies[valid_mask]
 
         counts_err = np.sqrt(counts * u.ct + counts_var) / (e_norm * t_norm)
         counts = counts / (e_norm * t_norm)
 
-        return counts, counts_err, times, t_norm, energies
+
+
+        return counts, counts_err, times, t_norm, energies  
+        
+    
+    def get_spectrum(self):
+        
+        pixel_indices =  np.array([0, 1, 2, 3, 4, 5, 6, 7, 13, 14, 15, 19, 
+                                     20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31])
+        
+        rate, rate_err, times, t_norm_cs, energies = self.get_data()
+
+        de = np.array(energies['e_high'] - energies['e_low'])
+
+        t_diff_cs = self.data["timedel"]
+        t_diff = self.data["timedel"].to(u.s)
+
+        counts_kev = rate * t_diff_cs[:, None, None, None]
+        counts = counts_kev * de
+        result_count_rate = counts/ t_diff[:, None, None, None]
+        result_count_rate = (result_count_rate[:, pixel_indices, :8, :].sum(axis=(1,2)) ) 
+
+        counts_err_kev = rate_err * t_diff_cs[:, None, None, None]
+        counts_err = counts_err_kev * de
+        result_count_err_rate = counts_err / t_diff[:, None, None, None]
+        result_count_err_rate = np.sqrt(((result_count_err_rate[:, pixel_indices, :8, :]**2).sum(axis=(1,2)) ) )
+
+        data_dictionary = {'rate':result_count_rate,
+                      'rate_err':result_count_err_rate,
+                      'times':times,
+                      'time_bin':t_diff,
+                      'energies':energies}
+
+        return data_dictionary    
+
 
     def concatenate(self, others):
         """
@@ -1384,3 +1441,29 @@ class SliderCustomValue(Slider):
         if format_func is not None:
             self._format = format_func
         super().__init__(*args, **kwargs)
+
+
+def calc_count_rate(dat):
+
+    rate, rate_err, _, t_norm_cs, energies, _, cor = dat
+
+    de = np.array(energies['e_high'] - energies['e_low'])
+
+    rate = np.array(rate)
+    rate_err = np.array(rate_err)
+
+    t_norm = t_norm_cs.to(u.s).value
+
+    counts_kev = rate * t_norm_cs
+    counts_err_kev = rate_err * t_norm_cs
+
+    counts = counts_kev * de
+    counts_err = counts_err_kev * de
+
+    result_count_rate = counts / t_norm
+    result_count_rate_err = counts_err / t_norm
+
+    result_count_rate = result_count_rate[:, :, :8, :].sum(axis=(1,2)) * cor
+    result_count_rate_err = result_count_rate_err[:, :, :8, :].sum(axis=(1,2)) * cor
+
+    return result_count_rate, result_count_rate_err

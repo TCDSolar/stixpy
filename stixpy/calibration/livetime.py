@@ -62,7 +62,7 @@ STIX-TN-0015-ETH_I1R0_Caliste_Rates
 import astropy.units as u
 import numpy as np
 
-__all__ = ["pileup_correction_factor", "get_livetime_fraction"]
+__all__ = ["pileup_correction_factor", "get_livetime_fraction","livetime_counts_corr"]
 
 from stixpy.io.readers import read_subc_params
 
@@ -93,7 +93,7 @@ def pileup_correction_factor():
     return prob_diff_pix
 
 
-def get_livetime_fraction(trigger_rate, *, eta=1.10 * u.us, tau=10.1 * u.us):
+def get_livetime_fraction(trigger_rate,time_del, eta=1.1e-6 *u.s, tau=10.1e-6 * u.s):
     """
     Return the live time fraction for the given trigger rate.
 
@@ -113,7 +113,16 @@ def get_livetime_fraction(trigger_rate, *, eta=1.10 * u.us, tau=10.1 * u.us):
     """
     beta = 0.94059104  # pileup_correction_factor()
 
+    tau = tau / time_del
+    eta = eta / time_del
+
     photons_in = trigger_rate / (1.0 - trigger_rate * (tau + eta))
     livetime_fraction = 1 / (1.0 + (tau + eta) * photons_in)
     two_photon = np.exp(-eta * beta * photons_in) * livetime_fraction
+
+
     return livetime_fraction, two_photon, photons_in
+
+     
+
+    

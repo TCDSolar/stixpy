@@ -161,10 +161,24 @@ class SpectrogramPlotMixin:
         ----------
         axes : optional `matplotlib.axes`
             The axes the plot the spectrogram.
+        vtype : str
+           Type of value to return control the default normalisation:
+               * 'c' - count [c]
+               * 'cr' - count rate [c/s]
+               * 'dcr' - differential count rate [c/(s keV)]
+               * 'dcrf' - differential count rate flux (geometric area) [c/(s keV cm^2)]
         time_indices : `list` or `numpy.ndarray`
             If an 1xN array will be treated as mask if 2XN array will sum data between given
             indices. For example `time_indices=[0, 2, 5]` would return only the first, third and
             sixth times while `time_indices=[[0, 2],[3, 5]]` would sum the data between.
+        pixel_indices : `list` or `numpy.ndarray`
+            If an 1xN array will be treated as mask if 2XN array will sum data between given
+            indices. For example `pixel_indices=[0, 2, 5]` would return only the first, third and
+            sixth pixels while `pixel_indices=[[0, 2],[3, 5]]` would sum the data between.
+        detector_indices : `list` or `numpy.ndarray`
+            If an 1xN array will be treated as mask if 2XN array will sum data between given
+            indices. For example `detector_indices=[0, 2, 5]` would return only the first, third and
+            sixth detectors while `detector_indices=[[0, 2],[3, 5]]` would sum the data between.
         energy_indices : `list` or `numpy.ndarray`
             If an 1xN array will be treated as mask if 2XN array will sum data between given
             indices. For example `energy_indices=[0, 2, 5]` would return only the first, third and
@@ -175,6 +189,14 @@ class SpectrogramPlotMixin:
         Returns
         -------
         `matplotlib.axes`
+
+        Notes
+        -----
+        The units of the plotted data are determined by the `vtype` parameter:
+        - 'c': counts
+        - 'cr': counts per second
+        - 'dcr': counts per second per keV
+        - 'dcrf': counts per second per keV per cm^2
         """
         counts_shape = self.data["counts"].shape
         if len(counts_shape) != 4:
@@ -218,8 +240,6 @@ class SpectrogramPlotMixin:
             time_indices=time_indices,
             energy_indices=energy_indices,
         )
-        counts = counts.to(u.ct / u.s / u.keV)
-        errors = errors.to(u.ct / u.s / u.keV)
         timedeltas = timedeltas.to(u.s)
 
         e_edges = np.hstack([energies["e_low"], energies["e_high"][-1]]).value
@@ -297,7 +317,7 @@ class TimesSeriesPlotMixin:
             indices. For example `pixel_indices=[0, 2, 5]` would return only the first, third and
             sixth pixels while `pixel_indices=[[0, 2],[3, 5]]` would sum the data between.
         axes : optional `matplotlib.axes`
-            The axes the plot the spectrogram.
+            The matplotlib axes on which to plot the time series.
         error_bar : optional `bool`
             Add error bars to plot.
         **plot_kwargs : `dict`
@@ -320,14 +340,12 @@ class TimesSeriesPlotMixin:
             pixel_indices = [[0, 11]]
 
         counts, errors, times, timedeltas, energies = self.get_data(
+            vtype=vtype,
             detector_indices=detector_indices,
             pixel_indices=pixel_indices,
             time_indices=time_indices,
             energy_indices=energy_indices,
         )
-        counts = counts.to(u.ct / u.s / u.keV)
-        errors = errors.to(u.ct / u.s / u.keV)
-        timedeltas = timedeltas.to(u.s)
 
         labels = [f"{el.value} - {eh.value} keV" for el, eh in energies["e_low", "e_high"]]
 
@@ -371,7 +389,7 @@ class ScienceData(L1Product):
 
         Parameters
         ----------
-        header : `astropy.fits.Header`
+        meta : `astropy.fits.Header`
             Fits header
         control : `astropy.table.QTable`
             Fits file control extension
@@ -602,15 +620,6 @@ class ScienceData(L1Product):
         if t_norm.size != 1:
             t_norm = t_norm.reshape(-1, 1, 1, 1).to("s")
 
-        pixel_areas = STIX_INSTRUMENT.pixel_config["Area"].to("cm2")
-        a_norm = []
-        for pixel_mask in self.data["pixel_masks"]:
-            indices = np.nonzero(pixel_mask)
-            areas = np.full(12, 0 * u.cm**2)
-            areas[indices] = pixel_areas[indices].value
-            a_norm.append(areas)
-        a_norm = np.vstack(a_norm).reshape(t_norm.size, 1, -1, 1) * u.cm**2
-
         if vtype == "c":
             norm = 1
         elif vtype == "cr":
@@ -618,9 +627,11 @@ class ScienceData(L1Product):
         elif vtype == "dcr":
             norm = 1 / (e_norm * t_norm)
         elif vtype == "dcrf":
+            pixel_areas = STIX_INSTRUMENT.pixel_config["Area"].to(u.cm**2)
+            a_norm = (self.data["pixel_masks"] * pixel_areas.value).reshape(t_norm.size, 1, -1, 1) * u.cm**2
             norm = 1 / (e_norm * t_norm * a_norm)
         else:
-            raise ValueError("Unknown vtype must be one of 'c', 'cr', or 'dcr', 'dcrf'.")
+            raise ValueError("vtype must be one of 'c', 'cr', 'dcr' or 'dcrf'.")
 
         counts_err = np.sqrt(counts * u.ct + counts_var) * norm
         counts = counts * norm
@@ -906,7 +917,7 @@ class Spectrogram(ScienceData, TimesSeriesPlotMixin, SpectrogramPlotMixin):
 
     Parameters
     ----------
-    header : `astropy.fits.Header`
+    meta : `astropy.fits.Header`
     control : `astropy.table.QTable`
     data : `astropy.table.QTable`
     energies : `astropy.table.QTable`
@@ -942,7 +953,7 @@ class Spectrogram(ScienceData, TimesSeriesPlotMixin, SpectrogramPlotMixin):
 
         Parameters
         ----------
-        header : astropy.fits.Header
+        meta : astropy.fits.Header
         control : astropy.table.QTable
         data : astropy.table.QTable
         energies : astropy.table.QTable

@@ -17,6 +17,7 @@ from matplotlib.widgets import Slider
 from sunpy.time.timerange import TimeRange
 
 
+
 from stixpy.calibration.livetime import get_livetime_fraction
 from stixpy.io.readers import read_subc_params
 from stixpy.calibration.elut import get_elut_correction
@@ -906,6 +907,8 @@ class ScienceData(L1Product):
         
         counts = self.data["counts"]
 
+        print('counts = ',np.shape(counts))
+
         try:
             counts_var = self.data["counts_comp_err"] ** 2
         except KeyError:
@@ -916,14 +919,28 @@ class ScienceData(L1Product):
 
             trigger_to_detector = STIX_INSTRUMENT.subcol_adc_mapping
             triggers = self.data["triggers"][:, trigger_to_detector].astype(float)[...]
+            
+            triggers_error = self.data["triggers_comp_err"][:, trigger_to_detector].astype(float)[...]
+            triggers_lower = triggers - triggers_error
+            triggers_upper = triggers + triggers_error            
+            
             _, livefrac, _ = get_livetime_fraction(triggers, self.data["timedel"].to("s").reshape(-1, 1))
+            _, livefrac_lower, _ = get_livetime_fraction(triggers_lower, self.data["timedel"].to("s").reshape(-1, 1))
+            _, livefrac_upper, _ = get_livetime_fraction(triggers_upper, self.data["timedel"].to("s").reshape(-1, 1))
 
-            if t_norm.size != 1:
 
-                t_norm = t_norm.reshape(-1, 1, 1, 1)
-                livefrac = livefrac.reshape(livefrac.shape + (1, 1))
+            # if t_norm.size != 1:
+
+            t_norm = t_norm.reshape(-1, 1, 1, 1)
+            livefrac = livefrac.reshape(livefrac.shape + (1, 1))
+            livefrac_lower = livefrac_lower.reshape(livefrac_lower.shape + (1, 1))
+            livefrac_upper = livefrac_upper.reshape(livefrac_upper.shape + (1, 1))             
 
             t_norm = t_norm * livefrac
+            t_norm_lower = t_norm * livefrac_lower
+            t_norm_upper = t_norm * livefrac_upper
+
+            print('tnorm = ',t_norm)
 
         if elut_correction:
 
@@ -932,8 +949,6 @@ class ScienceData(L1Product):
             e_norm = e_norm / elut_cor_fac
 
     
- 
-
         if len(shape) < 4:
             counts = counts.reshape(shape[0], 1, 1, shape[-1])
             counts_var = counts_var.reshape(shape[0], 1, 1, shape[-1])
@@ -1056,43 +1071,101 @@ class ScienceData(L1Product):
 
             energies = energies[valid_mask]
 
-        counts_err = np.sqrt(counts * u.ct + counts_var) / (e_norm * t_norm)
-        counts = counts / (e_norm * t_norm)
+        counts_err = np.sqrt(counts * u.ct + counts_var) / (t_norm)
+        counts_corr = counts / (e_norm * t_norm)
 
+        counts_lower = counts / (t_norm_lower)
+        counts_upper = counts / (t_norm_upper)
 
+        livetime_error = (counts_upper - counts_lower) / 2
 
-        return counts, counts_err, times, t_norm, energies  
+        counts_err = np.sqrt(counts_err.value**2 + livetime_error.value**2) / e_norm
+
+        return counts_corr, counts_err, times, t_norm, energies  
         
     
     def get_spectrum(self):
         
-        pixel_indices =  np.array([0, 1, 2, 3, 4, 5, 6, 7, 13, 14, 15, 19, 
+        det_indices_top24 =  np.array([0, 1, 2, 3, 4, 5, 6, 7, 13, 14, 15, 19, 
                                      20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31])
+        
+        det_indices_full = np.where(self.detector_masks.__dict__['masks'] == 1 )[1]
+
+        det_indices = [d for i,d in enumerate(det_indices_top24) if d in det_indices_full]
+
+        pix_indices = np.where(self.pixel_masks.__dict__['masks'] == 1 )[1]
         
         rate, rate_err, times, t_norm_cs, energies = self.get_data()
 
         de = np.array(energies['e_high'] - energies['e_low'])
 
-        t_diff_cs = self.data["timedel"]
-        t_diff = self.data["timedel"].to(u.s)
+        t_diff_cs = t_norm_cs
+        t_diff = t_diff_cs.to(u.s)
 
-        counts_kev = rate * t_diff_cs[:, None, None, None]
+        counts_kev = rate * t_diff_cs
         counts = counts_kev * de
-        result_count_rate = counts/ t_diff[:, None, None, None]
-        result_count_rate = (result_count_rate[:, pixel_indices, :8, :].sum(axis=(1,2)) ) 
+        result_count_rate_full = counts / t_diff
+        result_count_rate_det = result_count_rate_full[:, det_indices, :, :]
+        result_count_rate_det_pix =   result_count_rate_det[:, :, pix_indices, :]
+        result_count_rate = result_count_rate_det_pix.sum(axis=(1,2))
 
-        counts_err_kev = rate_err * t_diff_cs[:, None, None, None]
+        counts_err_kev = rate_err * t_diff_cs
         counts_err = counts_err_kev * de
-        result_count_err_rate = counts_err / t_diff[:, None, None, None]
-        result_count_err_rate = np.sqrt(((result_count_err_rate[:, pixel_indices, :8, :]**2).sum(axis=(1,2)) ) )
+        result_count_err_rate_full = counts_err / t_diff
+        result_count_err_rate_det =result_count_err_rate_full[:, det_indices, :, :]
+        result_count_err_rate_det_pix =result_count_err_rate_det[:, :, pix_indices, :]
+        result_count_err_rate = np.sqrt(((result_count_err_rate_det_pix**2).sum(axis=(1,2)) ) )
+
+        if energies['e_low'][0].value == 0:
+            result_count_rate = result_count_rate[:,1:]
+            result_count_err_rate = result_count_err_rate[:,1:]
+            energies = energies[1:]
 
         data_dictionary = {'rate':result_count_rate,
-                      'rate_err':result_count_err_rate,
-                      'times':times,
-                      'time_bin':t_diff,
-                      'energies':energies}
+                           'rate_err':result_count_err_rate,
+                           'times':times,
+                           'time_bin':t_diff,
+                           'energies':energies}
 
         return data_dictionary    
+
+    def bkg_subract(self, bkg_data):
+
+        spec_unsub = self.get_spectrum()
+        
+        times = spec_unsub['times']
+        time_bins = spec_unsub['time_bin']
+        rate= spec_unsub['rate']
+        rate_err = spec_unsub['rate_err']
+        energies = spec_unsub['energies']
+
+        bkg_rate = bkg_data['rate']
+        bkg_rate_err = bkg_data['rate_err']
+        bkg_energies = bkg_data['energies']
+
+        _, _, indices_sub = np.intersect1d(
+            energies['e_low'],
+            bkg_energies['e_low'],
+            return_indices=True
+        )
+
+        bkg_rate_sub = bkg_rate[:,indices_sub]
+        bkg_rate_err_sub = bkg_rate_err[:,indices_sub]
+ 
+        rate_sub = rate - bkg_rate_sub
+        rate_err_sub = np.sqrt((rate_err.value**2) + (bkg_rate_err_sub.value**2))
+
+        spec_sub = {'rate_bkg_sub':rate_sub,
+                    'rate_err_bkg_sub':rate_err_sub,
+                    'rate':rate,
+                    'rate_err':rate_err,
+                    'rate_bkg':bkg_rate,
+                    'rate_err_bkg':bkg_rate_err,
+                    'times':times,
+                    'time_bin':time_bins,
+                    'energies':energies}
+        
+        return spec_sub
 
 
     def concatenate(self, others):

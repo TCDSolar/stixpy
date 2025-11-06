@@ -298,7 +298,7 @@ class TimesSeriesPlotMixin:
         if axes is None:
             fig, axes = plt.subplots()
         else:
-            fig = axes.get_figure()
+            axes = axes.get_figure()
 
         if detector_indices == "all":
             detector_indices = [[0, 31]]

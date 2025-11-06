@@ -148,7 +148,7 @@ class PixelPlotter:
             count_err_pad.append(tmp_err)
 
         counts_pad = np.stack(counts_pad)
-        count_err_pad = np.stack(count_err)
+        count_err_pad = np.stack(count_err_pad)
 
         self.times = times
         self.energies = energies

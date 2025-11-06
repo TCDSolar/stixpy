@@ -1,0 +1,1 @@
+`~stixpy.product.sources.science.ScienceData.get_data` no longer support summing of pixel indices from low to high and now only support summing of lists of pixel set or list of pixel masks.

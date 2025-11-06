@@ -61,7 +61,7 @@ class QLLightCurve(QuickLookProduct):
             return True
 
     def __repr__(self):
-        return f"{self.__class__.__name__}\n" f"    {self.time_range}"
+        return f"{self.__class__.__name__}\n    {self.time_range}"
 
 
 class QLBackground(QuickLookProduct):
@@ -78,7 +78,7 @@ class QLBackground(QuickLookProduct):
             return True
 
     def __repr__(self):
-        return f"{self.__class__.__name__}\n" f"    {self.time_range}"
+        return f"{self.__class__.__name__}\n    {self.time_range}"
 
 
 class QLVariance(QuickLookProduct):
@@ -95,7 +95,7 @@ class QLVariance(QuickLookProduct):
             return True
 
     def __repr__(self):
-        return f"{self.__class__.__name__}\n" f"    {self.time_range}"
+        return f"{self.__class__.__name__}\n    {self.time_range}"
 
 
 class QLFlareFlag(QuickLookProduct):
@@ -147,7 +147,7 @@ class QLFlareFlag(QuickLookProduct):
         return THERMAL_INDEX_MAP[self.data["location_status"]]
 
     def __repr__(self):
-        return f"{self.__class__.__name__}\n" f"    {self.time_range}"
+        return f"{self.__class__.__name__}\n    {self.time_range}"
 
 
 class QLTMStatusFlareList(QuickLookProduct):
@@ -171,4 +171,4 @@ class QLTMStatusFlareList(QuickLookProduct):
         return [TM_PROCESSING_STATUS[status] for status in self.data["processing_mask"]]
 
     def __repr__(self):
-        return f"{self.__class__.__name__}\n" f"    {self.time_range}"
+        return f"{self.__class__.__name__}\n    {self.time_range}"

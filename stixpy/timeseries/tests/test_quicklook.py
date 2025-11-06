@@ -5,7 +5,6 @@ from sunpy.timeseries import TimeSeries
 from stixpy.timeseries.quicklook import HKMaxi, QLBackground, QLLightCurve, QLVariance
 
 
-@pytest.mark.remote_data
 @pytest.fixture(scope="session")
 def ql_lightcurve():
     ql_lc = TimeSeries(
@@ -14,7 +13,6 @@ def ql_lightcurve():
     return ql_lc
 
 
-@pytest.mark.remote_data
 @pytest.fixture(scope="session")
 def ql_background():
     ql_bkg = TimeSeries(
@@ -23,7 +21,6 @@ def ql_background():
     return ql_bkg
 
 
-@pytest.mark.remote_data
 @pytest.fixture(scope="session")
 def ql_variance():
     ql_var = TimeSeries(
@@ -32,7 +29,6 @@ def ql_variance():
     return ql_var
 
 
-@pytest.mark.remote_data
 @pytest.fixture(scope="session")
 def hk_maxi():
     hk_maxi = TimeSeries(

@@ -182,7 +182,7 @@ class QLLightCurve(GenericTimeSeries):
             return kwargs["meta"].get("telescop", "") == "SOLO/STIX" and "ql-lightcurve" in kwargs["meta"]["filename"]
 
     def __repr__(self):
-        return f"{self.__class__.__name__}\n" f"    {self.time_range}"
+        return f"{self.__class__.__name__}\n    {self.time_range}"
 
 
 class QLBackground(GenericTimeSeries):
@@ -307,7 +307,7 @@ class QLBackground(GenericTimeSeries):
         data["counts"] = data["counts"] / ((data["timedel"].to(u.s) * live_frac).reshape(-1, 1) * energy_delta)
 
         names = [
-            f'{energies["e_low"][i].value.astype(int)}-{energies["e_high"][i].value.astype(int)} {energies["e_high"].unit}'
+            f"{energies['e_low'][i].value.astype(int)}-{energies['e_high'][i].value.astype(int)} {energies['e_high'].unit}"
             for i in range(5)
         ]
 
@@ -467,8 +467,8 @@ class QLVariance(GenericTimeSeries):
             energies[control["energy_bin_mask"][0]]["e_high"][-1] - energies[control["energy_bin_mask"][0]]["e_low"][0]
         )
         name = (
-            f'{energies[control["energy_bin_mask"][0]]["e_low"][0].value.astype(int)}'
-            f'-{energies[control["energy_bin_mask"][0]]["e_high"][-1].value.astype(int)} {energies["e_high"].unit}'
+            f"{energies[control['energy_bin_mask'][0]]['e_low'][0].value.astype(int)}"
+            f"-{energies[control['energy_bin_mask'][0]]['e_high'][-1].value.astype(int)} {energies['e_high'].unit}"
         )
 
         try:

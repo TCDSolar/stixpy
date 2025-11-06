@@ -16,6 +16,7 @@ import logging
 import astropy.units as u
 import matplotlib.pyplot as plt
 import numpy as np
+from astropy.coordinates import SkyCoord
 from sunpy.coordinates import HeliographicStonyhurst, Helioprojective
 from sunpy.map import Map, make_fitswcs_header
 from sunpy.time import TimeRange
@@ -86,9 +87,19 @@ meta_pixels_bkg_subtracted = {
 vis = create_visibility(meta_pixels_bkg_subtracted)
 
 ###############################################################################
-# Calibrate the visibilities
+# Obtain the necessary ephemeris data create HPC 0,0 coordinate
 
-cal_vis = calibrate_visibility(vis)
+vis_tr = TimeRange(vis.meta["time_range"])
+roll, solo_xyz, pointing = get_hpc_info(vis_tr.start, vis_tr.end)
+solo = HeliographicStonyhurst(*solo_xyz, obstime=vis_tr.center, representation_type="cartesian")
+center_hpc = SkyCoord(0 * u.deg, 0 * u.deg, frame=Helioprojective(obstime=vis_tr.center, observer=solo))
+
+###############################################################################
+# Calibrate the visibilities
+#
+# If not given will default to sun center flare location
+
+cal_vis = calibrate_visibility(vis, flare_location=center_hpc)
 
 ###############################################################################
 # Selected detectors 10 to 7
@@ -114,22 +125,23 @@ pixel = [10, 10] * u.arcsec / u.pixel  # pixel size in arcsec
 bp_image = vis_to_image(vis10_7, imsize, pixel_size=pixel)
 
 ###############################################################################
-# Obtain the necessary metadata to create a sunpy map in the STIXImaging frame
+# Obtain the necessary ephemeris data
 
 vis_tr = TimeRange(vis.meta["time_range"])
 roll, solo_xyz, pointing = get_hpc_info(vis_tr.start, vis_tr.end)
 solo = HeliographicStonyhurst(*solo_xyz, obstime=vis_tr.center, representation_type="cartesian")
-coord = STIXImaging(0 * u.arcsec, 0 * u.arcsec, obstime=vis_tr.start, obstime_end=vis_tr.end, observer=solo)
+coord_stix = center_hpc.transform_to(STIXImaging(obstime=vis_tr.start, obstime_end=vis_tr.end, observer=solo))
 header = make_fitswcs_header(
-    bp_image, coord, telescope="STIX", observatory="Solar Orbiter", scale=[10, 10] * u.arcsec / u.pix
+    bp_image, coord_stix, telescope="STIX", observatory="Solar Orbiter", scale=[10, 10] * u.arcsec / u.pix
 )
 fd_bp_map = Map((bp_image, header))
 
 ###############################################################################
 # Convert the coordinates and make a map in Helioprojective and rotate so "North" is "up"
-
-hpc_ref = coord.transform_to(Helioprojective(observer=solo, obstime=vis_tr.center))  # Center of STIX pointing in HPC
-header_hp = make_fitswcs_header(bp_image, hpc_ref, scale=[10, 10] * u.arcsec / u.pix, rotation_angle=90 * u.deg + roll)
+# Center of STIX pointing in HPC
+header_hp = make_fitswcs_header(
+    bp_image, center_hpc, scale=[10, 10] * u.arcsec / u.pix, rotation_angle=90 * u.deg + roll
+)
 hp_map = Map((bp_image, header_hp))
 hp_map_rotated = hp_map.rotate()
 
@@ -137,9 +149,9 @@ hp_map_rotated = hp_map.rotate()
 # Plot the both maps
 
 
-fig = plt.figure(layout="constrained", figsize=(3, 6))
+fig = plt.figure(layout="constrained", figsize=(12, 6))
 ax = fig.subplot_mosaic(
-    [["stix"], ["hpc"]], per_subplot_kw={"stix": {"projection": fd_bp_map}, "hpc": {"projection": hp_map_rotated}}
+    [["stix", "hpc"]], per_subplot_kw={"stix": {"projection": fd_bp_map}, "hpc": {"projection": hp_map_rotated}}
 )
 fd_bp_map.plot(axes=ax["stix"])
 fd_bp_map.draw_limb()

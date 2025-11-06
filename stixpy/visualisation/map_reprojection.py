@@ -8,10 +8,14 @@ An AIA map
    :include-source: true
 
    import astropy.units as u
+
    from astropy.coordinates import SkyCoord
+   from parfive import Downloader, SessionConfig
+   from aiohttp import ClientTimeout
    from sunpy.net import Fido, attrs as a
    from sunpy.map import Map
    from sunpy.coordinates.frames import HeliographicStonyhurst
+
    from stixpy.visualisation.map_reprojection import reproject_map, plot_map_reproj, get_solo_position
 
    # Search and download map using FIDO
@@ -20,7 +24,9 @@ An AIA map
        a.Time('2021-04-17', '2021-04-18'))
    wave = a.Wavelength(19.3 * u.nm, 19.3 * u.nm)
    query = Fido.search(wave, aia)
-   results = Fido.fetch(query[0][0])
+
+   dl = Downloader(config=SessionConfig(ClientTimeout(total=120)))
+   results = Fido.fetch(query[0][0], downloader=dl)
 
    # Create map and resample to speed up calculations
    map = Map(results)

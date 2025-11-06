@@ -12,10 +12,19 @@ project = "STIXpy"
 copyright = "2020, STIX Team"
 author = "STIX Team"
 
+import warnings
+
 from pathlib import Path
+
+from sunpy.util import SunpyDeprecationWarning
 
 # The full version, including alpha/beta/rc tags
 from stixpy import __version__
+
+# remove once update client to use new pattern format
+warnings.filterwarnings(
+    "ignore", message="pattern has been replaced with the format keyword", category=SunpyDeprecationWarning
+)
 
 release = __version__
 is_development = ".dev" in release

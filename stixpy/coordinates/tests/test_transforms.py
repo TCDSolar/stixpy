@@ -60,6 +60,7 @@ def test_get_hpc_info_interp():
     assert_quantity_allclose(ptg_2, ptg_3, rtol=0.03)
 
 
+@pytest.mark.remote_data
 def test_stx_to_hpc_times():
     times = Time("2023-01-01") + np.arange(10) * u.min
     stix_coord = SkyCoord([0] * 10 * u.deg, [0] * 10 * u.deg, frame=STIXImaging(obstime=times))
@@ -69,6 +70,7 @@ def test_stx_to_hpc_times():
     assert np.all(stix_coord.obstime.isclose(stix_coord_rt.obstime))
 
 
+@pytest.mark.remote_data
 def test_stx_to_hpc_obstime_end():
     times = Time("2023-01-01") + [0, 2] * u.min
     time_avg = np.mean(times)

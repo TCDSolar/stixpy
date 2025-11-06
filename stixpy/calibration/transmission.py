@@ -99,7 +99,7 @@ class Transmission:
             The SolarBlack composition to use.
         """
         if solarblack not in ["solarblack_oxygen", "solarblack_carbon"]:
-            raise ValueError("solarblack must be either 'solarblack_oxygen' or " "'solarblack_carbon'.")
+            raise ValueError("solarblack must be either 'solarblack_oxygen' or 'solarblack_carbon'.")
 
         self.solarblack = solarblack
         self.materials = MATERIALS

@@ -17,20 +17,30 @@ __all__ = ["STIXClient", "StixQueryResponse"]
 
 class StixQueryResponse(QueryResponse):
     def filter_for_latest_version(self, allow_uncompleted=False):
-        self["tidx"] = range(len(self))
-        grouped_res = self.group_by(
-            ["Start Time", "End Time", "Instrument", "Level", "DataType", "DataProduct", "Request ID"]
-        )
-        keep = np.zeros(len(self), dtype=bool)
-        for key, group in zip(grouped_res.groups.keys, grouped_res.groups):
-            group.sort("Ver")
-            if not allow_uncompleted:
-                incomplete = np.char.endswith(group["Ver"].data, "U")
-                keep[group[~incomplete][-1]["tidx"]] = True
-            else:
-                keep[group[-1]["tidx"]] = True
-        self.remove_column("tidx")
-        self.remove_rows(np.where(~keep))
+        r"""
+        Filter the response to only include the most recent versions of results.
+
+        Parameters
+        ----------
+        allow_uncompleted
+            Include incomplete version (e.g. V02U)
+
+        """
+        if len(self) > 0 and "Start Time" in self.columns:
+            self["_tidx"] = range(len(self))
+            grouped_res = self.group_by(
+                ["Start Time", "End Time", "Instrument", "Level", "DataType", "DataProduct", "Request ID"]
+            )
+            keep = np.zeros(len(self), dtype=bool)
+            for key, group in zip(grouped_res.groups.keys, grouped_res.groups):
+                group.sort("Ver")
+                if not allow_uncompleted:
+                    incomplete = np.char.endswith(group["Ver"].data, "U")
+                    keep[group[~incomplete][-1]["_tidx"]] = True
+                else:
+                    keep[group[-1]["_tidx"]] = True
+            self.remove_column("_tidx")
+            self.remove_rows(np.where(~keep))
 
 
 class STIXClient(GenericClient):
@@ -223,7 +233,6 @@ class STIXClient(GenericClient):
             attrs.Level: [
                 ("L0", "STIX: commutated, uncompressed, uncalibrated data."),
                 ("L1", "STIX: Engineering and UTC time conversion ."),
-                ("ANC", "STIX: Ancillary Data like aspect."),
                 ("L2", "STIX: Calibrated data."),
                 ("ANC", "STIX: Ancillary data."),
             ],
@@ -241,7 +250,7 @@ class STIXClient(GenericClient):
                 ("ql_background", "Quick look background light curve"),
                 ("ql_variance", "Quick look variance curve"),
                 ("ql_spectra", "Quick look spectra"),
-                ("ql_calibration_spectrum", "Quick look energy " "calibration spectrum"),
+                ("ql_calibration_spectrum", "Quick look energy calibration spectrum"),
                 ("ql_flareflag", "Quick look flare flag including location"),
                 ("ql_tmstatusflarelist", "Quick look TM Status and flare list"),
                 ("sci_xray_rpd", "Raw Pixel Data"),

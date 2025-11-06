@@ -141,8 +141,8 @@ class PixelPlotter:
         for i, pm in enumerate(self.prod.data["pixel_masks"].value):
             tmp_counts = np.full((32, 12, ne), np.nan)
             tmp_err = np.full((32, 12, ne), np.nan)
-            tmp_counts[np.ix_(dmask, pm.astype(bool))] = counts[i][:, pm.astype(bool), :]
-            tmp_err[np.ix_(dmask, pm.astype(bool))] = count_err[i][:, pm.astype(bool), :]
+            tmp_counts[np.ix_(dmask, pm.astype(bool))] = counts[i][:, pm.astype(bool)[: counts.shape[2]], :]
+            tmp_err[np.ix_(dmask, pm.astype(bool))] = count_err[i][:, pm.astype(bool)[: counts.shape[2]], :]
 
             counts_pad.append(tmp_counts)
             count_err_pad.append(tmp_err)

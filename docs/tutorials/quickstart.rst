@@ -141,6 +141,7 @@ Lets download a spectrogram (spec) and some compressed pixel data (cpd) that cov
    :nofigs:
 
    sci_files = Fido.fetch(sci_query[0][[4,-1]])
+   sci_files['stix'].filter_for_latest_version() # only keep latest versions
    sci_files = sorted(sci_files)
 
 Now lets create a spectrogram, similar to Sunpy Map and TimeSeries stixpy Procduct can take a number of input types and

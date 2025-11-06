@@ -110,6 +110,7 @@ quicklook data above but change the query to search a narrower time window and s
 
    sci_query = Fido.search(a.Time('2020-06-07T21:30', '2020-06-07T22:00'), a.Instrument.stix,
                            a.stix.DataType.sci)
+   sci_query['stix'].filter_for_latest_version() # only keep latest versions
 
 This should return a list of data files similar to this.
 

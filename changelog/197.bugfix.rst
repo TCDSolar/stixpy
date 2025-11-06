@@ -1,0 +1,1 @@
+Restore mistakenly dropped updateds to the energies used in `~stixpy.calibration.transmission.generate_transmission_tables`.:

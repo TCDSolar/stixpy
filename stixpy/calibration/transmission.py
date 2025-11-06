@@ -215,11 +215,11 @@ def generate_transmission_tables():
     datetime.now().strftime("%Y%m%d")
     trans = Transmission()
 
-    energies = np.linspace(2, 150, 1001) * u.keV
+    energies = np.hstack([np.arange(2, 20, 0.01), np.arange(20, 160, 0.1)]) * u.keV
 
-    norm_sci_energies = trans.get_transmission()
+    norm_sci_energies = trans.get_transmission(attenuator=True)
     norm_sci_energies.write(f"stix_transmission_sci_energies_{cur_date}.csv")
-    norm_high_res = trans.get_transmission(energies=energies)
+    norm_high_res = trans.get_transmission(energies=energies, attenuator=True)
     norm_high_res.write(f"stix_transmission_highres_{cur_date}.csv")
 
     comps = trans.get_transmission_by_component()

@@ -126,6 +126,12 @@ def test_sciencedata_get_data(cpd):
     assert_allclose(count_err, np.sqrt(2) * u.ct / (u.s * u.keV))  # 1 + 1
 
 
+@pytest.mark.remote_data
+def test_cpd_get_data_pixel_indices(cpd):
+    counts, *_ = cpd.get_data(pixel_indices=[8, 9])
+    assert counts.shape[2] == 2
+
+
 # Raw Pixel Data (rpd) or l0
 @pytest.mark.remote_data
 def test_science_rpd(rpd):

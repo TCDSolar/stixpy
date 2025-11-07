@@ -1,1 +1,0 @@
-Fix a bug where the incorrect unit was set on :class:`~stixpy.timeseries.quicklook.QLLightCurve`, :class:`~stixpy.timeseries.quicklook.QLBackground` and :class:`~stixpy.timeseries.quicklook.QLVariance`.

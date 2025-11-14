@@ -1,1 +1,0 @@
-Convert reconstructions to proper sunpy maps in ref`:ref:`sphx_glr_generated_gallery_imaging_demo.py`.

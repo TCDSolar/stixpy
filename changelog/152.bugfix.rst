@@ -1,1 +1,0 @@
-Fix bug where pointing information could be improperly interpolated in `~stixpy.coordinates.transforms.get_hpc_info`.

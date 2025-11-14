@@ -1,1 +1,0 @@
-Fix bug in `~stixpy.product.sources.science.ScienceData.get_data` when specifying `pixel_indices` with data containing less than 12 pixels.

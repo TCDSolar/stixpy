@@ -1,1 +1,0 @@
-Make the imaging demo compatible with :class:`~xrayvision.visibility.Visibilities`

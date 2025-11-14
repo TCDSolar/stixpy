@@ -1,1 +1,0 @@
-Created new `stixpy.visualisation.plotters.PixelPlotter` class to create pixel plots by moving and refactored code from current mixin so current API is maintained. This new approach simplifies the `~stixpy.product.sources.science` module and programmatic access to the plot controls enabling animations.

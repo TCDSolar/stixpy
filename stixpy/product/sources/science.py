@@ -493,8 +493,9 @@ class ScienceData(L1Product):
             if pixel_indices.ndim == 1:
                 pixel_mask = np.full(12, False)
                 pixel_mask[pixel_indices] = True
-                counts = counts[..., pixel_mask, :]
-                counts_var = counts_var[..., pixel_mask, :]
+                num_pixels = counts.shape[2]
+                counts = counts[..., pixel_mask[:num_pixels], :]
+                counts_var = counts_var[..., pixel_mask[:num_pixels], :]
             elif pixel_indices.ndim == 2:
                 counts = np.concatenate(
                     [np.sum(counts[..., pl : ph + 1, :], axis=2, keepdims=True) for pl, ph in pixel_indices], axis=2

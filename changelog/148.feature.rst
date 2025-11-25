@@ -1,1 +1,0 @@
-Enable `stixpy.calibration.visibility.create_meta_pixels` to include only top or bottom row of big pixels.

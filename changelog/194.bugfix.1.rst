@@ -1,1 +1,0 @@
-Fix incomplete conversion of `~stixpy.calibration.visibility.calibrate_visibility` to use `~astropy.coordinates.SkyCoord`.

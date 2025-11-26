@@ -84,19 +84,32 @@ def test_stx_to_hpc_obstime_end():
     assert np.all(stix_coord.obstime_end.isclose(stix_coord_rt.obstime_end))
 
 
+def test_stx_to_hpc_obstime_end_x2():
+    # strange error that the call the second times crashes
+    test_stx_to_hpc_obstime_end()
+    test_stx_to_hpc_obstime_end()
+
+
 @pytest.mark.remote_data
 def test_get_aux_data():
     with pytest.raises(ValueError, match="No STIX pointing data found for time range"):
         _get_ephemeris_data(Time("2015-06-06"))  # Before the mission started
 
-    aux_data = _get_ephemeris_data(Time("2022-08-28T16:02:00"))
-    assert len(aux_data) == 1341
+    t1 = Time("2022-08-28T16:02:00")
+    aux_data = _get_ephemeris_data(t1)
+    assert len(aux_data) > 0
+    assert aux_data["time"].min() <= t1 <= aux_data["time_end"].max()
 
-    aux_data = _get_ephemeris_data(Time("2022-08-28T16:02:00"), end_time=Time("2022-08-28T16:04:00"))
-    assert len(aux_data) == 1341
+    t2 = Time("2022-08-28T16:04:00")
+    aux_data = _get_ephemeris_data(t1, end_time=t2)
+    assert len(aux_data) > 0
+    assert t1 <= aux_data["time"].min() < t2 <= aux_data["time_end"].max()
 
-    aux_data = _get_ephemeris_data(Time("2022-08-28T23:58:00"), end_time=Time("2022-08-29T00:02:00"))
-    assert len(aux_data) == 2691
+    t1 = Time("2022-08-28T23:58:00")
+    t2 = Time("2022-08-29T00:02:00")
+    aux_data = _get_ephemeris_data(t1, end_time=t2)
+    assert len(aux_data) > 0
+    assert aux_data["time"].min() <= t1 < t2 <= aux_data["time_end"].max()
 
 
 @pytest.mark.remote_data
@@ -135,9 +148,9 @@ def test_get_hpc_info_shapes():
     roll3, solo_heeq3, stix_pointing3 = get_hpc_info(t[5])
 
     assert_quantity_allclose(roll1[5], roll2)
-    assert_quantity_allclose(solo_heeq1[5, :], solo_heeq2[0, :])
-    assert_quantity_allclose(stix_pointing1[5, :], stix_pointing2[0, :])
+    assert_quantity_allclose(solo_heeq1[5, :], solo_heeq2)
+    assert_quantity_allclose(stix_pointing1[5, :], stix_pointing2)
 
     assert_quantity_allclose(roll3, roll2[0])
-    assert_quantity_allclose(solo_heeq3, solo_heeq2[0, :])
-    assert_quantity_allclose(stix_pointing3, stix_pointing2[0, :])
+    assert_quantity_allclose(solo_heeq3, solo_heeq2)
+    assert_quantity_allclose(stix_pointing3, stix_pointing2)

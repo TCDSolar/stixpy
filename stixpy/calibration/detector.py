@@ -22,7 +22,9 @@ def get_srm():
     -------
 
     """
-    drm_save = read_genx("/Users/shane/Projects/STIX/git/stix_drm_20220713.genx")
+    # drm_save = read_genx("/Users/shane/Projects/STIX/git/stix_drm_20220713.genx")
+    drm_save = np.load('/home/jmitchell/software/stixpy-dev/stixpy/config/data/detector/')
+
     drm = drm_save["SAVEGEN0"]["SMATRIX"] * u.count / u.keV / u.photon
     energies_in = drm_save["SAVEGEN0"]["EDGES_IN"] * u.keV
     energies_in_width = np.diff(energies_in)

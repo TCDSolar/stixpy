@@ -19,10 +19,13 @@ from sunpy.time.timerange import TimeRange
 
 
 from stixpy.calibration.livetime import get_livetime_fraction
+from stixpy.calibration.detector import get_srm
 from stixpy.io.readers import read_subc_params
 from stixpy.calibration.elut import get_elut_correction
 from stixpy.product.product import L1Product
 from stixpy.config.instrument import STIX_INSTRUMENT, _get_uv_points_data
+from stixpy.calibration.transmission import Transmission
+from stixpy.calibration.grid import get_grid_transmission
 
 __all__ = [
     "ScienceData",
@@ -1081,7 +1084,7 @@ class ScienceData(L1Product):
 
         counts_err = np.sqrt(counts_err.value**2 + livetime_error.value**2) / e_norm
 
-        return counts_corr, counts_err, times, t_norm, energies  
+        return counts_corr, counts_err, times, t_norm, energies
         
     
     def get_spectrum(self):
@@ -1093,8 +1096,9 @@ class ScienceData(L1Product):
 
         det_indices = [d for i,d in enumerate(det_indices_top24) if d in det_indices_full]
 
-        pix_indices = np.where(self.pixel_masks.__dict__['masks'] == 1 )[1]
-        
+        # pix_indices = np.where(self.pixel_masks.__dict__['masks'] == 1 )[1]
+        pix_indices = [0,1,2,3,4,5,6,7]
+
         rate, rate_err, times, t_norm_cs, energies = self.get_data()
 
         de = np.array(energies['e_high'] - energies['e_low'])
@@ -1166,6 +1170,104 @@ class ScienceData(L1Product):
                     'energies':energies}
         
         return spec_sub
+
+    def get_masked_srm(self):
+
+        PATH_DRM = '/home/jmitchell/software/stixpy-dev/stixpy/config/data/detector/'
+        drm = np.load(PATH_DRM+'stx_drm_energy.npy')
+        ph_energies = np.load(PATH_DRM+'stx_ph_edges.npy')
+        
+
+        energies = self.energies
+        e_low = np.array(energies['e_low'])
+        e_low = e_low[1:]
+        e_high = np.array(energies['e_high'])
+
+        e_high = e_high[~np.isnan(e_high)]
+
+        e_index = np.where((ph_energies >= e_low[0]) &
+                               (ph_energies <= e_high[-1]) )[0]
+
+        if e_high[-1] == 150:
+            e_edges = e_low
+            ct_e_diff = np.diff(e_edges)
+        else:
+            e_edges = np.concatenate([e_low,[e_high[-1]]])
+            ct_e_diff = np.diff(e_edges)
+
+
+        drm_clipped = drm
+        ph_energies_clipped = ph_energies
+
+        ph_e_diff = np.diff(ph_energies_clipped)
+
+
+        pixel_areas = STIX_INSTRUMENT.pixel_config["Area"].to("cm2")
+
+        det_indices_top24 =  np.array([0, 1, 2, 3, 4, 5, 6, 7, 13, 14, 15, 19, 
+                                     20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31])
+        
+        det_indices_full = np.where(self.detector_masks.__dict__['masks'] == 1 )[1]
+
+        det_indices = [d for i,d in enumerate(det_indices_top24) if d in det_indices_full]
+
+        # pix_indices = np.where(self.pixel_masks.__dict__['masks'] == 1 )[1]
+        pix_indices = [0,1,2,3,4,5,6,7]
+
+        pixel_areas = pixel_areas[pix_indices].value
+
+        area_scale = len(det_indices)*np.sum(pixel_areas)
+        
+        energy_widths = np.diff(ph_energies)
+
+        e_mids = ph_energies[:-1] + (energy_widths / 2)
+
+        trans = Transmission()
+
+        area_scale = 19.4304
+
+        tot_trans = trans.get_transmission(energies=e_mids * u.keV)
+        
+        
+        attenuation = np.zeros(len(tot_trans["det-1"]))
+
+        for i,det in enumerate(det_indices):
+            attenuation += tot_trans[f'det-{det}']
+
+        attenuation = attenuation / len(det_indices)
+
+        # drm_clipped = ((drm_clipped * attenuation[:,None] ) * area_scale) 
+        drm_clipped = ((drm_clipped * ph_e_diff[None,:] * attenuation[:,None] ))  
+
+        drm_new = []
+
+        print(e_edges)
+
+        for j in range(np.shape(drm_clipped)[0]):
+
+            working = []
+
+            for i in range(len(e_edges)-1):
+            
+                indices_sum = np.where((ph_energies_clipped >= e_edges[i]) & 
+                                    (ph_energies_clipped < e_edges[i+1]))[0]            
+
+                tot = drm_clipped[j,indices_sum].sum(axis=0)
+
+                working.append(tot)
+            
+            drm_new.append(working)
+        
+        drm_new = np.array(drm_new)
+
+
+        grid_transmission = get_grid_transmission(e_mids, np.array([0,0]))     
+
+        grid_transmission = grid_transmission.mean(axis=1)
+
+        srm = (drm_new * grid_transmission[:,None]) / ct_e_diff[None,:]
+
+        return srm
 
 
     def concatenate(self, others):
@@ -1540,3 +1642,45 @@ def calc_count_rate(dat):
     result_count_rate_err = result_count_rate_err[:, :, :8, :].sum(axis=(1,2)) * cor
 
     return result_count_rate, result_count_rate_err
+
+
+
+# pixel_areas = STIX_INSTRUMENT.pixel_config["Area"].to("cm2")
+
+# print(pixel_areas)
+
+# det_indices_top24 =  np.array([0, 1, 2, 3, 4, 5, 6, 7, 13, 14, 15, 19, 
+#                              20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31])
+
+# det_indices_full = np.where(self.detector_masks.__dict__['masks'] == 1 )[1]
+
+# det_indices = [d for i,d in enumerate(det_indices_top24) if d in det_indices_full]
+
+# # pix_indices = np.where(self.pixel_masks.__dict__['masks'] == 1 )[1]
+# pix_indices = [0,1,2,3,4,5,6,7]
+
+# pixel_areas = pixel_areas[pix_indices].value
+
+# area_scale = len(det_indices)*np.sum(pixel_areas)
+
+# energy_widths = np.diff(ph_energies)
+
+# e_mids = ph_energies[:-1] + (energy_widths / 2)
+
+# trans = Transmission()
+
+# print('e_mids = ',e_mids)
+
+# tot_trans = trans.get_transmission(energies=e_mids * u.keV)
+
+# # attenuation = tot_trans["det-0"]
+
+# attenuation = np.zeros(len(tot_trans["det-1"]))
+
+# for i,det in enumerate(det_indices):
+#     attenuation += tot_trans[f'det-{det}']
+
+# attenuation = attenuation / len(det_indices)
+
+
+# srm = ((drm_new * attenuation[:, None] ) * area_scale) / 4

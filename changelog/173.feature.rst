@@ -1,1 +1,0 @@
-Update imaging demo to use Sun center as location for making initial full disk back projection to determine flare location.

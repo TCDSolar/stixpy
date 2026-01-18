@@ -1,1 +1,0 @@
-Update `Fido` client for change in aspect/ephemeris file name and path.

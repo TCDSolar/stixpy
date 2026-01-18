@@ -1,1 +1,0 @@
-Fixed a bug in stixpy.calibration.visibility.create_meta_pixels to correctly determine which time bins to include in the sum based on their overlap with the specified time range.

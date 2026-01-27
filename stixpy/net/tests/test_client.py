@@ -277,3 +277,51 @@ def test_fido():
 def test_fido_file_crosses_date_boundary():
     q = Fido.search(a.Time("2023-06-01T00:00", "2023-06-01T00:30"), a.Instrument.stix, a.stix.DataProduct.sci_xray_spec)
     assert len(q["stix"]) == 2
+
+
+def test_version_attributes_import():
+    """Test that all version attributes can be imported from stixpy.net.attrs"""
+    from stixpy.net.attrs import Version, VersionU, MinVersion, MinVersionU, MaxVersion, MaxVersionU
+
+    assert Version is not None
+    assert VersionU is not None
+    assert MinVersion is not None
+    assert MinVersionU is not None
+    assert MaxVersion is not None
+    assert MaxVersionU is not None
+
+
+def test_version_attributes_functionality():
+    """Test basic functionality of version attributes"""
+    from stixpy.net.attrs import Version, VersionU, MinVersion, MinVersionU, MaxVersion, MaxVersionU
+
+    version_attr = Version(2)
+    assert version_attr.matches("V02")
+    assert not version_attr.matches("V03")
+    assert not version_attr.matches("V02U")
+
+    version_u_attr = VersionU(2)
+    assert version_u_attr.matches("V02")
+    assert version_u_attr.matches("V02U")
+    assert not version_u_attr.matches("V03")
+
+    min_version_attr = MinVersion(2)
+    assert min_version_attr.matches("V02")
+    assert min_version_attr.matches("V03")
+    assert not min_version_attr.matches("V01")
+
+    # Test MaxVersion
+    max_version_attr = MaxVersion(3)
+    assert max_version_attr.matches("V02")
+    assert max_version_attr.matches("V03")
+    assert not max_version_attr.matches("V04")
+
+    # Test MinVersionU and MaxVersionU with uncompleted versions
+    min_version_u_attr = MinVersionU(2)
+    assert min_version_u_attr.matches("V02U")
+    assert min_version_u_attr.matches("V03U")
+
+    max_version_u_attr = MaxVersionU(3)
+    assert max_version_u_attr.matches("V02U")
+    assert max_version_u_attr.matches("V03U")
+    assert not max_version_u_attr.matches("V04U")

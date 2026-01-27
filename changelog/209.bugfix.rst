@@ -1,0 +1,1 @@
+Fixed version attributes not being exported in stixpy.net.attrs module. All version attributes (Version, VersionU, MinVersion, MinVersionU, MaxVersion, MaxVersionU) are now properly included in the module's ``__all__`` list and can be imported directly from ``stixpy.net.attrs``.

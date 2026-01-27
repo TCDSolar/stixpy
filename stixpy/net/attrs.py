@@ -2,7 +2,7 @@ import re
 
 from sunpy.net.attr import SimpleAttr
 
-__all__ = ["DataType", "DataProduct"]
+__all__ = ["DataType", "DataProduct", "Version", "VersionU", "MinVersion", "MinVersionU", "MaxVersion", "MaxVersionU"]
 
 
 class DataType(SimpleAttr):

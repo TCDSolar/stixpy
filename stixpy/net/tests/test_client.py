@@ -280,7 +280,6 @@ def test_fido_file_crosses_date_boundary():
 
 
 def test_version_attributes_import():
-    """Test that all version attributes can be imported from stixpy.net.attrs"""
     from stixpy.net.attrs import Version, VersionU, MinVersion, MinVersionU, MaxVersion, MaxVersionU
 
     assert Version is not None
@@ -292,7 +291,6 @@ def test_version_attributes_import():
 
 
 def test_version_attributes_functionality():
-    """Test basic functionality of version attributes"""
     from stixpy.net.attrs import Version, VersionU, MinVersion, MinVersionU, MaxVersion, MaxVersionU
 
     version_attr = Version(2)
@@ -310,13 +308,11 @@ def test_version_attributes_functionality():
     assert min_version_attr.matches("V03")
     assert not min_version_attr.matches("V01")
 
-    # Test MaxVersion
     max_version_attr = MaxVersion(3)
     assert max_version_attr.matches("V02")
     assert max_version_attr.matches("V03")
     assert not max_version_attr.matches("V04")
 
-    # Test MinVersionU and MaxVersionU with uncompleted versions
     min_version_u_attr = MinVersionU(2)
     assert min_version_u_attr.matches("V02U")
     assert min_version_u_attr.matches("V03U")

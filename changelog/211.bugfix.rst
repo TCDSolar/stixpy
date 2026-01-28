@@ -1,0 +1,1 @@
+Update sunpy dependency to <7.0 as code no update for new Fido client API.

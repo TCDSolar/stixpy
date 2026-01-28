@@ -74,7 +74,7 @@ class MaxVersion(Version):
 
     def __init__(self, version: int):
         super().__init__(version)
-        self.operator = int.__lt__
+        self.operator = int.__le__
 
 
 class MaxVersionU(VersionU):
@@ -84,7 +84,7 @@ class MaxVersionU(VersionU):
 
     def __init__(self, version: int):
         super().__init__(version)
-        self.operator = int.__lt__
+        self.operator = int.__le__
 
 
 class DataProduct(SimpleAttr):

@@ -60,10 +60,10 @@ def compress(values, *, s, k, m):
     Examples
     --------
     >>> comp = compress(12345, s=0, k=5, m=3)
-    >>> int(comp)
+    >>> int(comp[0])
     92
     >>> comp = compress(-1984, s=1, k=3, m=4)
-    >>> int(comp)
+    >>> int(comp[0])
     255
     """
     values = np.atleast_1d(np.array(values))
@@ -122,10 +122,10 @@ def decompress(values, *, s, k, m, return_variance=False):
     Examples
     --------
     >>> decomp = decompress(92, s=0, k=5, m=3)
-    >>> int(decomp)
+    >>> int(decomp[0])
     12799
     >>> decomp = decompress(255, s=1, k=3, m=4)
-    >>> int(decomp)
+    >>> int(decomp[0])
     -2015
     """
     values = np.atleast_1d(np.array(values))

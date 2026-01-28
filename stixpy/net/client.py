@@ -5,14 +5,10 @@ from sunpy.net import attrs as a
 from sunpy.net.attr import SimpleAttr
 from sunpy.net.dataretriever import GenericClient
 from sunpy.net.dataretriever.client import QueryResponse
+from sunpy.net.scraper import Scraper
 from sunpy.time import TimeRange
 
 from stixpy.net.attrs import MaxVersion, MaxVersionU, MinVersion, MinVersionU, Version, VersionU
-
-try:
-    from sunpy.net.scraper import Scraper
-except ModuleNotFoundError:
-    from sunpy.util.scraper import Scraper
 
 __all__ = ["STIXClient", "StixQueryResponse"]
 
@@ -143,42 +139,39 @@ class STIXClient(GenericClient):
                 )
                 pattern = pattern.replace(r"{", r"{{").replace(r"}", r"}}")
                 scraper = Scraper(format=pattern)
-                try:
-                    filesmeta = scraper._extract_files_meta(path_tr)
+                filesmeta = scraper._extract_files_meta(path_tr)
 
-                    products = [p.replace("_", "-") for p in matchdict["DataProduct"] if p.startswith(datatype.lower())]
-                    if len(products) > 0:
-                        for meta in filesmeta:
-                            current_matchdict = {
-                                **matchdict,
-                                **{"DataType": [datatype], "DataProduct": products, "Level": [level]},
-                            }
-                            rowdict = self.post_search_hook(meta, current_matchdict)
+                products = [p.replace("_", "-") for p in matchdict["DataProduct"] if p.startswith(datatype.lower())]
+                if len(products) > 0:
+                    for meta in filesmeta:
+                        current_matchdict = {
+                            **matchdict,
+                            **{"DataType": [datatype], "DataProduct": products, "Level": [level]},
+                        }
+                        rowdict = self.post_search_hook(meta, current_matchdict)
 
-                            versionTest = True
-                            for versionAttr in versions:
-                                versionTest &= versionAttr.matches(rowdict["Ver"])
-                                if not versionTest:
-                                    break
+                        versionTest = True
+                        for versionAttr in versions:
+                            versionTest &= versionAttr.matches(rowdict["Ver"])
                             if not versionTest:
-                                continue
+                                break
+                        if not versionTest:
+                            continue
 
-                            if rowdict["DataProduct"].replace("-", "_") not in matchdict["DataProduct"]:
-                                continue
+                        if rowdict["DataProduct"].replace("-", "_") not in matchdict["DataProduct"]:
+                            continue
 
-                            file_tr = rowdict.pop("tr", TimeRange(rowdict["Start Time"], rowdict["End Time"]))
-                            # 4 cases file time full in, fully our start in or end in
-                            if file_tr.start >= tr.start and file_tr.end <= tr.end:
-                                metalist.append(rowdict)
-                            elif tr.start <= file_tr.start and tr.end >= file_tr.end:
-                                metalist.append(rowdict)
-                            elif file_tr.start <= tr.start <= file_tr.end:
-                                metalist.append(rowdict)
-                            elif file_tr.start <= tr.end <= file_tr.end:
-                                metalist.append(rowdict)
+                        file_tr = rowdict.pop("tr", TimeRange(rowdict["Start Time"], rowdict["End Time"]))
+                        # 4 cases file time full in, fully our start in or end in
+                        if file_tr.start >= tr.start and file_tr.end <= tr.end:
+                            metalist.append(rowdict)
+                        elif tr.start <= file_tr.start and tr.end >= file_tr.end:
+                            metalist.append(rowdict)
+                        elif file_tr.start <= tr.start <= file_tr.end:
+                            metalist.append(rowdict)
+                        elif file_tr.start <= tr.end <= file_tr.end:
+                            metalist.append(rowdict)
 
-                except FileNotFoundError:
-                    continue
         return StixQueryResponse(metalist, client=self)
 
     @classmethod

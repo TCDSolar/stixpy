@@ -1,4 +1,3 @@
-from typing import Optional
 from pathlib import Path
 from collections.abc import Sequence
 
@@ -104,7 +103,7 @@ def em(
     flare_location: SkyCoord,
     maxiter: int = 5000,
     tolerance: float = 0.001,
-    idx: Optional[Sequence[int]] = None,
+    idx: Sequence[int] | None = None,
 ):
     r"""
     Count-based expectation maximisation imaging algorithm.

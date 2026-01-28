@@ -1,5 +1,4 @@
 from types import SimpleNamespace
-from typing import Union
 from pathlib import Path
 
 import astropy.units as u
@@ -127,7 +126,7 @@ def get_subcollimator_info():
 
 @u.quantity_input
 def create_meta_pixels(
-    pixel_data: Union[RawPixelData, CompressedPixelData, SummedCompressedPixelData],
+    pixel_data: RawPixelData | CompressedPixelData | SummedCompressedPixelData,
     time_range: Time,
     energy_range: Quantity["energy"],  # noqa: F821
     flare_location: SkyCoord | None = None,

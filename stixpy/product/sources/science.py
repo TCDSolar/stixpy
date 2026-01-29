@@ -12,7 +12,6 @@ from matplotlib.dates import ConciseDateFormatter, DateFormatter, HourLocator
 from matplotlib.widgets import Slider
 from sunpy.time.timerange import TimeRange
 
-from stixpy.config.instrument import STIX_INSTRUMENT
 from stixpy.io.readers import read_subc_params
 from stixpy.product.product import L1Product
 
@@ -373,6 +372,7 @@ class PixelPlotMixin:
     """
     Pixel plot mixin providing pixel plotting for pixel data.
     """
+
     def plot_pixels(self, *, kind="pixel", time_indices=None, energy_indices=None, fig=None, cmap=None, **kwargs):
         pixel_plotter = PixelPlotter(self, time_indices=time_indices, energy_indices=energy_indices)
         pixel_plotter.plot(kind=kind, fig=fig, cmap=cmap, **kwargs)
@@ -475,7 +475,6 @@ class ScienceData(L1Product):
                 * 'c' - count [c]
                 * 'cr' - count rate [c/s]
                 * 'dcr' - differential count rate [c/(s keV)]
-                * 'dcrf' - differential count rate flux (geometric area) [c/(s keV cm^2)]
         time_indices : `list` or `numpy.ndarray`
             If an 1xN array will be treated as mask if 2XN array will sum data between given
             indices. For example `time_indices=[0, 2, 5]` would return only the first, third and
@@ -626,12 +625,8 @@ class ScienceData(L1Product):
             norm = 1 / t_norm
         elif vtype == "dcr":
             norm = 1 / (e_norm * t_norm)
-        elif vtype == "dcrf":
-            pixel_areas = STIX_INSTRUMENT.pixel_config["Area"].to(u.cm**2)
-            a_norm = (self.data["pixel_masks"] * pixel_areas.value).reshape(t_norm.size, 1, -1, 1) * u.cm**2
-            norm = 1 / (e_norm * t_norm * a_norm)
         else:
-            raise ValueError("vtype must be one of 'c', 'cr', 'dcr' or 'dcrf'.")
+            raise ValueError("vtype must be one of 'c', 'cr', 'dcr'.")
 
         counts_err = np.sqrt(counts * u.ct + counts_var) * norm
         counts = counts * norm

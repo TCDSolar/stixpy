@@ -199,9 +199,7 @@ def test_spectrogram(spec):
 
 
 @pytest.mark.remote_data
-@pytest.mark.parametrize(
-    "vtype, unit", [("c", "ct"), ("cr", "ct / s"), ("dcr", "ct / (s keV)"), ("dcrf", "ct / (s keV cm**2)")]
-)
+@pytest.mark.parametrize("vtype, unit", [("c", "ct"), ("cr", "ct / s"), ("dcr", "ct / (s keV)")])
 def test_get_data_vtype(cpd, vtype, unit):
     data, *_ = cpd.get_data(vtype=vtype)
     assert data.unit == u.Unit(unit)

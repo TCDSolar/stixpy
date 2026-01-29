@@ -85,6 +85,7 @@ def test_client(urlopen, client, http_response, time_range, nfiles):
     assert len(query) == nfiles
 
 
+@pytest.mark.skipif(os.name == "nt", reason="Upstream sunpy bug on windows")
 @pytest.mark.parametrize(
     "time_range, level, dtype, nfiles",
     [

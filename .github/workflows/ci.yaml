@@ -23,7 +23,7 @@ jobs:
     with:
       coverage: codecov
       envs: |
-        - linux: py311
+        - linux: py312
     secrets:
       CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
@@ -32,14 +32,14 @@ jobs:
     uses: OpenAstronomy/github-actions-workflows/.github/workflows/tox.yml@v1
     with:
       envs: |
-        - macos: py311
-        - windows: py311
+        - macos: py312
+        - windows: py312
 
   doc:
     needs: [test]
     uses: OpenAstronomy/github-actions-workflows/.github/workflows/tox.yml@v1
     with:
-      default_python: '3.11'
+      default_python: '3.12'
       pytest: false
       libraries: |
         apt:

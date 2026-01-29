@@ -1,6 +1,6 @@
 [build-system]
 requires = [
-    "setuptools>=62.0.0",
+    "setuptools>=62.1",
     "setuptools_scm[toml]>=8.0.1",
     "wheel"
 ]
@@ -9,20 +9,18 @@ build-backend = 'setuptools.build_meta'
 [project]
 name = "stixpy"
 description = "An open-source Python analysis library for the Spectrometer Telescope for Imaging X-rays (STIX) instrument on Solar Obriter."
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 readme = {file = "README.rst", content-type="text/x-rst"}
 license = "BSD-3-Clause"
 license-files = ["LICENSE.rst"]
 authors = [{name="Shane Maloney", email = "shane.maloney@dias.ie"}]
 dependencies = [
-    "sunpy[map,net,timeseries]>=6.0.0",
-    "packaging>=23.0",
-    "reproject",
-    "astroquery",
+    "sunpy[map,net,timeseries]>=7.0",
+    "packaging>=23.2",
     "intervaltree",
-    "roentgen",
-    "matplotlib",
-    "xrayvisim~=0.2.0rc"
+    "roentgen<=2.4",
+    "matplotlib>=3.8.0",
+    "xrayvisim~=0.2.1"
 ]
 dynamic = ["version"]
 keywords = ["solar physics", "solar", "sun", "x-rays"]
@@ -32,11 +30,9 @@ classifiers = [
   "Natural Language :: English",
   "Operating System :: OS Independent",
   "Programming Language :: Python",
-  "Programming Language :: Python :: 3",
-  "Programming Language :: Python :: 3.9",
-  "Programming Language :: Python :: 3.10",
-  "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
   "Topic :: Scientific/Engineering :: Physics"
 ]
 

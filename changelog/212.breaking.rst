@@ -1,0 +1,6 @@
+Increased minimum versions for these dependencies:
+* Python >= 3.12
+* astropy >= 6.1.0
+* matplotlib >= 3.8.0
+* sunpy >= 7.0
+* xrayvisim >= 0.2.1

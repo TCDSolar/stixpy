@@ -447,7 +447,7 @@ class ScienceData(L1Product):
         return self.data["time"]
 
     @property
-    def duration(self):
+    def durations(self):
         """
         An `astropy.units.Quantiy` array giving the duration or integration time
         """

@@ -11,6 +11,7 @@ from matplotlib.colors import LogNorm
 from matplotlib.dates import ConciseDateFormatter, DateFormatter, HourLocator
 from matplotlib.widgets import Slider
 from sunpy.time.timerange import TimeRange
+from sunpy.util import deprecated
 
 from stixpy.io.readers import read_subc_params
 from stixpy.product.product import L1Product
@@ -445,6 +446,14 @@ class ScienceData(L1Product):
         An `astropy.time.Time` array representing the center of the observed time bins.
         """
         return self.data["time"]
+
+    @property
+    @deprecated(name="duration", since="0.2", message="Use `durations` instead", warning_type=DeprecationWarning)
+    def duration(self):
+        """
+        An `astropy.units.Quantiy` array giving the duration or integration time
+        """
+        return self.data["timedel"]
 
     @property
     def durations(self):

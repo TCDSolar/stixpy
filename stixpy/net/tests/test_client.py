@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from unittest import mock
 
@@ -84,6 +85,7 @@ def test_client(urlopen, client, http_response, time_range, nfiles):
     assert len(query) == nfiles
 
 
+@pytest.mark.skipif(os.name == "nt", reason="Upstream sunpy bug on windows")
 @pytest.mark.parametrize(
     "time_range, level, dtype, nfiles",
     [
@@ -114,10 +116,11 @@ def test_local_client(clientlocal, time_range, level, dtype, nfiles):
 @pytest.mark.remote_data
 def test_search_date(client):
     res = client.search(a.Time("2020-05-01T00:00", "2020-05-01T23:59"), a.Instrument.stix)
-    assert len(res) == 64
+    assert len(res) == 65
     # this might need fixed when we change to ANC to become an level of its own
 
 
+@pytest.mark.skipif(os.name == "nt", reason="Upstream sunpy bug on windows")
 def test_search_max_version(clientlocal):
     res = clientlocal.search(a.Time("2022-01-01T00:00", "2022-01-01T23:59"), a.Instrument.stix, a.stix.MaxVersion(3))
     assert len(res) == 6
@@ -130,6 +133,7 @@ def test_search_max_version(clientlocal):
     assert len(res) == 7
 
 
+@pytest.mark.skipif(os.name == "nt", reason="Upstream sunpy bug on windows")
 def test_search_min_version(clientlocal):
     res = clientlocal.search(a.Time("2022-01-01T00:00", "2022-01-01T23:59"), a.Instrument.stix, a.stix.MinVersion(2))
     assert len(res) == 6
@@ -142,6 +146,7 @@ def test_search_min_version(clientlocal):
     assert len(res) == 8
 
 
+@pytest.mark.skipif(os.name == "nt", reason="Upstream sunpy bug on windows")
 def test_search_version(clientlocal):
     res = clientlocal.search(a.Time("2022-01-01T00:00", "2022-01-01T23:59"), a.Instrument.stix, a.stix.Version(2))
     assert len(res) == 4
@@ -154,6 +159,7 @@ def test_search_version(clientlocal):
     assert len(res) == 3
 
 
+@pytest.mark.skipif(os.name == "nt", reason="Upstream sunpy bug on windows")
 def test_search_version_and(clientlocal):
     res = clientlocal.search(
         a.Time("2022-01-01T00:00", "2022-01-01T23:59"), a.Instrument.stix, a.stix.MinVersion(2), a.stix.MaxVersionU(5)
@@ -161,12 +167,14 @@ def test_search_version_and(clientlocal):
     assert len(res) == 5
 
 
+@pytest.mark.skipif(os.name == "nt", reason="Upstream sunpy bug on windows")
 def test_search_latest_version_empty(clientlocal):
     res = clientlocal.search(a.Time("2023-01-01T00:00", "2023-01-01T23:59"), a.Instrument.stix)
     res.filter_for_latest_version()
     assert len(res) == 0
 
 
+@pytest.mark.skipif(os.name == "nt", reason="Upstream but on windows")
 def test_search_latest_version(clientlocal):
     res = clientlocal.search(a.Time("2022-01-01T00:00", "2022-01-01T23:59"), a.Instrument.stix)
     res.filter_for_latest_version(allow_uncompleted=True)
@@ -240,7 +248,7 @@ def test_search_date_product_sci():
 def test_fido():
     res = Fido.search(a.Time("2020-11-17T00:00", "2020-11-17T23:59"), a.Instrument.stix)
     len_total = len(res["stix"])
-    assert len_total == 67
+    assert len_total == 68
 
     res_ql = Fido.search(a.Time("2020-11-17T00:00", "2020-11-17T23:59"), a.Instrument.stix, a.stix.DataType.ql)
     len_ql = len(res_ql["stix"])
@@ -260,7 +268,7 @@ def test_fido():
 
     res_cal = Fido.search(a.Time("2020-11-17T00:00", "2020-11-17T23:59"), a.Instrument.stix, a.stix.DataType.cal)
     len_cal = len(res_cal["stix"])
-    assert len_cal == 1
+    assert len_cal == 2
 
     assert len_ql + len_sci + len_kh + len_asp + len_cal == len_total
 

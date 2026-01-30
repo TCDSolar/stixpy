@@ -121,7 +121,7 @@ def test_create_meta_pixels_timebins(flare_cpd):
     energy_range = [6, 12] * u.keV
 
     # check time_range within one bin (i.e. timerange passed is within one bin)
-    time_range = [flare_cpd.times[0], flare_cpd.times[0] + flare_cpd.duration / 4]
+    time_range = [flare_cpd.times[0], flare_cpd.times[0] + flare_cpd.durations / 4]
     meta_pixels = create_meta_pixels(
         flare_cpd,
         time_range=time_range,
@@ -130,7 +130,7 @@ def test_create_meta_pixels_timebins(flare_cpd):
         no_shadowing=True,
     )
 
-    assert_quantity_allclose(meta_pixels["time_range"].dt.to(u.s), flare_cpd.duration[0].to(u.s))
+    assert_quantity_allclose(meta_pixels["time_range"].dt.to(u.s), flare_cpd.durations[0].to(u.s))
 
     # check time_range fully outside bins (i.e. all bins contained with timerange)
     time_range = [flare_cpd.times[0] - 10 * u.s, flare_cpd.times[-1] + 10 * u.s]
@@ -142,7 +142,7 @@ def test_create_meta_pixels_timebins(flare_cpd):
         no_shadowing=True,
     )
 
-    assert_quantity_allclose(np.sum(flare_cpd.duration), meta_pixels["time_range"].dt.to(u.s))
+    assert_quantity_allclose(np.sum(flare_cpd.durations), meta_pixels["time_range"].dt.to(u.s))
 
     # check time_range start and end are within bins
     time_range = [flare_cpd.times[0], flare_cpd.times[2]]
@@ -154,7 +154,7 @@ def test_create_meta_pixels_timebins(flare_cpd):
         no_shadowing=True,
     )
 
-    assert_quantity_allclose(np.sum(flare_cpd.duration[0:3]), meta_pixels["time_range"].dt.to(u.s))
+    assert_quantity_allclose(np.sum(flare_cpd.durations[0:3]), meta_pixels["time_range"].dt.to(u.s))
 
 
 def test_create_meta_pixels_shadow(flare_cpd):

@@ -1,0 +1,4 @@
+Add ability to control the data normalisation to `~stixpy.product.sources.science.ScienceData.get_data` via the `vtype` keyword:
+   * 'c' - count [c]
+   * 'cr' - count rate [c/s]
+   * 'dcr' - differential count rate [c/(s keV)]

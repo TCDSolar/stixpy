@@ -11,6 +11,7 @@ from matplotlib.colors import LogNorm
 from matplotlib.dates import ConciseDateFormatter, DateFormatter, HourLocator
 from matplotlib.widgets import Slider
 from sunpy.time.timerange import TimeRange
+from sunpy.util import deprecated
 
 from stixpy.io.readers import read_subc_params
 from stixpy.product.product import L1Product
@@ -146,6 +147,7 @@ class SpectrogramPlotMixin:
     def plot_spectrogram(
         self,
         axes=None,
+        vtype="dcr",
         time_indices=None,
         energy_indices=None,
         detector_indices="all",
@@ -159,10 +161,23 @@ class SpectrogramPlotMixin:
         ----------
         axes : optional `matplotlib.axes`
             The axes the plot the spectrogram.
+        vtype : str
+           Type of value to return control the default normalisation:
+               * 'c' - count [c]
+               * 'cr' - count rate [c/s]
+               * 'dcr' - differential count rate [c/(s keV)]
         time_indices : `list` or `numpy.ndarray`
             If an 1xN array will be treated as mask if 2XN array will sum data between given
             indices. For example `time_indices=[0, 2, 5]` would return only the first, third and
             sixth times while `time_indices=[[0, 2],[3, 5]]` would sum the data between.
+        pixel_indices : `list` or `numpy.ndarray`
+            If an 1xN array will be treated as mask if 2XN array will sum data between given
+            indices. For example `pixel_indices=[0, 2, 5]` would return only the first, third and
+            sixth pixels while `pixel_indices=[[0, 2],[3, 5]]` would sum the data between.
+        detector_indices : `list` or `numpy.ndarray`
+            If an 1xN array will be treated as mask if 2XN array will sum data between given
+            indices. For example `detector_indices=[0, 2, 5]` would return only the first, third and
+            sixth detectors while `detector_indices=[[0, 2],[3, 5]]` would sum the data between.
         energy_indices : `list` or `numpy.ndarray`
             If an 1xN array will be treated as mask if 2XN array will sum data between given
             indices. For example `energy_indices=[0, 2, 5]` would return only the first, third and
@@ -173,6 +188,13 @@ class SpectrogramPlotMixin:
         Returns
         -------
         `matplotlib.axes`
+
+        Notes
+        -----
+        The units of the plotted data are determined by the `vtype` parameter:
+        - 'c': counts
+        - 'cr': counts per second
+        - 'dcr': counts per second per keV
         """
         counts_shape = self.data["counts"].shape
         if len(counts_shape) != 4:
@@ -210,10 +232,12 @@ class SpectrogramPlotMixin:
                 pid = pixel_indices
 
         counts, errors, times, timedeltas, energies = self.get_data(
-            detector_indices=did, pixel_indices=pid, time_indices=time_indices, energy_indices=energy_indices
+            vtype=vtype,
+            detector_indices=did,
+            pixel_indices=pid,
+            time_indices=time_indices,
+            energy_indices=energy_indices,
         )
-        counts = counts.to(u.ct / u.s / u.keV)
-        errors = errors.to(u.ct / u.s / u.keV)
         timedeltas = timedeltas.to(u.s)
 
         e_edges = np.hstack([energies["e_low"], energies["e_high"][-1]]).value
@@ -254,6 +278,7 @@ class TimesSeriesPlotMixin:
 
     def plot_timeseries(
         self,
+        vtype="dcr",
         time_indices=None,
         energy_indices=None,
         detector_indices="all",
@@ -267,8 +292,11 @@ class TimesSeriesPlotMixin:
 
         Parameters
         ----------
-        axes : optional `matplotlib.axes`
-            The axes the plot the spectrogram.
+        vtype : str
+           Type of value to return control the default normalisation:
+               * 'c' - count [c]
+               * 'cr' - count rate [c/s]
+               * 'dcr' - differential count rate [c/(s keV)]
         time_indices : `list` or `numpy.ndarray`
             If an 1xN array will be treated as mask if 2XN array will sum data between given
             indices. For example `time_indices=[0, 2, 5]` would return only the first, third and
@@ -285,6 +313,8 @@ class TimesSeriesPlotMixin:
             If an 1xN array will be treated as mask if 2XN array will sum data between given
             indices. For example `pixel_indices=[0, 2, 5]` would return only the first, third and
             sixth pixels while `pixel_indices=[[0, 2],[3, 5]]` would sum the data between.
+        axes : optional `matplotlib.axes`
+            The matplotlib axes on which to plot the time series.
         error_bar : optional `bool`
             Add error bars to plot.
         **plot_kwargs : `dict`
@@ -307,14 +337,12 @@ class TimesSeriesPlotMixin:
             pixel_indices = [[0, 11]]
 
         counts, errors, times, timedeltas, energies = self.get_data(
+            vtype=vtype,
             detector_indices=detector_indices,
             pixel_indices=pixel_indices,
             time_indices=time_indices,
             energy_indices=energy_indices,
         )
-        counts = counts.to(u.ct / u.s / u.keV)
-        errors = errors.to(u.ct / u.s / u.keV)
-        timedeltas = timedeltas.to(u.s)
 
         labels = [f"{el.value} - {eh.value} keV" for el, eh in energies["e_low", "e_high"]]
 
@@ -359,7 +387,7 @@ class ScienceData(L1Product):
 
         Parameters
         ----------
-        header : `astropy.fits.Header`
+        meta : `astropy.fits.Header`
             Fits header
         control : `astropy.table.QTable`
             Fits file control extension
@@ -417,22 +445,42 @@ class ScienceData(L1Product):
         return self.data["time"]
 
     @property
+    @deprecated(name="duration", since="0.2", message="Use `durations` instead", warning_type=DeprecationWarning)
     def duration(self):
         """
-        An `astropy.units.Quantiy` array giving the duration or integration time
+        An `astropy.units.Quantity` array giving the duration or integration time
+        """
+        return self.data["timedel"]
+
+    @property
+    def durations(self):
+        """
+        An `astropy.units.Quantity` array giving the duration or integration time
         """
         return self.data["timedel"]
 
     def get_data(
-        self, time_indices=None, energy_indices=None, detector_indices=None, pixel_indices=None, sum_all_times=False
+        self,
+        *,
+        vtype="dcr",
+        time_indices=None,
+        energy_indices=None,
+        detector_indices=None,
+        pixel_indices=None,
+        sum_all_times=False,
     ):
-        """
+        r"""
         Return the counts, errors, times, durations and energies for selected data.
 
         Optionally summing in time and or energy.
 
         Parameters
         ----------
+        vtype : str
+            Type of value to return (vtype) controls the normalisation:
+                * 'c' - count [c]
+                * 'cr' - count rate [c/s]
+                * 'dcr' - differential count rate [c/(s keV)]
         time_indices : `list` or `numpy.ndarray`
             If an 1xN array will be treated as mask if 2XN array will sum data between given
             indices. For example `time_indices=[0, 2, 5]` would return only the first, third and
@@ -569,14 +617,25 @@ class ScienceData(L1Product):
                     counts_var = np.sum(counts_var, axis=0, keepdims=True)
                     t_norm = np.sum(dt)
 
+        t_norm = t_norm.to("s")
+
         if e_norm.size != 1:
             e_norm = e_norm.reshape(1, 1, 1, -1)
 
         if t_norm.size != 1:
             t_norm = t_norm.reshape(-1, 1, 1, 1).to("s")
 
-        counts_err = np.sqrt(counts * u.ct + counts_var) / (e_norm * t_norm)
-        counts = counts / (e_norm * t_norm)
+        if vtype == "c":
+            norm = 1
+        elif vtype == "cr":
+            norm = 1 / t_norm
+        elif vtype == "dcr":
+            norm = 1 / (e_norm * t_norm)
+        else:
+            raise ValueError("vtype must be one of 'c', 'cr', 'dcr'.")
+
+        counts_err = np.sqrt(counts * u.ct + counts_var) * norm
+        counts = counts * norm
 
         return counts, counts_err, times, t_norm, energies
 
@@ -859,7 +918,7 @@ class Spectrogram(ScienceData, TimesSeriesPlotMixin, SpectrogramPlotMixin):
 
     Parameters
     ----------
-    header : `astropy.fits.Header`
+    meta : `astropy.fits.Header`
     control : `astropy.table.QTable`
     data : `astropy.table.QTable`
     energies : `astropy.table.QTable`
@@ -895,7 +954,7 @@ class Spectrogram(ScienceData, TimesSeriesPlotMixin, SpectrogramPlotMixin):
 
         Parameters
         ----------
-        header : astropy.fits.Header
+        meta : astropy.fits.Header
         control : astropy.table.QTable
         data : astropy.table.QTable
         energies : astropy.table.QTable

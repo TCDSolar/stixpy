@@ -13,7 +13,6 @@ Reference
    map
    net
    product
-   science
    timeseries
    visualisation
    instrument

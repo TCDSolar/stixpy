@@ -35,6 +35,7 @@ class TableLRUCache:
         self.maxsize = maxsize
         self.cache = QTable()
         self.default_bin_duration = default_bin_duration
+        self.bypass_cache_read = False
 
     def clear(self):
         """
@@ -43,7 +44,7 @@ class TableLRUCache:
         self.cache = QTable()
         logger.info(f"{self.name}: Cleared LRU cache.")
 
-    def put(self, anc_data):
+    def put(self, anc_data, *, source="unknown"):
         """
         Add data to the cache.
         """
@@ -52,6 +53,7 @@ class TableLRUCache:
             self.cache.add_index("time")
 
         anc_data["__lcu"] = datetime.now().timestamp()
+        anc_data["__source"] = source
         logger.info(f"{self.name}: Adding {len(anc_data)} rows to STIX ephemeris cache.")
         self.cache = vstack([self.cache, anc_data])
         self.cache = unique(self.cache, keys=["time"], keep="last")
@@ -93,15 +95,16 @@ class TableLRUCache:
             none if data in the cache might have time gaps (based on the default bin duration)
         """
 
-        # return None
-
         if len(self.cache) == 0:
+            return None
+
+        if self.bypass_cache_read:
+            logger.info(f"{self.name}: Bypassing cache read as per configuration.")
             return None
 
         if end_time is None:
             end_time = start_time
 
-        # TODO: should we use the time_end column for a better search
         # indices = np.argwhere(
         #     ((self.cache["time"] >= start_time) | (self.cache["time_end"] >= start_time))
         #     & ((self.cache["time_end"] <= end_time) | (self.cache["time"] <= end_time))

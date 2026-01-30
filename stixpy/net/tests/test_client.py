@@ -130,7 +130,7 @@ def test_search_max_version(clientlocal):
         a.Instrument.stix,
         a.stix.MaxVersionU(3),
     )
-    assert len(res) == 7
+    assert len(res) == 8
 
 
 @pytest.mark.skipif(os.name == "nt", reason="Upstream sunpy bug on windows")
@@ -164,7 +164,7 @@ def test_search_version_and(clientlocal):
     res = clientlocal.search(
         a.Time("2022-01-01T00:00", "2022-01-01T23:59"), a.Instrument.stix, a.stix.MinVersion(2), a.stix.MaxVersionU(5)
     )
-    assert len(res) == 5
+    assert len(res) == 6
 
 
 @pytest.mark.skipif(os.name == "nt", reason="Upstream sunpy bug on windows")

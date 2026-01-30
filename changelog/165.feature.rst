@@ -1,0 +1,1 @@
+add a internal ephemeris data cache. This allows to bypass hidden internal FIDO searches and downloads of the same data multiple times, improving performance when repeatedly querying for the same time ranges but also give the user a option to preload the cache with data.

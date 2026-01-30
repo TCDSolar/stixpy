@@ -116,7 +116,16 @@ class ProductFactory(BasicRegistrationFactory):
             raise FileError(f"File '{fname}' is not a STIX fits file.")
 
         data = {"meta": hdul[0].header}
-        for name in ["CONTROL", "DATA", "IDB_VERSIONS", "ENERGIES"]:
+
+        # determine extensions to load
+        # allow for just data extension if requested
+        if kwargs.get('data_only', False):
+            extensions = ["CONTROL", "DATA"]
+        # normally read all extensions
+        else:
+            extensions = ["CONTROL", "DATA", "IDB_VERSIONS", "ENERGIES"]
+
+        for name in extensions:
             try:
                 data[name.lower()] = read_qtable(fname, hdu=name)
             except KeyError as e:

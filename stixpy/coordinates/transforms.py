@@ -1,20 +1,22 @@
 import warnings
-from functools import lru_cache
+from pathlib import Path
 
 import astropy.coordinates as coord
 import astropy.units as u
 import numpy as np
 from astropy.coordinates import frame_transform_graph
 from astropy.coordinates.matrix_utilities import matrix_transpose, rotation_matrix
-from astropy.io import fits
-from astropy.table import QTable, vstack
+from astropy.table import vstack
 from astropy.time import Time
 from sunpy.coordinates import HeliographicStonyhurst, Helioprojective
 from sunpy.net import Fido
 from sunpy.net import attrs as a
 
 from stixpy.coordinates.frames import STIXImaging
+from stixpy.product.product_factory import Product
+from stixpy.product.sources.anc import Ephemeris
 from stixpy.utils.logging import get_logger
+from stixpy.utils.table_lru import TableLRUCache
 
 STIX_X_SHIFT = 26.1 * u.arcsec  # fall back to this when non sas solution available
 STIX_Y_SHIFT = 58.2 * u.arcsec  # fall back to this when non sas solution available
@@ -23,7 +25,24 @@ STIX_Y_OFFSET = 8.0 * u.arcsec  # remaining offset after SAS solution
 
 logger = get_logger(__name__)
 
-__all__ = ["get_hpc_info", "stixim_to_hpc", "hpc_to_stixim"]
+__all__ = ["get_hpc_info", "stixim_to_hpc", "hpc_to_stixim", "STIX_EPHEMERIS_CACHE", "load_ephemeris_fits_to_cache"]
+
+# Create a global cache for STIX ephemeris data
+STIX_EPHEMERIS_CACHE = TableLRUCache("STIX_EPHEMERIS_CACHE", maxsize=300000, default_bin_duration=64 * u.s)
+
+
+def load_ephemeris_fits_to_cache(anc_file):
+    """
+    Load ephemeris data from a fits file into the ephemeris cache.
+    """
+    logger.info(f"Loading STIX ephemeris data from {anc_file}. into cache")
+    anc_file = Path(anc_file)
+    try:
+        anc = Product(anc_file, data_only=True)
+        if isinstance(anc, Ephemeris):
+            STIX_EPHEMERIS_CACHE.put(anc.data, source=anc_file.name)
+    except (OSError, ValueError) as e:
+        logger.error(f"Error loading STIX ephemeris data from {anc_file}: {e}")
 
 
 def _get_rotation_matrix_and_position(obstime, obstime_end=None):
@@ -55,9 +74,9 @@ def _get_rotation_matrix_and_position(obstime, obstime_end=None):
     return rmatrix, solo_position_heeq
 
 
-def get_hpc_info(times, end_time=None):
+def get_hpc_info(times, end_time=None, *, return_source=False):
     r"""
-    Get STIX pointing and SO location from L2 aspect files.
+    Get STIX pointing and SO location from ANC aspect files.
 
     Parameters
     ----------
@@ -68,11 +87,20 @@ def get_hpc_info(times, end_time=None):
     -------
 
     """
-    aux = _get_ephemeris_data(times.min(), end_time or times.max())
+    # start_time = times.min()
+    end_time = end_time or times.max()
+
+    aux = _get_ephemeris_data(times, end_time=end_time)
+
+    # indices = np.argwhere(
+    #     ((aux["time"] >= start_time) | (aux["time_end"] >= start_time))
+    #     & ((aux["time_end"] <= end_time) | (aux["time"] <= end_time))
+    # )
 
     indices = np.argwhere((aux["time"] >= times.min()) & (aux["time"] <= times.max()))
     if end_time is not None:
         indices = np.argwhere((aux["time"] >= times.min()) & (aux["time"] <= end_time))
+
     indices = indices.flatten()
 
     if end_time is not None and times.size == 1 and indices.size >= 2:
@@ -101,6 +129,7 @@ def get_hpc_info(times, end_time=None):
         if end_time is not None and indices.size < 2:
             times = times + (end_time - times) * 0.5
 
+        # aux = aux[indices]
         # Interpolate all times
         x = (times - aux["time"][0]).to_value(u.s)
         xp = (aux["time"] - aux["time"][0]).to_value(u.s)
@@ -120,8 +149,8 @@ def get_hpc_info(times, end_time=None):
             << aux["solo_loc_heeq_zxy"].unit
         )
 
-        sas_x = np.interp(x, xp, aux["y_srf"])
-        sas_y = np.interp(x, xp, aux["z_srf"])
+        sas_x = np.interp(x, xp, aux["y_srf"].value) << aux["y_srf"].unit
+        sas_y = np.interp(x, xp, aux["z_srf"].value) << aux["z_srf"].unit
         if x.size == 1:
             good_sas = [True] if np.interp(x, xp, aux["sas_ok"]).astype(bool) else []
         else:
@@ -151,17 +180,19 @@ def get_hpc_info(times, end_time=None):
         solo_heeq = solo_heeq.squeeze()
         stix_pointing = stix_pointing.squeeze()
 
+    if isinstance(return_source, list) and "__source" in aux.colnames:
+        return_source.extend(set(aux["__source"].value))
+
     return roll, solo_heeq, stix_pointing
 
 
-@lru_cache
-def _get_ephemeris_data(start_time, end_time=None):
+def _get_ephemeris_data(start_time, end_time=None, *, interpolate=True):
     r"""
-    Search, download and read L2 pointing data.
+    Search, in cache or download and read ANC pointing data.
 
     Parameters
     ----------
-    start_time : `astropy.time.Time`
+    times : `astropy.time.Time`
         Time or start of a time interval.
 
     Returns
@@ -170,39 +201,52 @@ def _get_ephemeris_data(start_time, end_time=None):
     """
     if end_time is None:
         end_time = start_time
-    # Find, download, read aux file with pointing, sas and position information
-    logger.debug(f"Searching for AUX data: {start_time} - {end_time}")
-    query = Fido.search(
-        a.Time(start_time, end_time),
-        a.Instrument.stix,
-        a.Level.anc,
-        a.stix.DataType.asp,
-        a.stix.DataProduct.asp_ephemeris,
-    )
-    if len(query["stix"]) == 0:
-        raise ValueError(f"No STIX pointing data found for time range {start_time} to {end_time}.")
 
-    logger.debug(f"Downloading {len(query['stix'])} AUX files")
-    aux_files = Fido.fetch(query["stix"])
-    if len(aux_files.errors) > 0:
-        raise ValueError("There were errors downloading the data.")
-    # Read and extract data
-    logger.debug("Loading and extracting AUX data")
+    logger.info(f"Getting STIX ephemeris data for {start_time} to {end_time}")
+    from_cache = STIX_EPHEMERIS_CACHE.get(start_time, end_time)
 
-    aux_data = []
-    for aux_file in aux_files:
-        hdu = fits.getheader(aux_file, ext=0)
-        aux = QTable.read(aux_file, hdu=2)
-        date_beg = Time(hdu.get("DATE-BEG"))
-        aux["time"] = (
-            date_beg + aux["time"] - 32 * u.s
-        )  # Shift AUX data by half a time bin (starting time vs. bin centre)
-        aux_data.append(aux)
+    if from_cache is None:
+        # Find, download, read aux file with pointing, sas and position information
+        logger.info(f"FIDO searching for AUX data: {start_time} - {end_time}")
+        query = Fido.search(
+            a.Time(start_time, end_time),
+            a.Instrument.stix,
+            a.Level.anc,
+            a.stix.DataType.asp,
+            a.stix.DataProduct.asp_ephemeris,
+        )
+        if len(query["stix"]) == 0:
+            raise ValueError(f"No STIX pointing data found for time range {start_time} to {end_time}.")
+        else:
+            query["stix"].filter_for_latest_version()
+        logger.debug(f"Downloading {len(query['stix'])} AUX files")
+        aux_files = Fido.fetch(query["stix"])
+        if len(aux_files.errors) > 0:
+            raise ValueError("There were errors downloading the data.")
+        # Read and extract data
+        logger.debug("Loading and extracting ANC data")
 
-    aux = vstack(aux_data)
-    aux.sort(keys=["time"])
+        anc_data = []
+        for aux_file in aux_files:
+            aux_file = Path(aux_file)
+            anc = Product(aux_file, data_only=True)
+            anc.data["__source"] = aux_file.name
+            anc_data.append(anc.data)
 
-    return aux
+        ephemeris = vstack(anc_data)
+        ephemeris.sort(keys=["time"])
+
+        ephemeris_source = ephemeris["__source"].value
+        del ephemeris["__source"]
+
+        STIX_EPHEMERIS_CACHE.put(ephemeris, source=ephemeris_source)
+
+        return ephemeris
+        # better truncate the data to requested time range same as cache get
+        # return STIX_EPHEMERIS_CACHE.get(start_time, end_time)
+    else:
+        logger.debug(f"Using cached ANC data: {start_time} - {end_time}")
+        return from_cache
 
 
 @frame_transform_graph.transform(coord.FunctionTransform, STIXImaging, Helioprojective)

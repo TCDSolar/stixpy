@@ -1,4 +1,5 @@
 import warnings
+from pathlib import Path
 
 import astropy.coordinates as coord
 import astropy.units as u
@@ -35,10 +36,11 @@ def load_ephemeris_fits_to_cache(anc_file):
     Load ephemeris data from a fits file into the ephemeris cache.
     """
     logger.info(f"Loading STIX ephemeris data from {anc_file}. into cache")
+    anc_file = Path(anc_file)
     try:
         anc = Product(anc_file, data_only=True)
         if isinstance(anc, Ephemeris):
-            STIX_EPHEMERIS_CACHE.put(anc.data)
+            STIX_EPHEMERIS_CACHE.put(anc.data, source=anc_file.name)
     except (OSError, ValueError) as e:
         logger.error(f"Error loading STIX ephemeris data from {anc_file}: {e}")
 
@@ -72,7 +74,7 @@ def _get_rotation_matrix_and_position(obstime, obstime_end=None):
     return rmatrix, solo_position_heeq
 
 
-def get_hpc_info(times, end_time=None):
+def get_hpc_info(times, end_time=None, *, return_source=False):
     r"""
     Get STIX pointing and SO location from ANC aspect files.
 
@@ -85,10 +87,10 @@ def get_hpc_info(times, end_time=None):
     -------
 
     """
-    start_time = times.min()
+    # start_time = times.min()
     end_time = end_time or times.max()
 
-    aux = _get_ephemeris_data(start_time, end_time)
+    aux = _get_ephemeris_data(times, end_time=end_time)
 
     # indices = np.argwhere(
     #     ((aux["time"] >= start_time) | (aux["time_end"] >= start_time))
@@ -127,6 +129,7 @@ def get_hpc_info(times, end_time=None):
         if end_time is not None and indices.size < 2:
             times = times + (end_time - times) * 0.5
 
+        # aux = aux[indices]
         # Interpolate all times
         x = (times - aux["time"][0]).to_value(u.s)
         xp = (aux["time"] - aux["time"][0]).to_value(u.s)
@@ -177,16 +180,19 @@ def get_hpc_info(times, end_time=None):
         solo_heeq = solo_heeq.squeeze()
         stix_pointing = stix_pointing.squeeze()
 
+    if isinstance(return_source, list) and "__source" in aux.colnames:
+        return_source.extend(set(aux["__source"].value))
+
     return roll, solo_heeq, stix_pointing
 
 
-def _get_ephemeris_data(start_time, end_time=None):
+def _get_ephemeris_data(start_time, end_time=None, *, interpolate=True):
     r"""
     Search, in cache or download and read ANC pointing data.
 
     Parameters
     ----------
-    start_time : `astropy.time.Time`
+    times : `astropy.time.Time`
         Time or start of a time interval.
 
     Returns
@@ -196,11 +202,12 @@ def _get_ephemeris_data(start_time, end_time=None):
     if end_time is None:
         end_time = start_time
 
-    logger.warning(f"Getting STIX ephemeris data for {start_time} to {end_time}")
+    logger.info(f"Getting STIX ephemeris data for {start_time} to {end_time}")
     from_cache = STIX_EPHEMERIS_CACHE.get(start_time, end_time)
+
     if from_cache is None:
         # Find, download, read aux file with pointing, sas and position information
-        logger.warning(f"FIDO searching for AUX data: {start_time} - {end_time}")
+        logger.info(f"FIDO searching for AUX data: {start_time} - {end_time}")
         query = Fido.search(
             a.Time(start_time, end_time),
             a.Instrument.stix,
@@ -221,15 +228,22 @@ def _get_ephemeris_data(start_time, end_time=None):
 
         anc_data = []
         for aux_file in aux_files:
+            aux_file = Path(aux_file)
             anc = Product(aux_file, data_only=True)
+            anc.data["__source"] = aux_file.name
             anc_data.append(anc.data)
 
         ephemeris = vstack(anc_data)
         ephemeris.sort(keys=["time"])
 
-        STIX_EPHEMERIS_CACHE.put(ephemeris)
+        ephemeris_source = ephemeris["__source"].value
+        del ephemeris["__source"]
+
+        STIX_EPHEMERIS_CACHE.put(ephemeris, source=ephemeris_source)
 
         return ephemeris
+        # better truncate the data to requested time range same as cache get
+        # return STIX_EPHEMERIS_CACHE.get(start_time, end_time)
     else:
         logger.debug(f"Using cached ANC data: {start_time} - {end_time}")
         return from_cache

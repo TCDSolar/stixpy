@@ -195,6 +195,63 @@ def test_get_hpc_info_cache_hit():
 
 
 @pytest.mark.remote_data
+def test_get_hpc_cache_same_as_first_call():
+    """Test that the cache is used when available."""
+    STIX_EPHEMERIS_CACHE.clear()
+    assert len(STIX_EPHEMERIS_CACHE.cache) == 0
+
+    # just on time point
+    res1 = get_hpc_info(Time("2023-01-01T12:00:00"))
+    assert res1 is not None
+    assert len(STIX_EPHEMERIS_CACHE.cache) > 0
+
+    res2 = get_hpc_info(Time("2023-01-01T12:00:00"))
+    assert res1[0] == res2[0]  # should be the same data
+
+
+@pytest.mark.remote_data
+def test_get_hpc_bypass_cache():
+    """Test that the cache is used when available."""
+    STIX_EPHEMERIS_CACHE.clear()
+    assert len(STIX_EPHEMERIS_CACHE.cache) == 0
+
+    # just on time point
+    res1 = get_hpc_info(Time("2023-01-01T12:00:00"))
+    assert res1 is not None
+    assert len(STIX_EPHEMERIS_CACHE.cache) > 0
+
+    # corrupt the cache to test bypass
+    for row_idx in range(len(STIX_EPHEMERIS_CACHE.cache)):
+        for angle_idx in range(3):
+            STIX_EPHEMERIS_CACHE.cache["roll_angle_rpy"][row_idx][angle_idx] = -9999 * u.deg
+    res2 = get_hpc_info(Time("2023-01-01T12:00:00"))
+
+    assert res2[0] == -9999 * u.deg  # should be from cache
+    STIX_EPHEMERIS_CACHE.bypass_cache_read = True
+    res_fresh = get_hpc_info(Time("2023-01-01T12:00:00"))
+    assert res_fresh[0] == res1[0]  # should be fresh data not from cache so the same as res1
+
+    STIX_EPHEMERIS_CACHE.bypass_cache_read = False
+    res_refreshed = get_hpc_info(Time("2023-01-01T12:00:00"))
+    assert res_refreshed[0] == res_fresh[0]
+
+
+@pytest.mark.remote_data
+def test_get_hpc_source_cache():
+    """Test that the cache is used when available."""
+    STIX_EPHEMERIS_CACHE.clear()
+    assert len(STIX_EPHEMERIS_CACHE.cache) == 0
+
+    hpc_source = list()
+    res1 = get_hpc_info(Time("2023-01-01T12:00:00"), Time("2023-01-03T13:00:00"), return_source=hpc_source)
+    assert res1 is not None
+    assert len(STIX_EPHEMERIS_CACHE.cache) > 0
+    # multiple days so multiple source files
+    assert len(hpc_source[0]) > 1
+    assert "solo_ANC_stix-asp-ephemeris" in hpc_source[0]
+
+
+@pytest.mark.remote_data
 def test_load_anc_file():
     """Test loading an ANC file."""
     start_time = Time("2023-01-01T12:00:00")

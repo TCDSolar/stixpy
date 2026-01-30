@@ -166,7 +166,6 @@ class SpectrogramPlotMixin:
                * 'c' - count [c]
                * 'cr' - count rate [c/s]
                * 'dcr' - differential count rate [c/(s keV)]
-               * 'dcrf' - differential count rate flux (geometric area) [c/(s keV cm^2)]
         time_indices : `list` or `numpy.ndarray`
             If an 1xN array will be treated as mask if 2XN array will sum data between given
             indices. For example `time_indices=[0, 2, 5]` would return only the first, third and
@@ -196,7 +195,6 @@ class SpectrogramPlotMixin:
         - 'c': counts
         - 'cr': counts per second
         - 'dcr': counts per second per keV
-        - 'dcrf': counts per second per keV per cm^2
         """
         counts_shape = self.data["counts"].shape
         if len(counts_shape) != 4:
@@ -299,7 +297,6 @@ class TimesSeriesPlotMixin:
                * 'c' - count [c]
                * 'cr' - count rate [c/s]
                * 'dcr' - differential count rate [c/(s keV)]
-               * 'dcrf' - differential count rate flux (geometric area) [c/(s keV cm^2)]
         time_indices : `list` or `numpy.ndarray`
             If an 1xN array will be treated as mask if 2XN array will sum data between given
             indices. For example `time_indices=[0, 2, 5]` would return only the first, third and
@@ -451,14 +448,14 @@ class ScienceData(L1Product):
     @deprecated(name="duration", since="0.2", message="Use `durations` instead", warning_type=DeprecationWarning)
     def duration(self):
         """
-        An `astropy.units.Quantiy` array giving the duration or integration time
+        An `astropy.units.Quantity` array giving the duration or integration time
         """
         return self.data["timedel"]
 
     @property
     def durations(self):
         """
-        An `astropy.units.Quantiy` array giving the duration or integration time
+        An `astropy.units.Quantity` array giving the duration or integration time
         """
         return self.data["timedel"]
 
@@ -480,7 +477,7 @@ class ScienceData(L1Product):
         Parameters
         ----------
         vtype : str
-            Type of value to return control the default normalisation:
+            Type of value to return (vtype) controls the normalisation:
                 * 'c' - count [c]
                 * 'cr' - count rate [c/s]
                 * 'dcr' - differential count rate [c/(s keV)]

@@ -134,8 +134,19 @@ def read_elut(elut_file, sci_channels):
 
     elut = type("ELUT", (object,), dict())
     elut.file = elut_file.name
-    elut.offset = elut_table["Offset"].reshape(32, 12)
-    elut.gain = elut_table["Gain keV/ADC"].reshape(32, 12)
+    try:
+        elut.offset = elut_table["Offset"].reshape(32, 12)
+        elut.gain = elut_table["Gain keV/ADC"].reshape(32, 12)
+    except KeyError:
+        try:
+            elut.offset = elut_table["Offset (ADC)"].reshape(32, 12)
+            elut.gain = elut_table["Gain (keV/ADC)"].reshape(32, 12)
+
+        except KeyError:
+            elut.offset = elut_table["Offset (ADC)"].reshape(32, 12)
+            elut.gain = elut_table["Gain (ADC/keV)"].reshape(32, 12)
+
+
     elut.pixel = elut_table["Pixel"].reshape(32, 12)
     elut.detector = elut_table["Detector"].reshape(32, 12)
     adc = np.vstack(list(elut_table.columns[4:].values())).reshape(31, 32, 12)

@@ -26,6 +26,7 @@ from stixpy.product.product import L1Product
 from stixpy.config.instrument import STIX_INSTRUMENT, _get_uv_points_data
 from stixpy.calibration.transmission import Transmission
 from stixpy.calibration.grid import get_grid_transmission
+# from stixpy.calibration.flare_location import estimate_flare_location
 
 __all__ = [
     "ScienceData",
@@ -918,6 +919,8 @@ class ScienceData(L1Product):
             counts_var = self.data["counts_comp_comp_err"] ** 2
         shape = counts.shape
 
+        print('shape_counts = ',np.shape(counts_var) )
+
         if livetime_correction:
 
             trigger_to_detector = STIX_INSTRUMENT.subcol_adc_mapping
@@ -927,10 +930,9 @@ class ScienceData(L1Product):
             triggers_lower = triggers - triggers_error
             triggers_upper = triggers + triggers_error            
             
-            _, livefrac, _ = get_livetime_fraction(triggers, self.data["timedel"].to("s").reshape(-1, 1))
-            _, livefrac_lower, _ = get_livetime_fraction(triggers_lower, self.data["timedel"].to("s").reshape(-1, 1))
-            _, livefrac_upper, _ = get_livetime_fraction(triggers_upper, self.data["timedel"].to("s").reshape(-1, 1))
-
+            _, livefrac, _ = get_livetime_fraction(triggers/ self.data["timedel"].to("s").reshape(-1, 1))
+            _, livefrac_lower, _ = get_livetime_fraction(triggers_lower/ self.data["timedel"].to("s").reshape(-1, 1))
+            _, livefrac_upper, _ = get_livetime_fraction(triggers_upper/ self.data["timedel"].to("s").reshape(-1, 1))
 
             # if t_norm.size != 1:
 
@@ -938,6 +940,8 @@ class ScienceData(L1Product):
             livefrac = livefrac.reshape(livefrac.shape + (1, 1))
             livefrac_lower = livefrac_lower.reshape(livefrac_lower.shape + (1, 1))
             livefrac_upper = livefrac_upper.reshape(livefrac_upper.shape + (1, 1))             
+ 
+            t_norm_original = t_norm
 
             t_norm = t_norm * livefrac
             t_norm_lower = t_norm * livefrac_lower
@@ -949,6 +953,7 @@ class ScienceData(L1Product):
 
             _, _, elut_cor_fac = get_elut_correction(np.array(self.energies['channel']), self)
 
+            e_norm_energies = e_norm
             e_norm = e_norm / elut_cor_fac
 
     
@@ -1060,29 +1065,53 @@ class ScienceData(L1Product):
                     counts_var = np.sum(counts_var, axis=0, keepdims=True)
                     t_norm = np.sum(dt)
 
-
         if e_norm.size != 1:
+            e_norm_energies = e_norm_energies.reshape(1, 1, 1, -1)
             e_norm = e_norm.reshape(1, 1, 1, -1)
 
         if np.isnan(np.array(e_norm.value)).any():
 
             valid_mask = np.flatnonzero(~np.isnan(e_norm))
  
+            e_norm_energies = e_norm_energies[...,valid_mask]
             e_norm = e_norm[...,valid_mask]
             counts = counts[...,valid_mask]
             counts_var = counts_var[...,valid_mask]
 
             energies = energies[valid_mask]
 
-        counts_err = np.sqrt(counts * u.ct + counts_var) / (t_norm)
+        counts_err = np.sqrt(counts*u.ct + counts_var) 
+
+        # print('counts_err = ',counts_err)
+        # print('counts_err = ',np.shape(counts_err))
+        # np.save('/home/jmitchell/Documents/SOLER/spectroscopy/stixpy_testing/spec_test/error_test/counts_err_check_stixpy.npy',counts_err.value, allow_pickle=True)
+
         counts_corr = counts / (e_norm * t_norm)
 
         counts_lower = counts / (t_norm_lower)
         counts_upper = counts / (t_norm_upper)
 
-        livetime_error = (counts_upper - counts_lower) / 2
+        livetime_error = (counts_upper - counts_lower)  / 2
 
-        counts_err = np.sqrt(counts_err.value**2 + livetime_error.value**2) / e_norm
+        # print('t_norm_shape = ',np.shape(t_norm))
+        # print('e_norm_shape = ',np.shape(e_norm))
+
+        # livetime_error = livetime_error[:,:,pix_indices,:].mean(axis=2)
+        # counts_err = np.sqrt((counts_err[:,:,pix_indices,:]**2).sum(axis=2))
+        # t_norm_2 = np.squeeze(t_norm, axis=2)
+        # e_norm_2 = np.squeeze(e_norm, axis=2)
+
+        # counts_err_2 = (counts_err/(e_norm)) * e_norm_energies
+        # print('counts_err = ',np.shape(counts_err_2)) 
+        # # print(counts_err_2.unit)
+        # np.save('/home/jmitchell/Documents/SOLER/spectroscopy/stixpy_testing/spec_test/error_test/counts_err_check_stixpy_2.npy',
+        #         np.array(counts_err_2.value), allow_pickle=True)
+
+        counts_err = np.sqrt(((counts_err/t_norm)**2) + (livetime_error**2)) / (e_norm) 
+
+        np.save('/home/jmitchell/Documents/SOLER/spectroscopy/stixpy_testing/spec_test/error_test/counts_err_check_stixpy_3.npy',
+                np.array(counts_err.value), allow_pickle=True)
+
 
         return counts_corr, counts_err, times, t_norm, energies
         
@@ -1096,8 +1125,12 @@ class ScienceData(L1Product):
 
         det_indices = [d for i,d in enumerate(det_indices_top24) if d in det_indices_full]
 
-        # pix_indices = np.where(self.pixel_masks.__dict__['masks'] == 1 )[1]
-        pix_indices = [0,1,2,3,4,5,6,7]
+        # det_indices = np.where(self.detector_masks.__dict__['masks'] == 1 )[1]
+
+        pix_indices = np.where(self.pixel_masks.__dict__['masks'] == 1 )[1]
+        print('Pix_indices = ',pix_indices)
+        
+        # pix_indices = [0,1,2,3,4,5,6,7]
 
         rate, rate_err, times, t_norm_cs, energies = self.get_data()
 
@@ -1113,14 +1146,39 @@ class ScienceData(L1Product):
         result_count_rate_det_pix =   result_count_rate_det[:, :, pix_indices, :]
         result_count_rate = result_count_rate_det_pix.sum(axis=(1,2))
 
+        # t_diff = np.squeeze(t_diff, axis=2)
+        # t_diff_cs = np.squeeze(t_diff_cs, axis=2)
+        # e_norm_2 = e_norm[:,:,pix_indices,:].mean(axis=2)
+
         counts_err_kev = rate_err * t_diff_cs
         counts_err = counts_err_kev * de
         result_count_err_rate_full = counts_err / t_diff
+        # result_count_err_rate_det =result_count_err_rate_full[:, det_indices, :]
         result_count_err_rate_det =result_count_err_rate_full[:, det_indices, :, :]
         result_count_err_rate_det_pix =result_count_err_rate_det[:, :, pix_indices, :]
         result_count_err_rate = np.sqrt(((result_count_err_rate_det_pix**2).sum(axis=(1,2)) ) )
+        # result_count_err_rate = np.sqrt(((result_count_err_rate_det**2).sum(axis=(1)) ) )
+
+        # print('t_shape = ',dt.shape)
+
+        # dt = np.squeeze(dt, axis=(2,3))
+
+        # counts_err_kev = rate_err 
+        # counts_err = counts_err_kev 
+        # result_count_err_rate_full = counts_err 
+        # # result_count_err_rate_det =result_count_err_rate_full[:, det_indices, :]
+        # result_count_err_rate_det =np.sqrt((result_count_err_rate_full[:, det_indices, :, :]**2).sum(axis=1))
+        # result_count_err_rate_det_pix = np.sqrt((result_count_err_rate_det[:, pix_indices, :]**2).sum(axis=1))
+        # result_count_err_rate = result_count_err_rate_det_pix/ (dt.to(u.s))
+        # result_count_err_rate = result_count_err_rate / (de)
+
+        # print(result_count_err_rate.shape())
+
+        # result_count_err_rate = np.sqrt(((result_count_err_rate_det**2).sum(axis=(1)) ) )
+
 
         if energies['e_low'][0].value == 0:
+
             result_count_rate = result_count_rate[:,1:]
             result_count_err_rate = result_count_err_rate[:,1:]
             energies = energies[1:]
@@ -1171,22 +1229,27 @@ class ScienceData(L1Product):
         
         return spec_sub
 
-    def get_masked_srm(self):
+    def get_masked_srm(self,flare_location):
 
         PATH_DRM = '/home/jmitchell/software/stixpy-dev/stixpy/config/data/detector/'
         drm = np.load(PATH_DRM+'stx_drm_energy.npy')
         ph_energies = np.load(PATH_DRM+'stx_ph_edges.npy')
+        ct_energies = np.load(PATH_DRM+'stx_ct_edges.npy')
         
+        # max_stix = estimate_flare_location(self,time_range)
 
         energies = self.energies
         e_low = np.array(energies['e_low'])
-        e_low = e_low[1:]
+
+        if e_low[0] == 0:
+            e_low = e_low[1:]
+
         e_high = np.array(energies['e_high'])
 
         e_high = e_high[~np.isnan(e_high)]
 
-        e_index = np.where((ph_energies >= e_low[0]) &
-                               (ph_energies <= e_high[-1]) )[0]
+        # e_index = np.where((ph_energies >= e_low[0]) &
+        #                        (ph_energies <= e_high[-1]) )[0]
 
         if e_high[-1] == 150:
             e_edges = e_low
@@ -1195,9 +1258,37 @@ class ScienceData(L1Product):
             e_edges = np.concatenate([e_low,[e_high[-1]]])
             ct_e_diff = np.diff(e_edges)
 
+        print('ct_shape = ',len(ct_e_diff))
 
-        drm_clipped = drm
-        ph_energies_clipped = ph_energies
+        # drm_clipped = drm[1:-1, 1:-1]
+        # ph_energies_clipped = ph_energies[1:-1]
+
+        # drm_clipped = drm
+        # ph_energies_clipped = ph_energies
+
+        epsilon = 1e-4
+
+        mask_not_in_e = ~np.isclose(
+            ct_energies[:, None],
+            e_edges[None, :],
+            atol=epsilon
+        ).any(axis=1)
+
+        values_to_remove = ct_energies[mask_not_in_e]
+
+        indices_to_remove = np.where(
+            np.isclose(
+                ph_energies[:, None],
+                values_to_remove[None, :],
+                atol=epsilon
+            ).any(axis=1)
+        )[0]
+
+
+        drm_clipped = np.delete(drm, indices_to_remove, axis=0)
+        drm_clipped = np.delete(drm_clipped, indices_to_remove, axis=1)
+
+        ph_energies_clipped = np.delete(ph_energies, indices_to_remove)
 
         ph_e_diff = np.diff(ph_energies_clipped)
 
@@ -1211,23 +1302,19 @@ class ScienceData(L1Product):
 
         det_indices = [d for i,d in enumerate(det_indices_top24) if d in det_indices_full]
 
-        # pix_indices = np.where(self.pixel_masks.__dict__['masks'] == 1 )[1]
-        pix_indices = [0,1,2,3,4,5,6,7]
+        pix_indices = np.where(self.pixel_masks.__dict__['masks'] == 1 )[1]
 
         pixel_areas = pixel_areas[pix_indices].value
 
         area_scale = len(det_indices)*np.sum(pixel_areas)
-        
-        energy_widths = np.diff(ph_energies)
 
-        e_mids = ph_energies[:-1] + (energy_widths / 2)
+        energy_widths = np.diff(ph_energies_clipped)
+
+        e_mids = ph_energies_clipped[:-1] + (energy_widths / 2)
 
         trans = Transmission()
 
-        area_scale = 19.4304
-
         tot_trans = trans.get_transmission(energies=e_mids * u.keV)
-        
         
         attenuation = np.zeros(len(tot_trans["det-1"]))
 
@@ -1240,8 +1327,6 @@ class ScienceData(L1Product):
         drm_clipped = ((drm_clipped * ph_e_diff[None,:] * attenuation[:,None] ))  
 
         drm_new = []
-
-        print(e_edges)
 
         for j in range(np.shape(drm_clipped)[0]):
 
@@ -1260,12 +1345,17 @@ class ScienceData(L1Product):
         
         drm_new = np.array(drm_new)
 
+        # tr = TimeRange(vis.meta.time_range)
+        # roll, solo_heeq, stix_pointing = get_hpc_info(vis.meta.time_range[0], vis.meta.time_range[1])
+        # solo_coord = HeliographicStonyhurst(solo_heeq, representation_type="cartesian", obstime=tr.center)
+        # flare_location = flare_location.transform_to(STIXImaging(obstime=tr.center, observer=solo_coord))
 
-        grid_transmission = get_grid_transmission(e_mids, np.array([0,0]))     
+        grid_transmission = get_grid_transmission(e_mids, flare_location)     
 
         grid_transmission = grid_transmission.mean(axis=1)
 
         srm = (drm_new * grid_transmission[:,None]) / ct_e_diff[None,:]
+        # srm = (drm_new * grid_transmission[:,None]) 
 
         return srm
 

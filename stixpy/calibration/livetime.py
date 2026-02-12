@@ -93,7 +93,7 @@ def pileup_correction_factor():
     return prob_diff_pix
 
 
-def get_livetime_fraction(trigger_rate,time_del, eta=1.1e-6 *u.s, tau=10.1e-6 * u.s):
+def get_livetime_fraction(trigger_rate,*, eta=1.1e-6 *u.s, tau=10.1e-6 * u.s):
     """
     Return the live time fraction for the given trigger rate.
 
@@ -113,8 +113,8 @@ def get_livetime_fraction(trigger_rate,time_del, eta=1.1e-6 *u.s, tau=10.1e-6 * 
     """
     beta = 0.94059104  # pileup_correction_factor()
 
-    tau = tau / time_del
-    eta = eta / time_del
+    # tau = tau / time_del
+    # eta = eta / time_del
 
     photons_in = trigger_rate / (1.0 - trigger_rate * (tau + eta))
     livetime_fraction = 1 / (1.0 + (tau + eta) * photons_in)

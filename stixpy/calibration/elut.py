@@ -4,6 +4,7 @@ import numpy as np
 
 from stixpy.calibration.detector import get_sci_channels
 from stixpy.io.readers import read_elut, read_elut_index
+import datetime
 
 __all__ = ["get_elut", "get_elut_correction"]
 
@@ -22,6 +23,9 @@ def get_elut(date):
     -------
 
     """
+
+    # date = datetime.datetime(2023,11,15,0,0,0)
+
     root = Path(__file__).parent.parent
     elut_index_file = Path(root, *["config", "data", "elut", "elut_index.csv"])
 
@@ -33,8 +37,10 @@ def get_elut(date):
         raise ValueError(f"Multiple ELUTs for for date {date}")
     start_date, end_date, elut_file = list(elut_info)[0]
     sci_channels = get_sci_channels(date)
-    elut_table = read_elut(elut_file, sci_channels)
+    
+    # print('ELUT_FILENAME = ' , elut_file)
 
+    elut_table = read_elut(elut_file, sci_channels)
 
     return elut_table
 
@@ -80,8 +86,22 @@ def get_elut_correction(e_ind, pixel_data):
 
     bins =  ebin_sci_edges_high - ebin_sci_edges_low
     
-    bins_actual = ebin_widths[numbers, :8, :].mean(axis=1).mean(axis=0)
+    det_indices_top24 =  np.array([0, 1, 2, 3, 4, 5, 6, 7, 13, 14, 15, 19, 
+                                    20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31])
+    
+    det_indices_full = np.where(pixel_data.detector_masks.__dict__['masks'] == 1 )[1]
+
+    det_indices = [d for i,d in enumerate(det_indices_top24) if d in det_indices_full]
+
+    # det_indices = np.where(self.detector_masks.__dict__['masks'] == 1 )[1]
+
+    pix_indices = np.where(pixel_data.pixel_masks.__dict__['masks'] == 1 )[1]
+
+    bins_actual_1 = ebin_widths[det_indices, :, :]
+    bins_actual = bins_actual_1[:, pix_indices, :].mean(axis=1).mean(axis=0)
+    
 
     cor = bins / bins_actual
-    
+    print('ELUT_COR = ',cor)    
+
     return e_cor_high, e_cor_low, cor

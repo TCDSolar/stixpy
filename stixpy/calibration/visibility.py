@@ -185,6 +185,7 @@ def create_meta_pixels(
     )
 
     changed = []
+    
     for column in ["rcr", "pixel_masks", "detector_masks"]:
         if np.unique(pixel_data.data[column][t_ind], axis=0).shape[0] != 1:
             changed.append(column)

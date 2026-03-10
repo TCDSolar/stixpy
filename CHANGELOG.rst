@@ -1,3 +1,12 @@
+Stixpy 0.2.1 (2026-03-10)
+=========================
+
+Bug Fixes
+---------
+
+- Update sunpy dependency to <7.0 as code not updated for new Fido client API. (`#211 <https://github.com/TCDSolar/stixpy/pull/211>`__)
+
+
 Stixpy 0.2.0 (2026-01-18)
 =========================
 

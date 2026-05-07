@@ -53,10 +53,12 @@ def read_qtable(file, hdu, hdul=None):
     if hdul is None:
         hdul = fits.open(file)
 
-    qtable = QTable.read(file, hdu)
+    qtable = QTable.read(file, hdu, astropy_native=True)
 
     for col in hdul[hdu].data.columns:
-        if col.unit:
+        if col.unit and col.name in qtable.colnames:
+            if not hasattr(qtable[col.name], "astype"):
+                continue
             logger.debug(f"Unit present dtype correction needed for {col}")
             dtype = col.dtype
 
@@ -122,7 +124,7 @@ class ProductFactory(BasicRegistrationFactory):
             try:
                 data[name.lower()] = read_qtable(fname, hdu=name)
             except KeyError as e:
-                if name in ("IDB_VERSIONS", "ENERGIES"):
+                if name in ("CONTROL", "IDB_VERSIONS", "ENERGIES"):
                     logger.debug(f"Extension '{name}' not in file '{fname}'")
                 else:
                     raise e
@@ -271,7 +273,7 @@ class ProductFactory(BasicRegistrationFactory):
 
         return new_products
 
-    def _check_registered_widgets(self, *, meta, control, data, **kwargs):
+    def _check_registered_widgets(self, *, meta, data, control=None, **kwargs):
         candidate_widget_types = list()
 
         for key in self.registry:

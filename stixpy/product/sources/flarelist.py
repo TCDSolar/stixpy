@@ -1,5 +1,3 @@
-import re
-
 import numpy as np
 from matplotlib import pyplot as plt
 from matplotlib.colors import BoundaryNorm, ListedColormap
@@ -20,22 +18,10 @@ __all__ = ["FlareList"]
 
 quantity_support()
 
-_GOES_LETTER_BASE = {"A": 1e-8, "B": 1e-7, "C": 1e-6, "M": 1e-5, "X": 1e-4}
-_GOES_RE = re.compile(r"([ABCMX])(\d+\.?\d*)", re.IGNORECASE)
 _GOES_BOUNDARIES = [1e-8, 1e-7, 1e-6, 1e-5, 1e-4, 1e-3]
 _GOES_COLORS = ["#1f77b4", "#2ca02c", "#ffdd33", "#ff7f0e", "#d62728"]  # A:blue B:green C:yellow M:orange X:red
 _GOES_CMAP = ListedColormap(_GOES_COLORS)
 _GOES_NORM = BoundaryNorm(_GOES_BOUNDARIES, _GOES_CMAP.N)
-
-
-def _goes_class_to_flux(goes_class_arr):
-    """Convert GOES class strings (e.g. ``'C5.4'``, ``'M1'``) to W m⁻² flux values."""
-    result = np.full(len(goes_class_arr), np.nan)
-    for i, cls in enumerate(goes_class_arr):
-        m = _GOES_RE.match(str(cls).strip())
-        if m:
-            result[i] = _GOES_LETTER_BASE[m.group(1).upper()] * float(m.group(2))
-    return result
 
 
 class FlareList(GenericProduct):
@@ -201,7 +187,7 @@ class FlareList(GenericProduct):
         scatter_kwargs.setdefault("alpha", 0.5)
         scatter_kwargs.pop("color", None)  # c= takes precedence; drop colour kwarg if set
 
-        goes_flux = _goes_class_to_flux(self.data["goes_max_class_est"])
+        goes_flux = self.goes_flux.to_value(u.W / u.m**2)
 
         if observer == "hgs":
             loc = self.flare_location_hgs

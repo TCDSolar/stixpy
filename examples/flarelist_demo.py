@@ -51,6 +51,19 @@ flares = products[0].concatenate(products[1:])
 print(flares)
 
 #############################################################################
+# Inspect the available columns. ``flares.data`` is an
+# :class:`~astropy.table.QTable` — each column carries its own unit and a
+# short description loaded from the FITS header.
+
+print(f"{'Column':<26s}  {'Unit':<10s}  Description")
+print("-" * 90)
+for name in flares.data.colnames:
+    info = flares.data[name].info
+    unit = "" if info.unit is None else str(info.unit)
+    desc = info.description or ""
+    print(f"{name:<26s}  {unit:<10s}  {desc}")
+
+#############################################################################
 # Plot the timeline of peak counts per energy band across all three months
 
 flares.plot_timeseries()

@@ -2,7 +2,7 @@ import re
 
 import numpy as np
 from matplotlib import pyplot as plt
-from matplotlib.colors import LogNorm
+from matplotlib.colors import BoundaryNorm, ListedColormap
 from matplotlib.dates import ConciseDateFormatter
 
 import astropy.units as u
@@ -22,7 +22,10 @@ quantity_support()
 
 _GOES_LETTER_BASE = {"A": 1e-8, "B": 1e-7, "C": 1e-6, "M": 1e-5, "X": 1e-4}
 _GOES_RE = re.compile(r"([ABCMX])(\d+\.?\d*)", re.IGNORECASE)
-_GOES_NORM = LogNorm(vmin=1e-8, vmax=1e-3)
+_GOES_BOUNDARIES = [1e-8, 1e-7, 1e-6, 1e-5, 1e-4, 1e-3]
+_GOES_COLORS = ["#1f77b4", "#2ca02c", "#ffdd33", "#ff7f0e", "#d62728"]  # A:blue B:green C:yellow M:orange X:red
+_GOES_CMAP = ListedColormap(_GOES_COLORS)
+_GOES_NORM = BoundaryNorm(_GOES_BOUNDARIES, _GOES_CMAP.N)
 
 
 def _goes_class_to_flux(goes_class_arr):
@@ -206,7 +209,7 @@ class FlareList(GenericProduct):
             lat = loc.lat.deg
             valid = np.isfinite(lon) & np.isfinite(lat)
             sc = axes.scatter(
-                lon[valid], lat[valid], c=goes_flux[valid], norm=_GOES_NORM, cmap="plasma", **scatter_kwargs
+                lon[valid], lat[valid], c=goes_flux[valid], norm=_GOES_NORM, cmap=_GOES_CMAP, **scatter_kwargs
             )
             for x in (-90, 90):
                 axes.axvline(
@@ -238,7 +241,7 @@ class FlareList(GenericProduct):
             tx = hpc.Tx.arcsec
             ty = hpc.Ty.arcsec
 
-            sc = axes.scatter(tx, ty, c=goes_flux[valid], norm=_GOES_NORM, cmap="plasma", **scatter_kwargs)
+            sc = axes.scatter(tx, ty, c=goes_flux[valid], norm=_GOES_NORM, cmap=_GOES_CMAP, **scatter_kwargs)
             axes.plot(
                 rsun_arcsec * np.cos(theta),
                 rsun_arcsec * np.sin(theta),
@@ -256,9 +259,10 @@ class FlareList(GenericProduct):
         else:
             raise ValueError(f"observer must be 'earth', 'solo', or 'hgs', got {observer!r}")
 
-        cbar = plt.colorbar(sc, ax=axes)
-        cbar.set_label("GOES max class [W m⁻²]")
-        cbar.set_ticks([1e-8, 1e-7, 1e-6, 1e-5, 1e-4])
+        # Geometric midpoints of each class band — tick lands in the centre of each colour segment
+        class_centres = [np.sqrt(_GOES_BOUNDARIES[i] * _GOES_BOUNDARIES[i + 1]) for i in range(len(_GOES_COLORS))]
+        cbar = plt.colorbar(sc, ax=axes, boundaries=_GOES_BOUNDARIES, ticks=class_centres)
+        cbar.set_label("GOES max class")
         cbar.set_ticklabels(["A", "B", "C", "M", "X"])
 
         axes.set_aspect("equal")
@@ -298,7 +302,9 @@ class FlareList(GenericProduct):
         collections = []
         for i, row in enumerate(self.energies):
             label = f"{row['e_low'].value:.0f}–{row['e_high'].value:.0f} keV"
-            sc = axes.scatter(times, lc_peak[:, i], label=label, **scatter_kwargs)
+            # Use the default matplotlib colour cycle so band-i here matches band-i
+            # in stixpy.timeseries.quicklook QL plots (pandas.DataFrame.plot default).
+            sc = axes.scatter(times, lc_peak[:, i], label=label, color=f"C{i}", **scatter_kwargs)
             collections.append(sc)
 
         axes.set_yscale("log")

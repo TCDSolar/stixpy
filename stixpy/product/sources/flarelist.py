@@ -57,10 +57,20 @@ class FlareList(GenericProduct):
         obstime = self.data["location_time_UTC"]
         if "location_icrs" in self.data.colnames:
             self.data["location_hgs"] = self.data["location_icrs"].transform_to(HeliographicStonyhurst(obstime=obstime))
+            self.data[
+                "location_hgs"
+            ].info.description = "Flare location in Heliographic Stonyhurst coordinates at 'location_time_UTC'"
+            self.data["location_icrs"].info.description = "Flare location in ICRS coordinates at 'location_time_UTC'"
         if "solo_location_icrs" in self.data.colnames:
             self.data["solo_location_hgs"] = self.data["solo_location_icrs"].transform_to(
                 HeliographicStonyhurst(obstime=obstime)
             )
+            self.data[
+                "solo_location_hgs"
+            ].info.description = "Solar Orbiter location in Heliographic Stonyhurst coordinates at 'location_time_UTC'"
+            self.data[
+                "solo_location_icrs"
+            ].info.description = "Solar Orbiter location in ICRS coordinates at 'location_time_UTC'"
 
     @classmethod
     def is_datasource_for(cls, *, meta, **kwargs):

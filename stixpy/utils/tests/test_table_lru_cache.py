@@ -1,10 +1,12 @@
 from datetime import datetime, timedelta
 
-import astropy.units as u
 import numpy as np
 import pytest
+
+import astropy.units as u
 from astropy.table import QTable
 from astropy.time import Time
+
 from sunpy.net import Fido
 from sunpy.net import attrs as a
 

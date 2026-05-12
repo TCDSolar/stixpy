@@ -11,6 +11,7 @@ from pathlib import Path
 import astropy.units as u
 from astropy.table import QTable, vstack
 from astropy.time import Time
+
 from sunpy.net import Fido
 from sunpy.net import attrs as a
 

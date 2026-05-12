@@ -1,6 +1,7 @@
 import astropy.units as u
 from astropy.time import Time
 from astropy.units import Quantity
+
 from sunpy.time import TimeRange
 
 from stixpy.product.product import L1Product

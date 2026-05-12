@@ -17,11 +17,13 @@ Imports
 
 import logging
 
-import astropy.units as u
 import matplotlib.pyplot as plt
 import numpy as np
+
+import astropy.units as u
 from astropy.coordinates import SkyCoord
 from astropy.time import Time
+
 from sunpy.coordinates import Helioprojective
 from sunpy.net import Fido
 from sunpy.net import attrs as a

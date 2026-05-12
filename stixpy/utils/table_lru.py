@@ -1,8 +1,9 @@
 import warnings
 from datetime import datetime
 
-import astropy.units as u
 import numpy as np
+
+import astropy.units as u
 from astropy.table import QTable, unique, vstack
 from astropy.time import Time
 

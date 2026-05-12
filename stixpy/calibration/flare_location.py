@@ -11,7 +11,6 @@ from sunpy.time import TimeRange
 from stixpy.calibration.visibility import calibrate_visibility, create_meta_pixels, create_visibility
 from stixpy.coordinates.frames import STIXImaging
 from stixpy.coordinates.transforms import get_hpc_info
-from stixpy.map.stix import STIXMap  # noqa
 from stixpy.product import Product
 
 __all__ = [

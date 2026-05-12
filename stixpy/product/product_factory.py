@@ -121,7 +121,7 @@ class ProductFactory(BasicRegistrationFactory):
 
         # determine extensions to load
         # allow for just data extension if requested
-        if kwargs.get('data_only', False):
+        if kwargs.get("data_only", False):
             extensions = ["CONTROL", "DATA"]
         # normally read all extensions
         else:

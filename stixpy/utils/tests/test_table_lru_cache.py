@@ -15,7 +15,13 @@ from stixpy.utils.table_lru import TableLRUCache
 @pytest.fixture
 def cache():
     """Fixture to create a fresh TableLRUCache instance."""
-    return TableLRUCache("testcache", maxsize=10, default_bin_duration=1 * u.s)
+    return TableLRUCache(
+        "testcache",
+        maxsize=10,
+        nominal_bin=1 * u.s,
+        max_point_distance=2 * u.s,
+        max_gap=2.5 * u.s,
+    )
 
 
 @pytest.fixture
@@ -31,8 +37,16 @@ def test_initialization_default():
     """Test default initialization of TableLRUCache."""
     cache = TableLRUCache("testcache")
     assert cache.maxsize == 300000
-    assert cache.default_bin_duration == 64 * u.s
+    assert cache.nominal_bin == 64 * u.s
+    assert cache.default_bin_duration == 64 * u.s  # deprecated alias still works
     assert len(cache.cache) == 0
+
+
+def test_initialization_deprecated_alias_warns():
+    """`default_bin_duration` is accepted but emits a DeprecationWarning."""
+    with pytest.warns(DeprecationWarning, match="default_bin_duration"):
+        cache = TableLRUCache("testcache", default_bin_duration=42 * u.s)
+    assert cache.nominal_bin == 42 * u.s
 
 
 def test_initialization_custom_maxsize():
@@ -139,6 +153,102 @@ def test_get_range_in_block(cache):
     end_time = data["time"][6]
     result = cache.get(start_time, end_time)
     assert result is None
+
+
+def test_get_point_returns_nearest_within_threshold(cache, mock_data_table):
+    """get_point returns the closest row by min |dt| inside max_point_distance."""
+    cache.put(mock_data_table)
+    # Query halfway between rows 3 and 4 (1 s spacing → 0.5 s either side).
+    query = mock_data_table["time"][3] + 0.4 * u.s
+    result = cache.get_point(query)
+    assert result is not None
+    assert len(result) == 1
+    assert result["time"][0] == mock_data_table["time"][3]
+    assert result["__lcu"][0] == 1
+
+
+def test_get_point_returns_none_outside_threshold(cache, mock_data_table):
+    """get_point returns None when no row is within max_point_distance."""
+    cache.put(mock_data_table)
+    # cache fixture sets max_point_distance=2 s; query 1 day away → no hit.
+    query = mock_data_table["time"][0] + 1 * u.day
+    assert cache.get_point(query) is None
+
+
+def test_get_point_picks_closer_of_two_neighbours(cache, mock_data_table):
+    """When two rows bracket the query, the closer one wins."""
+    cache.put(mock_data_table)
+    # Query 0.3 s past row 3 → closer to row 3 (0.3 s) than row 4 (0.7 s).
+    query = mock_data_table["time"][3] + 0.3 * u.s
+    result = cache.get_point(query)
+    assert result["time"][0] == mock_data_table["time"][3]
+
+
+def test_get_range_pad_returns_bracketing_rows(cache, mock_data_table):
+    """pad>0 widens the returned slice so callers can interpolate."""
+    cache.put(mock_data_table)
+    start = mock_data_table["time"][3]
+    end = mock_data_table["time"][5]
+    strict = cache.get_range(start, end, pad=0 * u.s)
+    padded = cache.get_range(start, end, pad=1.5 * u.s)
+    assert len(strict) == 3  # rows 3,4,5
+    assert len(padded) == 5  # rows 2..6
+
+
+def test_get_range_shorter_than_cadence_hits_cache():
+    """Range queries narrower than the bin cadence must still hit the cache.
+
+    Regression for a bug where the coverage check required at least one row
+    strictly inside [start, end]. With 64 s ANC cadence and a 10 s query
+    window (e.g. ``get_hpc_info("2023-01-01T00:00:00", "2023-01-01T00:00:10")``)
+    no row falls inside, so coverage was wrongly reported as missing —
+    forcing a Fido fetch even when the day was already cached.
+    """
+    cache_64s = TableLRUCache("c64", maxsize=2000, nominal_bin=64 * u.s, max_gap=150 * u.s)
+    base = Time("2023-01-01T00:00:00")
+    times = base + 26 * u.s + np.arange(1350) * 64 * u.s  # full day at 64s cadence
+    cache_64s.put(QTable({"time": times, "value": np.arange(1350)}))
+
+    # 10 s window with no row strictly inside — must still be served from cache.
+    result = cache_64s.get_range(base, base + 10 * u.s, pad=80 * u.s)
+    assert result is not None
+    assert len(result) >= 1
+
+
+def test_get_range_real_gap_returns_none(cache):
+    """A consecutive gap larger than max_gap fails coverage."""
+    # max_gap is 2.5 s on this fixture; inject a 3 s hole.
+    now = Time(datetime.now())
+    times = now + np.array([0, 1, 2, 5, 6, 7]) * u.s
+    cache.put(QTable({"time": times, "value": np.arange(6)}))
+    assert cache.get_range(times[0], times[-1], pad=0 * u.s) is None
+
+
+def test_get_range_jitter_within_max_gap_ok(cache):
+    """Sub-max_gap row-spacing jitter is accepted (no false 'gap')."""
+    # max_gap = 2.5 s; jitter rows at 0, 1, 2.2, 3.3, 4 (max diff 1.2 s).
+    now = Time(datetime.now())
+    times = now + np.array([0.0, 1.0, 2.2, 3.3, 4.0]) * u.s
+    cache.put(QTable({"time": times, "value": np.arange(5)}))
+    result = cache.get_range(times[0], times[-1], pad=0 * u.s)
+    assert result is not None
+    assert len(result) == 5
+
+
+def test_get_point_requires_scalar_time(cache, mock_data_table):
+    """Array input to get_point is a programmer error."""
+    cache.put(mock_data_table)
+    with pytest.raises(TypeError, match="scalar"):
+        cache.get_point(mock_data_table["time"])
+
+
+def test_get_range_requires_scalar_times(cache, mock_data_table):
+    """Array input to get_range is a programmer error."""
+    cache.put(mock_data_table)
+    with pytest.raises(TypeError, match="scalar"):
+        cache.get_range(mock_data_table["time"], mock_data_table["time"][-1])
+    with pytest.raises(TypeError, match="scalar"):
+        cache.get_range(mock_data_table["time"][0], mock_data_table["time"])
 
 
 def test_lru_data_stays(cache):

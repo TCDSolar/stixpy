@@ -253,17 +253,6 @@ def test_search_date_product_sci():
     assert len(res) == 1
 
 
-@pytest.mark.parametrize(
-    "query, expected_len, is_total",
-    [
-        ([a.Instrument.stix], 67, True),
-        ([a.Instrument.stix, a.stix.DataType.ql], 6, False),
-        ([a.Instrument.stix, a.stix.DataType.sci], 58, False),
-        ([a.Instrument.stix, a.stix.DataType.hk], 1, False),
-        ([a.Instrument.stix, a.stix.DataType.asp], 1, False),
-        ([a.Instrument.stix, a.stix.DataType.cal], 1, False),
-    ],
-)
 @pytest.mark.remote_data
 def test_fido():
     res = Fido.search(a.Time("2020-11-17T00:00", "2020-11-17T23:59"), a.Instrument.stix)

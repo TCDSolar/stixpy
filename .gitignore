@@ -265,3 +265,4 @@ package.json
 # stixpy
 stixpy/data/*.fits
 .vscode/*
+docs/generated/*

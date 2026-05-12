@@ -1,11 +1,12 @@
 import warnings
 from pathlib import Path
 
+import numpy as np
+
 import astropy.coordinates as coord
 import astropy.units as u
 from astropy.coordinates import frame_transform_graph
 from astropy.coordinates.matrix_utilities import matrix_transpose, rotation_matrix
-from astropy.time import Time
 
 from sunpy.coordinates import HeliographicStonyhurst, Helioprojective
 
@@ -232,12 +233,14 @@ def _get_ephemeris_data(times, end_time=None, *, interpolate=True):
         If the requested range cannot be covered after fetching (real data
         gap larger than ``max_gap``).
     """
-    if times.isscalar:
-        qstart = times
-        qend = end_time if end_time is not None else times
+    # Normalise both inputs to scalar Time. `end_time` may itself be an
+    # array (frame transforms with vector obstime default obstime_end to
+    # the same array — see STIXImaging.__init__).
+    qstart = times if times.isscalar else times.min()
+    if end_time is not None:
+        qend = end_time if end_time.isscalar else end_time.max()
     else:
-        qstart = times.min()
-        qend = end_time if end_time is not None else times.max()
+        qend = times if times.isscalar else times.max()
 
     logger.info(f"Resolving ANC ephemeris for {qstart} – {qend}")
 

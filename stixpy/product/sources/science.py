@@ -1,5 +1,6 @@
 from pathlib import Path
 from itertools import product
+import warnings
 
 import numpy as np
 from matplotlib import pyplot as plt
@@ -17,6 +18,7 @@ from astropy.visualization import quantity_support
 
 from sunpy.time.timerange import TimeRange
 from sunpy.util import deprecated
+from sunpy.coordinates import HeliographicStonyhurst, Helioprojective
 
 from stixpy.calibration.elut import get_elut_correction
 from stixpy.calibration.grid import get_grid_transmission
@@ -25,6 +27,8 @@ from stixpy.calibration.transmission import Transmission
 from stixpy.config.instrument import STIX_INSTRUMENT
 from stixpy.io.readers import read_subc_params
 from stixpy.product.product import L1Product
+from stixpy.coordinates.transforms import get_hpc_info
+from stixpy.coordinates.flare_angle import flare_spacecraft_angle
 
 # from stixpy.calibration.flare_location import estimate_flare_location
 
@@ -515,6 +519,8 @@ class ScienceData(L1Product):
             [0, 1, 2, 3, 4, 5, 6, 7, 13, 14, 15, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31])
             detector_indices = [d for i, d in enumerate(detector_indices_working) if d in detector_indices_full]
 
+        if bkg_sub_indices_energy is None:
+            ScienceData._check_shadowing(product,detector_indices)
 
         if detector_indices is not None:
             detecor_indices = np.asarray(detector_indices)
@@ -600,18 +606,20 @@ class ScienceData(L1Product):
         t_norm_bkg = t_norm_bkg.to(u.s)
 
 
-        counts_uncorr = (counts[...,:] * elut_cor_fac).sum(axis=(1,2))
-        counts_lvtcorr = ((counts[...,:] * elut_cor_fac) / livefrac).sum(axis=(1,2))
+        counts_uncorr = counts[...,:] * elut_cor_fac
+        counts_lvtcorr = (counts[...,:] * elut_cor_fac) / livefrac
 
 
-        counts_uncorr_bkg = (counts_bkg[...,:] * elut_cor_fac).sum(axis=(1,2))
-        counts_lvtcorr_bkg = ((counts_bkg / livefrac_bkg)[...,:] * elut_cor_fac).sum(axis=(1,2))
+        counts_uncorr_bkg = counts_bkg[...,:] * elut_cor_fac
+        counts_lvtcorr_bkg = (counts_bkg / livefrac_bkg)[...,:] * elut_cor_fac
 
-        count_rate_uncorr_bkg = counts_uncorr_bkg.sum(axis=0)  / t_norm_bkg.mean()
-        count_uncorr_scaled_bkg = t_norm.reshape(len(t_norm), 1) * count_rate_uncorr_bkg.reshape(1,len(count_rate_uncorr_bkg))
+        count_rate_uncorr_bkg = counts_uncorr_bkg  / t_norm_bkg.mean()
 
-        count_rate_lvtcorr_bkg = counts_lvtcorr_bkg.sum(axis=0) / t_norm_bkg.mean()
-        count_lvtcorr_scaled_bkg = t_norm.reshape(len(t_norm), 1) * count_rate_lvtcorr_bkg.reshape(1,len(count_rate_lvtcorr_bkg))
+        print(count_rate_uncorr_bkg.shape)
+        count_uncorr_scaled_bkg = t_norm.reshape(len(t_norm), 1,1,1) * count_rate_uncorr_bkg
+
+        count_rate_lvtcorr_bkg = counts_lvtcorr_bkg / t_norm_bkg.mean()
+        count_lvtcorr_scaled_bkg = t_norm.reshape(len(t_norm), 1,1,1) * count_rate_lvtcorr_bkg
 
         spec_in_corr = counts_lvtcorr - count_lvtcorr_scaled_bkg
         spec_in = counts_uncorr - count_uncorr_scaled_bkg
@@ -638,9 +646,12 @@ class ScienceData(L1Product):
             energies = energies[:-1]            
 
 
-        eff_livefrac = spec_in_lvt.sum(axis=(1)) / spec_in_corr_lvt.sum(axis=(1)) 
+        eff_livefrac = spec_in_lvt.sum(axis=(3)) / spec_in_corr_lvt.sum(axis=(3)) 
 
-        spec_in_final = spec_in_corr * eff_livefrac[:,None]
+        spec_in_final = spec_in_corr * eff_livefrac[...,None]
+
+        print(eff_livefrac.shape)
+        print(spec_in_final.shape)
 
 
         # np.save('/home/jmitchell/Desktop/new.npy',np.array(eff_livefrac))
@@ -660,9 +671,7 @@ class ScienceData(L1Product):
             "elut_cor_fac":elut_cor_fac}
 
         return data_dictionary
-
-
-                                                                                    
+                                                                       
     @staticmethod
     def _energies_bkg_sub(product,bkg):
          
@@ -824,8 +833,6 @@ class ScienceData(L1Product):
         livefrac_upper,_, _ = get_livetime_fraction(triggers_upper / product.data["timedel"].to("s").reshape(-1, 1))
 
         
-
-        # t_norm = t_norm.reshape(-1, 1, 1, 1)
         livefrac = livefrac.reshape(livefrac.shape + (1, 1))
         livefrac_lower = livefrac_lower.reshape(livefrac_lower.shape + (1, 1))
         livefrac_upper = livefrac_upper.reshape(livefrac_upper.shape + (1, 1))
@@ -835,22 +842,23 @@ class ScienceData(L1Product):
     @staticmethod
     def _get_sunkit_spex_spectrum(product,
                       data_dict, 
-                     event_time_range, 
-                     flare_angle, 
+                     event_time_range,
                      flare_location):
 
         counts_axis = np.concatenate([data_dict["energies"]["e_low"], [data_dict["energies"]["e_high"][-1]]])
 
 
-        # times_full = data_dict["times"]
+        times_full = data_dict["times"]
         
-        # counts = data_dict["rate"]
+        counts = data_dict["rate"]
         # counts[np.nonzero(counts < 0)] = 0
 
-        # counts = np.nansum(np.nansum(counts,axis=1),axis=1) 
+        
 
+        counts = np.nansum(counts,axis=(1,2))
 
-        # counts_uncertainity = data_dict["rate_err"].sum(axis=1).sum(axis=1) 
+        counts[np.nonzero(counts < 0)] = 0
+        counts_uncertainity = data_dict["rate_err"].sum(axis=1).sum(axis=1) 
 
         # times_start = times_full - (data_dict["t_norm"] / 2)
         # times_end = times_full + (data_dict["t_norm"] / 2)
@@ -864,13 +872,13 @@ class ScienceData(L1Product):
         # de = np.diff(counts_axis)[np.newaxis, :]
         # dt = data_dict['time_bin'][:, np.newaxis]
 
-        times_full = data_dict['times']
+        # times_full = data_dict['times']
 
-        counts = data_dict['rate']
+        # counts = data_dict['rate']
 
         # print('ct_check_prev = ',len(counts[counts<0]))
 
-        counts[np.nonzero(counts < 0)] = 0
+        
 
         # print('ct_shape = ',counts.shape)
         # print('ct_check_post = ',len(counts[counts<0]))
@@ -885,7 +893,9 @@ class ScienceData(L1Product):
     
         print(inds)
 
-        counts_final = counts[inds].sum(axis=0)
+        counts_final = np.nansum(counts[inds],axis=0)
+
+        # np.save('/home/jmitchell/Desktop/cts_new.npy',np.array(counts_final))
 
         counts_uncertainity_final= counts_final
 
@@ -906,9 +916,13 @@ class ScienceData(L1Product):
 
         # t_norm = data_dict["t_norm"][inds,None] * np.nanmean(np.nanmean(data_dict["livefrac"][inds],axis=1),axis=1)
         # t_norm = data_dict["t_norm"][inds,None] * np.nanmean(np.nanmean(data_dict["livefrac"][inds],axis=1),axis=1)
-        t_norm = data_dict['t_norm'][inds,None] * data_dict['livefrac'][inds]
+        t_norm = data_dict['t_norm'][inds,None,None] * data_dict['livefrac'][inds]
 
-        srm_dict = product.get_masked_srm(flare_location=flare_location)
+        t_norm = t_norm.mean(axis=(1,2))
+
+
+        flare_location_stx = np.array([flare_location['stx'].Tx.value, flare_location['stx'].Ty.value])
+        srm_dict = product.get_masked_srm(flare_location=flare_location_stx)
 
 
         distance = (product.meta["DSUN_OBS"] * u.m).to(u.AU)
@@ -930,10 +944,12 @@ class ScienceData(L1Product):
 
         ph_energies_trim = np.concatenate([ph_ax_bins_trim[:, 0], ph_ax_bins_trim[:, 1][-1:]])
 
+        flare_angle = product._flare_angle(product,flare_location)
+
         meta.add("exposure_time", np.sum(t_norm))
         meta.add("geo_area", srm_dict["geo_area"])
         meta.add("date-obs", data_dict["times"])
-        meta.add("angle", flare_angle * u.deg)
+        meta.add("angle", flare_angle)
         meta.add("distance", distance)
         meta.add("srm", srm_trim)
         meta.add("ph_axis", ph_energies_trim * u.keV)
@@ -945,6 +961,43 @@ class ScienceData(L1Product):
 
         return spec_1d
     
+    @staticmethod
+    def _flare_angle(product, flare_location):
+        
+        roll, solo_xyz, pointing = get_hpc_info(product.time_range.start, product.time_range.start)
+
+        solo = HeliographicStonyhurst(*solo_xyz, obstime=product.time_range.center, representation_type="cartesian")
+        # flare = SkyCoord(1000*u.arcsec, -1388.43*u.arcsec, frame=Helioprojective(obstime=spec_prod.time_range.center, observer=solo))
+
+        flare_angle = flare_spacecraft_angle(solo,flare_location['hpc'])
+
+        return flare_angle
+
+    @staticmethod
+    def _check_shadowing(product,detector_indices):
+
+        tolerance = 1.05
+
+        pixels_top = np.arange(0,4)
+        pixels_bot = np.arange(4,9)
+
+        pixels_top_bot = np.concatenate([pixels_top,pixels_bot])      
+
+        pixel_indices_full = np.where(product.pixel_masks.__dict__["masks"] == 1)[1]
+
+        counts = product.data["counts"]
+        counts = counts[:, detector_indices, ...]
+
+        if set(pixels_top_bot).issubset(set(pixel_indices_full)):
+
+            rat_top_bot = counts[:,:,pixels_top,0:25] / counts[:,:,pixels_bot,0:25]
+            rat_bot_top = counts[:,:,pixels_bot,0:25] / counts[:,:,pixels_top,0:25]
+
+            if rat_top_bot >= tolerance:
+                warnings.warn(f'Top pixel total 5% higher than bottom row with a ratio of {np.round(rat_top_bot,2)}. Possible pixel shadowing. Recommend using only top pixels for analysis.')
+
+            elif rat_bot_top >= tolerance:
+                warnings.warn(f'Bottom pixel total 5% higher than top row with a ratio of {np.round(rat_bot_top,2)}. Possible pixel shadowing. Recommend using only top pixels for analysis.')
 
     def get_data(
         self,
@@ -1007,12 +1060,10 @@ class ScienceData(L1Product):
         # livetime
         # =====================================================
 
+
         if livetime_correction:
 
             livefraction_sci,_,_ = self._livefrac(self)
-
-            np.save('/home/jmitchell/Desktop/new.npy',np.array(livefraction_sci))
-
 
             if bkg and isinstance(bkg, ScienceData):
 
@@ -1038,7 +1089,7 @@ class ScienceData(L1Product):
                                     pixel_indices,
                                     energy_indices,
                                     time_indices,
-                                    livefraction,
+                                    livefraction_sci,
                                     elut_cor_fac,
                                     bkg_sub_indices_energy=None)
         else:
@@ -1050,8 +1101,6 @@ class ScienceData(L1Product):
                                                                               bkg,
                                                                               pixel_indices,
                                                                               detector_indices)
-            
-            print(detector_indices_bkg)
 
             sci_data = self._bkg_sub(self,
                                     bkg,
@@ -1073,7 +1122,6 @@ class ScienceData(L1Product):
             sunkit_spex_spectrum = self._get_sunkit_spex_spectrum(self,
                                                         sci_data,
                                                         event_time_range,
-                                                        flare_angle,
                                                         flare_location)
             
             return sunkit_spex_spectrum
@@ -1148,11 +1196,6 @@ class ScienceData(L1Product):
         # return counts_corr, counts_err, times, t_norm, livefrac, energies, elut_cor_fac
 
         
-    
-
-
-
-
 
     def get_masked_srm(self, flare_location):
 

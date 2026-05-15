@@ -474,43 +474,10 @@ class ScienceData(L1Product):
 
 
     @staticmethod
-    def _data_slice(product, 
+    def _indices_check(product, 
                     detector_indices,
-                    pixel_indices,
-                    energy_indices,
-                    time_indices,
-                    livefrac,
-                    elut_cor_fac,
-                    bkg_sub_indices_energy=None):
+                    pixel_indices):
         
-
-        if bkg_sub_indices_energy is not None:
-            e_norm = product.dE[bkg_sub_indices_energy]
-            counts = product.data["counts"][...,bkg_sub_indices_energy]
-            try:
-                counts_var = product.data["counts_comp_err"][...,bkg_sub_indices_energy] ** 2
-            except KeyError:
-                counts_var = product.data["counts_comp_comp_err"][...,bkg_sub_indices_energy] ** 2
-
-        else:
-            e_norm = product.dE
-            counts = product.data["counts"]
-            try:
-                counts_var = product.data["counts_comp_err"] ** 2
-            except KeyError:
-                counts_var = product.data["counts_comp_comp_err"] ** 2
-
-        t_norm = product.data["timedel"]
-        shape = counts.shape
-        times = product.times
-        energies = product.energies
-
-
-        if pixel_indices is not None:
-            pixel_indices_working = pixel_indices
-            pixel_indices_full = np.where(product.pixel_masks.__dict__["masks"] == 1)[1]
-            pixel_indices = [d for i, d in enumerate(pixel_indices_working) if d in pixel_indices_full]
-
         if detector_indices is not None:  
             detector_indices_working = detector_indices
             detector_indices_full = np.where(product.detector_masks.__dict__["masks"] == 1)[1]
@@ -518,21 +485,83 @@ class ScienceData(L1Product):
                         detector_indices_working = np.array(
             [0, 1, 2, 3, 4, 5, 6, 7, 13, 14, 15, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31])
             detector_indices = [d for i, d in enumerate(detector_indices_working) if d in detector_indices_full]
+       
+        if pixel_indices is not None:
+            pixel_indices_working = pixel_indices
+            pixel_indices_full = np.where(product.pixel_masks.__dict__["masks"] == 1)[1]
+            pixel_indices = [d for i, d in enumerate(pixel_indices_working) if d in pixel_indices_full]
+        
+        return np.array(detector_indices), np.array(pixel_indices)
 
-        if bkg_sub_indices_energy is None:
-            ScienceData._check_shadowing(product,detector_indices)
 
-        if detector_indices is not None:
-            detecor_indices = np.asarray(detector_indices)
-            if detecor_indices.ndim == 1:
+    @staticmethod
+    def _data_select(product, 
+                    detector_indices,
+                    pixel_indices,
+                    energy_indices,
+                    time_indices,
+                    livefrac,
+                    elut_cor_fac,
+                    sum_all_times):
+        
+
+        # if bkg_sub_indices_energy is not None:
+        #     e_norm = product.dE[bkg_sub_indices_energy]
+        #     counts = product.data["counts"][...,bkg_sub_indices_energy]
+        #     try:
+        #         counts_var = product.data["counts_comp_err"][...,bkg_sub_indices_energy] ** 2
+        #     except KeyError:
+        #         counts_var = product.data["counts_comp_comp_err"][...,bkg_sub_indices_energy] ** 2
+
+        # else:
+
+        if isinstance(product,ScienceData):
+
+            e_norm = product.dE
+            counts = product.data["counts"]
+            try:
+                counts_var = product.data["counts_comp_err"] ** 2
+            except KeyError:
+                counts_var = product.data["counts_comp_comp_err"] ** 2
+
+            t_norm = product.data["timedel"]
+            shape = counts.shape
+            times = product.times
+            energies = product.energies
+
+        else:
+
+            counts, counts_var, t_norm, e_norm, livefrac, elut_cor_fac, times, energies = product
+
+        if detector_indices is not None:  
+
+            if detector_indices.ndim == 1:
                 detector_mask = np.full(32, False)
-                detector_mask[detecor_indices] = True
+                detector_mask[detector_indices] = True
                 counts = counts[:, detector_mask, ...]
                 counts_var = counts_var[:, detector_mask, ...]
                 # t_norm = t_norm[:, detector_mask,:,:]
-                livefrac = livefrac[:,detector_indices,:,:]
+                if livefrac is not None:
+                    livefrac = livefrac[:,detector_indices,:,:]
+
+            if detector_indices.ndim == 2:
+                counts = np.hstack(
+                    [np.sum(counts[:, dl : dh + 1, ...], axis=1, keepdims=True) for dl, dh in detector_indices]
+                )
+
+                counts_var = np.concatenate(
+                    [np.sum(counts_var[:, dl : dh + 1, ...], axis=1, keepdims=True) for dl, dh in detector_indices],
+                    axis=1,
+                    )
+
+                if livefrac is not None:                
+                    livefrac = np.concatenate(
+                    [np.sum(livefrac[:, dl : dh + 1, ...], axis=1, keepdims=True) for dl, dh in detector_indices],
+                    axis=1,
+                    )
 
         if pixel_indices is not None:
+
             pixel_indices = np.asarray(pixel_indices)
             if pixel_indices.ndim == 1:
                 pixel_mask = np.full(12, False)
@@ -541,6 +570,16 @@ class ScienceData(L1Product):
                 counts = counts[..., pixel_mask[:num_pixels], :]
                 counts_var = counts_var[..., pixel_mask[:num_pixels], :]
 
+
+            if pixel_indices.ndim == 2:
+                counts = np.concatenate(
+                    [np.sum(counts[..., pl : ph + 1, :], axis=2, keepdims=True) for pl, ph in pixel_indices], axis=2
+                )
+
+                counts_var = np.concatenate(
+                    [np.sum(counts_var[..., pl : ph + 1, :], axis=2, keepdims=True) for pl, ph in pixel_indices], axis=2
+                )
+
         if energy_indices is not None:
             energy_indices = np.asarray(energy_indices)
             if energy_indices.ndim == 1:
@@ -548,55 +587,147 @@ class ScienceData(L1Product):
                 energy_mask[energy_indices] = True
                 counts = counts[..., energy_mask]
                 counts_var = counts_var[..., energy_mask]
-                e_norm = product.dE[energy_mask]
-                energies = product.energies[energy_mask]
-                elut_cor_fac = elut_cor_fac[energy_mask]
+                e_norm = e_norm[energy_mask]
+                energies = energies[energy_mask]
+                if elut_cor_fac is not None:
+                    elut_cor_fac = elut_cor_fac[energy_mask]
 
-        if bkg_sub_indices_energy is not None:
-            if time_indices is not None:
-                time_indices = np.asarray(time_indices)
-                if time_indices.ndim == 1:
-                    time_mask = np.full(product.times.shape, False)
-                    time_mask[time_indices] = True
-                    counts = counts[time_mask, ...]
-                    counts_var = counts_var[time_mask, ...]
-                    t_norm = product.data["timedel"][time_mask]
+            if energy_indices.ndim == 2:
+                counts = np.concatenate(
+                    [np.sum(counts[..., el : eh + 1], axis=-1, keepdims=True) for el, eh in energy_indices], axis=-1
+                )
+
+                counts_var = np.concatenate(
+                    [np.sum(counts_var[..., el : eh + 1], axis=-1, keepdims=True) for el, eh in energy_indices], axis=-1
+                )
+
+            
+
+                e_norm = np.hstack([(energies["e_high"][eh] - energies["e_low"][el]) for el, eh in energy_indices])
+
+                if elut_cor_fac is not None:
+                    elut_cor_fac = np.concatenate(
+                    [np.mean(counts_var[..., el : eh + 1]) for el, eh in energy_indices], axis=-1
+                )
+
+
+                energies = np.atleast_2d(
+                    [
+                        (energies["e_low"][el].value, energies["e_high"][eh].value)
+                        for el, eh in energy_indices
+                    ]
+                )
+                energies = QTable(energies * u.keV, names=["e_low", "e_high"])
+
+
+        if time_indices is not None:
+            time_indices = np.asarray(time_indices)
+            if time_indices.ndim == 1:
+                time_mask = np.full(product.times.shape, False)
+                time_mask[time_indices] = True
+                counts = counts[time_mask, ...]
+                counts_var = counts_var[time_mask, ...]
+                t_norm = t_norm[time_mask]
+                if livefrac is not None:
                     livefrac = livefrac[time_mask, ...]
-                    times = product.times[time_mask]
+                times = product.times[time_mask]
 
+            if time_indices.ndim == 2:
+                new_times = []
+                dt = []
+                for tl, th in time_indices:
+                    ts = times[tl] - t_norm[tl] * 0.5
+                    te = times[th] + t_norm[th] * 0.5
+                    td = te - ts
+                    tc = ts + (td * 0.5)
+                    dt.append(td.to("s"))
+                    new_times.append(tc)
+                dt = np.hstack(dt)
+                times = Time(new_times)
+                counts = np.vstack([np.sum(counts[tl : th + 1, ...], axis=0, keepdims=True) for tl, th in time_indices])
+
+                if livefrac is not None:
+                    livefrac = np.vstack([np.mean(livefrac[tl : th + 1, ...], axis=0, keepdims=True) for tl, th in time_indices])
+
+                counts_var = np.vstack(
+                    [np.sum(counts_var[tl : th + 1, ...], axis=0, keepdims=True) for tl, th in time_indices]
+                )
+                t_norm = dt
+
+                if sum_all_times and len(new_times) > 1:
+                    counts = np.sum(counts, axis=0, keepdims=True)
+                    counts_var = np.sum(counts_var, axis=0, keepdims=True)
+                    t_norm = np.sum(dt)
+    
         
         return counts, counts_var, t_norm, e_norm, livefrac, elut_cor_fac, times, energies
     
-
     @staticmethod
     def _bkg_sub(product,
                 bkg,
-                detector_indices,
-                pixel_indices,
-                energy_indices,
-                time_indices,
-                livefraction,
-                livefraction_bkg,
-                elut_cor_fac,
-                bkg_sub_indices_energy):
+                detector_indices_bkg,
+                pixel_indices_bkg,
+                energy_indices_bkg,
+                livefrac,
+                livefrac_bkg,
+                elut_cor_fac): 
+        
+        e_norm = product.dE
+        counts = product.data["counts"]
+        try:
+            counts_var = product.data["counts_comp_err"] ** 2
+        except KeyError:
+            counts_var = product.data["counts_comp_comp_err"] ** 2
 
-        counts, counts_var, t_norm, e_norm, livefrac, elut_cor_fac, times, energies = ScienceData._data_slice(product,
-                                                                                detector_indices,
-                                                                                pixel_indices,
-                                                                                energy_indices,
-                                                                                time_indices,
-                                                                                livefraction,
-                                                                                elut_cor_fac,
-                                                                                bkg_sub_indices_energy=None)
+        t_norm = product.data["timedel"]
+        times = product.times
+        energies = product.energies
+
+
+        e_norm_bkg = bkg.dE[energy_indices_bkg]
+        counts_bkg = bkg.data["counts"]
+        try:
+            counts_var_bkg = bkg.data["counts_comp_err"] ** 2
+        except KeyError:
+            counts_var_bkg = bkg.data["counts_comp_comp_err"] ** 2
+        
+        counts_bkg = counts_bkg[:,detector_indices_bkg,:,:]
+        counts_bkg = counts_bkg[:,:,pixel_indices_bkg,:]
+        counts_bkg = counts_bkg[:,:,:,energy_indices_bkg]
+
+        counts_var_bkg = counts_var_bkg[:,detector_indices_bkg,:,:]
+        counts_var_bkg = counts_var_bkg[:,:,pixel_indices_bkg,:]
+        counts_var_bkg = counts_var_bkg[:,:,:,energy_indices_bkg]
+
+        t_norm_bkg = bkg.data["timedel"]
+        times_bkg = bkg.times
+        energies_bkg = bkg.energies[energy_indices_bkg]
+
+        # counts, counts_var, t_norm, e_norm, livefrac, elut_cor_fac, times, energies = ScienceData._data_slice(product,
+        #                                                                         detector_indices,
+        #                                                                         pixel_indices,
+        #                                                                         energy_indices,
+        #                                                                         time_indices,
+        #                                                                         livefraction,
+        #                                                                         elut_cor_fac,
+        #                                                                         bkg_sub_indices_energy=None)
                             
-        counts_bkg, counts_var_bkg, t_norm_bkg, e_norm_bkg , livefrac_bkg, _, times_bkg, energies_bkg = ScienceData._data_slice(bkg,
-                                                                                detector_indices,
-                                                                                pixel_indices,
-                                                                                energy_indices,
-                                                                                time_indices,
-                                                                                livefraction_bkg,
-                                                                                elut_cor_fac,
-                                                                                bkg_sub_indices_energy)
+        # counts_bkg, counts_var_bkg, t_norm_bkg, e_norm_bkg , livefrac_bkg, _, times_bkg, energies_bkg = ScienceData._data_slice(bkg,
+        #                                                                         detector_indices,
+        #                                                                         pixel_indices,
+        #                                                                         energy_indices,
+        #                                                                         time_indices,
+        #                                                                         livefraction_bkg,
+        #                                                                         elut_cor_fac,
+        #                                                                         bkg_sub_indices_energy)
+
+        # if bkg_sub_indices_energy is not None:
+        #     e_norm = product.dE[bkg_sub_indices_energy]
+        #     counts = product.data["counts"][...,bkg_sub_indices_energy]
+        #     try:
+        #         counts_var = product.data["counts_comp_err"][...,bkg_sub_indices_energy] ** 2
+        #     except KeyError:
+        #         counts_var = product.data["counts_comp_comp_err"][...,bkg_sub_indices_energy] ** 2
 
 
         e_norm_corr = e_norm 
@@ -604,7 +735,6 @@ class ScienceData(L1Product):
 
         t_norm = t_norm.to(u.s)
         t_norm_bkg = t_norm_bkg.to(u.s)
-
 
         counts_uncorr = counts[...,:] * elut_cor_fac
         counts_lvtcorr = (counts[...,:] * elut_cor_fac) / livefrac
@@ -615,7 +745,6 @@ class ScienceData(L1Product):
 
         count_rate_uncorr_bkg = counts_uncorr_bkg  / t_norm_bkg.mean()
 
-        print(count_rate_uncorr_bkg.shape)
         count_uncorr_scaled_bkg = t_norm.reshape(len(t_norm), 1,1,1) * count_rate_uncorr_bkg
 
         count_rate_lvtcorr_bkg = counts_lvtcorr_bkg / t_norm_bkg.mean()
@@ -650,27 +779,22 @@ class ScienceData(L1Product):
 
         spec_in_final = spec_in_corr * eff_livefrac[...,None]
 
-        print(eff_livefrac.shape)
-        print(spec_in_final.shape)
+        # data_dictionary = {
+        #     "counts": spec_in_final,
+        #     "counts_var": 0.1*spec_in_final,
+        #     "times": times,
+        #     "t_norm": t_norm,
+        #     "livefrac": eff_livefrac,
+        #     "energies": energies,
+        #     "e_norm":e_norm,
+        #     "elut_cor_fac":elut_cor_fac}
+        
+        counts = spec_in_final
+        counts_var = 0.1*spec_in_final
+        livefrac = eff_livefrac
+        livefrac = livefrac[:, :, :, np.newaxis]
 
-
-        # np.save('/home/jmitchell/Desktop/new.npy',np.array(eff_livefrac))
-
-        # spec_in_corr_err_final = spec_in_corr_err * eff_livefrac[:, None]
-
-        # dt = dt.squeeze().mean(axis=1)
-
-        data_dictionary = {
-            "rate": spec_in_final,
-            "rate_err": 0.1*spec_in_final,
-            "times": times,
-            "t_norm": t_norm,
-            "livefrac": eff_livefrac,
-            "energies": energies,
-            "e_norm":e_norm,
-            "elut_cor_fac":elut_cor_fac}
-
-        return data_dictionary
+        return counts, counts_var, t_norm, e_norm, livefrac, elut_cor_fac, times, energies
                                                                        
     @staticmethod
     def _energies_bkg_sub(product,bkg):
@@ -680,142 +804,141 @@ class ScienceData(L1Product):
          return indices_sub
 
     @staticmethod
-    def _bkg_indices_check(product, bkg, pixel_indices, detector_indices):
+    def _bkg_indices_check(product, bkg):
         
-        if pixel_indices is not None:
-            pixel_indices_working = pixel_indices
-            pixel_indices_full = np.where(product.pixel_masks.__dict__["masks"] == 1)[1]
-            pixel_indices = [d for i, d in enumerate(pixel_indices_working) if d in pixel_indices_full]
-            pixel_indices_full_bkg = np.where(bkg.pixel_masks.__dict__["masks"] == 1)[1]
-            pixel_indices = [d for i, d in enumerate(pixel_indices) if d in pixel_indices_full_bkg]
-        else:
-            pixel_indices_full = np.where(product.pixel_masks.__dict__["masks"] == 1)[1]
-            pixel_indices_full_bkg = np.where(bkg.pixel_masks.__dict__["masks"] == 1)[1]
-            pixel_indices = [d for i, d in enumerate(pixel_indices_full) if d in pixel_indices_full_bkg]            
+        # if pixel_indices is not None:
+        #     pixel_indices_working = pixel_indices
+        #     pixel_indices_full = np.where(product.pixel_masks.__dict__["masks"] == 1)[1]
+        #     pixel_indices = [d for i, d in enumerate(pixel_indices_working) if d in pixel_indices_full]
+        #     pixel_indices_full_bkg = np.where(bkg.pixel_masks.__dict__["masks"] == 1)[1]
+        #     pixel_indices = [d for i, d in enumerate(pixel_indices) if d in pixel_indices_full_bkg]
+        # else:
+        pixel_indices_full = np.where(product.pixel_masks.__dict__["masks"] == 1)[1]
+        pixel_indices_full_bkg = np.where(bkg.pixel_masks.__dict__["masks"] == 1)[1]
+        pixel_indices = [d for i, d in enumerate(pixel_indices_full) if d in pixel_indices_full_bkg]            
 
 
-        if detector_indices is not None:  
-            detector_indices_working = detector_indices
-            detector_indices_full = np.where(product.detector_masks.__dict__["masks"] == 1)[1]
-            if detector_indices_working == "top24":
-                        detector_indices_working = np.array(
-            [0, 1, 2, 3, 4, 5, 6, 7, 13, 14, 15, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31])
-            detector_indices = [d for i, d in enumerate(detector_indices_working) if d in detector_indices_full]
-            detector_indices_full_bkg = np.where(bkg.detector_masks.__dict__["masks"] == 1)[1]
-            detector_indices = [d for i, d in enumerate(detector_indices) if d in detector_indices_full_bkg]
+        # if detector_indices is not None:  
+        #     detector_indices_working = detector_indices
+        #     detector_indices_full = np.where(product.detector_masks.__dict__["masks"] == 1)[1]
+        #     if detector_indices_working == "top24":
+        #                 detector_indices_working = np.array(
+        #     [0, 1, 2, 3, 4, 5, 6, 7, 13, 14, 15, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31])
+        #     detector_indices = [d for i, d in enumerate(detector_indices_working) if d in detector_indices_full]
+        #     detector_indices_full_bkg = np.where(bkg.detector_masks.__dict__["masks"] == 1)[1]
+        #     detector_indices = [d for i, d in enumerate(detector_indices) if d in detector_indices_full_bkg]
 
-        else:
-            detector_indices_full = np.where(product.detector_masks.__dict__["masks"] == 1)[1]
-            detector_indices_full_bkg = np.where(bkg.detector_masks.__dict__["masks"] == 1)[1]
-            detector_indices = [d for i, d in enumerate(detector_indices_full) if d in detector_indices_full_bkg]   
+        # else:
+        detector_indices_full = np.where(product.detector_masks.__dict__["masks"] == 1)[1]
+        detector_indices_full_bkg = np.where(bkg.detector_masks.__dict__["masks"] == 1)[1]
+        detector_indices = [d for i, d in enumerate(detector_indices_full) if d in detector_indices_full_bkg]   
 
         return pixel_indices, detector_indices
 
-    @staticmethod
-    def _data_sum(product,
-                    counts,
-                    counts_var, 
-                    detector_indices,
-                    pixel_indices,
-                    energy_indices,
-                    time_indices,
-                    e_norm, 
-                    t_norm,
-                    livefrac,
-                    elut_cor_fac,
-                    sum_all_times,
-                    sunkit_spex_spectrum):
+    # @staticmethod
+    # def _data_sum(product,
+    #                 counts,
+    #                 counts_var, 
+    #                 detector_indices,
+    #                 pixel_indices,
+    #                 energy_indices,
+    #                 time_indices,
+    #                 e_norm, 
+    #                 t_norm,
+    #                 livefrac,
+    #                 elut_cor_fac,
+    #                 sum_all_times,
+    #                 sunkit_spex_spectrum):
         
-        shape = counts.shape
+    #     shape = counts.shape
         
-        if not sunkit_spex_spectrum:
+    #     if not sunkit_spex_spectrum:
 
-            if detector_indices is not None:
-                detecor_indices = np.asarray(detector_indices)
-                if detecor_indices.ndim == 2:
-                    counts = np.hstack(
-                        [np.sum(counts[:, dl : dh + 1, ...], axis=1, keepdims=True) for dl, dh in detecor_indices]
-                    )
+    #         if detector_indices is not None:
+    #             detecor_indices = np.asarray(detector_indices)
+    #             if detecor_indices.ndim == 2:
+    #                 counts = np.hstack(
+    #                     [np.sum(counts[:, dl : dh + 1, ...], axis=1, keepdims=True) for dl, dh in detecor_indices]
+    #                 )
 
-                    counts_var = np.concatenate(
-                        [np.sum(counts_var[:, dl : dh + 1, ...], axis=1, keepdims=True) for dl, dh in detecor_indices],
-                        axis=1,
-                        )
+    #                 counts_var = np.concatenate(
+    #                     [np.sum(counts_var[:, dl : dh + 1, ...], axis=1, keepdims=True) for dl, dh in detecor_indices],
+    #                     axis=1,
+    #                     )
                     
-                    livefrac = np.concatenate(
-                        [np.sum(livefrac[:, dl : dh + 1, ...], axis=1, keepdims=True) for dl, dh in detecor_indices],
-                        axis=1,
-                        )
-                    
+    #                 livefrac = np.concatenate(
+    #                     [np.sum(livefrac[:, dl : dh + 1, ...], axis=1, keepdims=True) for dl, dh in detecor_indices],
+    #                     axis=1,
+    #                     )
 
-            if pixel_indices is not None:
-                pixel_indices = np.asarray(pixel_indices)
-                if pixel_indices.ndim == 2:
-                    counts = np.concatenate(
-                        [np.sum(counts[..., pl : ph + 1, :], axis=2, keepdims=True) for pl, ph in pixel_indices], axis=2
-                    )
+    #         if pixel_indices is not None:
+    #             pixel_indices = np.asarray(pixel_indices)
+    #             if pixel_indices.ndim == 2:
+    #                 counts = np.concatenate(
+    #                     [np.sum(counts[..., pl : ph + 1, :], axis=2, keepdims=True) for pl, ph in pixel_indices], axis=2
+    #                 )
 
-                    counts_var = np.concatenate(
-                        [np.sum(counts_var[..., pl : ph + 1, :], axis=2, keepdims=True) for pl, ph in pixel_indices], axis=2
-                    )
+    #                 counts_var = np.concatenate(
+    #                     [np.sum(counts_var[..., pl : ph + 1, :], axis=2, keepdims=True) for pl, ph in pixel_indices], axis=2
+    #                 )
 
-            if energy_indices is not None:
-                energy_indices = np.asarray(energy_indices)
-                if energy_indices.ndim == 2:
-                    counts = np.concatenate(
-                        [np.sum(counts[..., el : eh + 1], axis=-1, keepdims=True) for el, eh in energy_indices], axis=-1
-                    )
+    #         if energy_indices is not None:
+    #             energy_indices = np.asarray(energy_indices)
+    #             if energy_indices.ndim == 2:
+    #                 counts = np.concatenate(
+    #                     [np.sum(counts[..., el : eh + 1], axis=-1, keepdims=True) for el, eh in energy_indices], axis=-1
+    #                 )
 
-                    counts_var = np.concatenate(
-                        [np.sum(counts_var[..., el : eh + 1], axis=-1, keepdims=True) for el, eh in energy_indices], axis=-1
-                    )
+    #                 counts_var = np.concatenate(
+    #                     [np.sum(counts_var[..., el : eh + 1], axis=-1, keepdims=True) for el, eh in energy_indices], axis=-1
+    #                 )
 
                 
 
-                    e_norm = np.hstack([(product.energies["e_high"][eh] - product.energies["e_low"][el]) for el, eh in energy_indices])
+    #                 e_norm = np.hstack([(product.energies["e_high"][eh] - product.energies["e_low"][el]) for el, eh in energy_indices])
 
-                    elut_cor_fac = np.concatenate(
-                        [np.mean(counts_var[..., el : eh + 1]) for el, eh in energy_indices], axis=-1
-                    )
+    #                 elut_cor_fac = np.concatenate(
+    #                     [np.mean(counts_var[..., el : eh + 1]) for el, eh in energy_indices], axis=-1
+    #                 )
 
 
-                    energies = np.atleast_2d(
-                        [
-                            (product._energies["e_low"][el].value, product._energies["e_high"][eh].value)
-                            for el, eh in energy_indices
-                        ]
-                    )
-                    energies = QTable(energies * u.keV, names=["e_low", "e_high"])
+    #                 energies = np.atleast_2d(
+    #                     [
+    #                         (product._energies["e_low"][el].value, product._energies["e_high"][eh].value)
+    #                         for el, eh in energy_indices
+    #                     ]
+    #                 )
+    #                 energies = QTable(energies * u.keV, names=["e_low", "e_high"])
 
-            if time_indices is not None:
-                time_indices = np.asarray(time_indices)
-                if time_indices.ndim == 2:
-                    new_times = []
-                    dt = []
-                    for tl, th in time_indices:
-                        ts = product.times[tl] - product.data["timedel"][tl] * 0.5
-                        te = product.times[th] + product.data["timedel"][th] * 0.5
-                        td = te - ts
-                        tc = ts + (td * 0.5)
-                        dt.append(td.to("s"))
-                        new_times.append(tc)
-                    dt = np.hstack(dt)
-                    times = Time(new_times)
-                    counts = np.vstack([np.sum(counts[tl : th + 1, ...], axis=0, keepdims=True) for tl, th in time_indices])
+    #         if time_indices is not None:
+    #             time_indices = np.asarray(time_indices)
+    #             if time_indices.ndim == 2:
+    #                 new_times = []
+    #                 dt = []
+    #                 for tl, th in time_indices:
+    #                     ts = product.times[tl] - product.data["timedel"][tl] * 0.5
+    #                     te = product.times[th] + product.data["timedel"][th] * 0.5
+    #                     td = te - ts
+    #                     tc = ts + (td * 0.5)
+    #                     dt.append(td.to("s"))
+    #                     new_times.append(tc)
+    #                 dt = np.hstack(dt)
+    #                 times = Time(new_times)
+    #                 counts = np.vstack([np.sum(counts[tl : th + 1, ...], axis=0, keepdims=True) for tl, th in time_indices])
 
-                    livefrac = np.vstack([np.mean(livefrac[tl : th + 1, ...], axis=0, keepdims=True) for tl, th in time_indices])
+    #                 livefrac = np.vstack([np.mean(livefrac[tl : th + 1, ...], axis=0, keepdims=True) for tl, th in time_indices])
 
-                    counts_var = np.vstack(
-                        [np.sum(counts_var[tl : th + 1, ...], axis=0, keepdims=True) for tl, th in time_indices]
-                    )
-                    t_norm = dt
+    #                 counts_var = np.vstack(
+    #                     [np.sum(counts_var[tl : th + 1, ...], axis=0, keepdims=True) for tl, th in time_indices]
+    #                 )
+    #                 t_norm = dt
 
-                    if sum_all_times and len(new_times) > 1:
-                        counts = np.sum(counts, axis=0, keepdims=True)
-                        counts_var = np.sum(counts_var, axis=0, keepdims=True)
-                        t_norm = np.sum(dt)
+    #                 if sum_all_times and len(new_times) > 1:
+    #                     counts = np.sum(counts, axis=0, keepdims=True)
+    #                     counts_var = np.sum(counts_var, axis=0, keepdims=True)
+    #                     t_norm = np.sum(dt)
             
-        return counts, counts_var, t_norm, e_norm, livefrac, elut_cor_fac
+    #     return counts, counts_var, t_norm, e_norm, livefrac, elut_cor_fac
     
     @staticmethod
     def _livefrac(product):
@@ -841,24 +964,19 @@ class ScienceData(L1Product):
 
     @staticmethod
     def _get_sunkit_spex_spectrum(product,
-                      data_dict, 
+                      sci_data, 
                      event_time_range,
                      flare_location):
-
-        counts_axis = np.concatenate([data_dict["energies"]["e_low"], [data_dict["energies"]["e_high"][-1]]])
-
-
-        times_full = data_dict["times"]
         
-        counts = data_dict["rate"]
         # counts[np.nonzero(counts < 0)] = 0
+        counts, counts_uncertainity, t_norm, e_norm, livefrac, elut_cor_fac, times_full, energies = sci_data
 
-        
+        counts_axis = np.concatenate([energies["e_low"], [energies["e_high"][-1]]])
 
         counts = np.nansum(counts,axis=(1,2))
 
         counts[np.nonzero(counts < 0)] = 0
-        counts_uncertainity = data_dict["rate_err"].sum(axis=1).sum(axis=1) 
+        # counts_uncertainity = data_dict["rate_err"].sum(axis=1).sum(axis=1) 
 
         # times_start = times_full - (data_dict["t_norm"] / 2)
         # times_end = times_full + (data_dict["t_norm"] / 2)
@@ -882,12 +1000,10 @@ class ScienceData(L1Product):
 
         # print('ct_shape = ',counts.shape)
         # print('ct_check_post = ',len(counts[counts<0]))
-
-        counts_uncertainity = data_dict['rate_err'] 
  
 
-        times_start = times_full - (data_dict['t_norm']/2)           
-        times_end = times_full + (data_dict['t_norm']/2)
+        times_start = times_full - (t_norm/2)           
+        times_end = times_full + (t_norm/2)
 
         inds = np.where( (times_start >= Time(event_time_range[0]) ) & (times_end <= Time(event_time_range[-1]) ) )[0]
     
@@ -899,7 +1015,7 @@ class ScienceData(L1Product):
 
         counts_uncertainity_final= counts_final
 
-        e_low = data_dict["energies"]["e_low"].value
+        e_low = energies["e_low"].value
 
 
         energy_conditions = [e_low < 7, (e_low < 10) & (e_low >= 7), e_low >= 10]
@@ -916,9 +1032,9 @@ class ScienceData(L1Product):
 
         # t_norm = data_dict["t_norm"][inds,None] * np.nanmean(np.nanmean(data_dict["livefrac"][inds],axis=1),axis=1)
         # t_norm = data_dict["t_norm"][inds,None] * np.nanmean(np.nanmean(data_dict["livefrac"][inds],axis=1),axis=1)
-        t_norm = data_dict['t_norm'][inds,None,None] * data_dict['livefrac'][inds]
+        t_norm = t_norm[inds,None,None,None] * livefrac[inds]
 
-        t_norm = t_norm.mean(axis=(1,2))
+        t_norm = t_norm.mean(axis=(1,2,3))
 
 
         flare_location_stx = np.array([flare_location['stx'].Tx.value, flare_location['stx'].Ty.value])
@@ -948,7 +1064,6 @@ class ScienceData(L1Product):
 
         meta.add("exposure_time", np.sum(t_norm))
         meta.add("geo_area", srm_dict["geo_area"])
-        meta.add("date-obs", data_dict["times"])
         meta.add("angle", flare_angle)
         meta.add("distance", distance)
         meta.add("srm", srm_trim)
@@ -1060,6 +1175,11 @@ class ScienceData(L1Product):
         # livetime
         # =====================================================
 
+        detector_indices, pixel_indices = self._indices_check(self,
+                                                              detector_indices,
+                                                              pixel_indices)
+        
+        print('det_i = ',detector_indices)
 
         if livetime_correction:
 
@@ -1068,6 +1188,8 @@ class ScienceData(L1Product):
             if bkg and isinstance(bkg, ScienceData):
 
                 livefraction_bkg,_,_ = self._livefrac(bkg)
+        else:
+            livefraction_sci = None
 
         # =====================================================
         # elut
@@ -1077,6 +1199,8 @@ class ScienceData(L1Product):
 
             _, _, elut_cor_fac = get_elut_correction(np.array(self.energies["channel"]), 
                                                        self)
+        else:
+            elut_cor_fac = None
 
         # =====================================================
         # data_slice
@@ -1084,34 +1208,41 @@ class ScienceData(L1Product):
 
         if not bkg:
             
-            sci_data = self._data_slice(self,
+            sci_data = self._data_select(self,
                                     detector_indices,
                                     pixel_indices,
                                     energy_indices,
                                     time_indices,
                                     livefraction_sci,
                                     elut_cor_fac,
-                                    bkg_sub_indices_energy=None)
+                                    sum_all_times)
         else:
 
-            energy_indices_bkg_sub = self._energies_bkg_sub(self,
+            energy_indices_bkg = self._energies_bkg_sub(self,
                                                             bkg)
 
             pixel_indices_bkg, detector_indices_bkg = self._bkg_indices_check(self,
-                                                                              bkg,
-                                                                              pixel_indices,
-                                                                              detector_indices)
+                                                                              bkg)
 
-            sci_data = self._bkg_sub(self,
+            sci_data_all = self._bkg_sub(self,
                                     bkg,
                                     detector_indices_bkg,
                                     pixel_indices_bkg,
+                                    energy_indices_bkg,
+                                    livefraction_sci,
+                                    livefraction_bkg,
+                                    elut_cor_fac) 
+            
+            print('det_i_2 = ',detector_indices)
+
+            sci_data = self._data_select(sci_data_all,
+                                    detector_indices,
+                                    pixel_indices,
                                     energy_indices,
                                     time_indices,
                                     livefraction_sci,
-                                    livefraction_bkg,
                                     elut_cor_fac,
-                                    bkg_sub_indices_energy=energy_indices_bkg_sub) 
+                                    sum_all_times)
  
         # =====================================================
         # data_sum

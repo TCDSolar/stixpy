@@ -113,4 +113,20 @@ plt.tight_layout()
 
 disk_flares.plot_locations(observer="earth")
 plt.tight_layout()
+
+#############################################################################
+# Plotting a catalogue that spans many weeks onto a single Earth-view Sun disc
+# is misleading: solar rotation moves features ~13°/day, so a persistent
+# active region smears into a horizontal streak across the disc and individual
+# flares are no longer comparable in position.
+#
+# A rotation-fixed view solves this. ``observer="carrington"`` plots
+# heliographic *Carrington* longitude (0–360°) vs latitude — the Carrington
+# prime meridian rotates with the Sun, so an active region keeps the same
+# longitude across many days. Each flare's own Solar Orbiter position is used
+# as the HGC observer, matching how STIX actually saw the event.
+
+flares.plot_locations(observer="carrington")
+plt.title(f"Carrington view — {len(flares)} flares (Sep–Nov 2024)")
+plt.tight_layout()
 plt.show()

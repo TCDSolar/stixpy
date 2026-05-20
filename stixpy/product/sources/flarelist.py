@@ -9,7 +9,7 @@ from astropy.table import vstack
 from astropy.time import Time
 from astropy.visualization import quantity_support
 
-from sunpy.coordinates import HeliographicStonyhurst, Helioprojective, get_earth
+from sunpy.coordinates import HeliographicCarrington, HeliographicStonyhurst, Helioprojective, get_earth
 from sunpy.time import TimeRange
 
 from stixpy.product.product import GenericProduct
@@ -175,12 +175,18 @@ class FlareList(GenericProduct):
 
         Parameters
         ----------
-        observer : {"earth", "solo", "hgs"}
+        observer : {"earth", "solo", "hgs", "carrington"}
             Reference frame / point of view:
 
-            * ``"hgs"``   – Heliographic Stonyhurst lon/lat
-            * ``"earth"`` – Helioprojective (Tx/Ty) as seen from Earth
-            * ``"solo"``  – Helioprojective (Tx/Ty) as seen from Solar Orbiter
+            * ``"hgs"``        – Heliographic Stonyhurst lon/lat (Earth-anchored prime meridian)
+            * ``"earth"``      – Helioprojective (Tx/Ty) as seen from Earth
+            * ``"solo"``       – Helioprojective (Tx/Ty) as seen from Solar Orbiter
+            * ``"carrington"`` – Heliographic Carrington lon/lat (alias ``"hgc"``); the
+              prime meridian rotates with the Sun, so an active region keeps the same
+              longitude across many days — useful when the catalogue spans weeks or
+              months, where solar rotation otherwise smears persistent sources into
+              streaks. The HGC transform uses each flare's own Solar Orbiter position
+              as the observer.
         axes : `matplotlib.axes.Axes`, optional
         **scatter_kwargs :
             Passed to `~matplotlib.axes.Axes.scatter`.
@@ -252,8 +258,22 @@ class FlareList(GenericProduct):
             axes.set_xlim(-lim, lim)
             axes.set_ylim(-lim, lim)
 
+        elif observer in ("carrington", "hgc"):
+            loc_hgs = self.flare_location_hgs
+            solo_hgs = self.solo_location_hgs
+            valid = np.isfinite(loc_hgs.lon.deg) & np.isfinite(loc_hgs.lat.deg) & np.isfinite(solo_hgs.lon.deg)
+            ot = self.data["location_time_UTC"][valid]
+            loc_hgc = loc_hgs[valid].transform_to(HeliographicCarrington(obstime=ot, observer=solo_hgs[valid]))
+            lon = loc_hgc.lon.wrap_at(360 * u.deg).deg
+            lat = loc_hgc.lat.deg
+            sc = axes.scatter(lon, lat, c=goes_flux[valid], norm=_GOES_NORM, cmap=_GOES_CMAP, **scatter_kwargs)
+            axes.set_xlabel("Carrington longitude [deg]")
+            axes.set_ylabel("Carrington latitude [deg]")
+            axes.set_xlim(0, 360)
+            axes.set_ylim(-90, 90)
+
         else:
-            raise ValueError(f"observer must be 'earth', 'solo', or 'hgs', got {observer!r}")
+            raise ValueError(f"observer must be 'earth', 'solo', 'hgs', or 'carrington', got {observer!r}")
 
         # Geometric midpoints of each class band — tick lands in the centre of each colour segment
         class_centres = [np.sqrt(_GOES_BOUNDARIES[i] * _GOES_BOUNDARIES[i + 1]) for i in range(len(_GOES_COLORS))]
@@ -263,7 +283,8 @@ class FlareList(GenericProduct):
 
         axes.set_aspect("equal")
         axes.grid(alpha=0.3)
-        axes.legend(fontsize=8)
+        if axes.get_legend_handles_labels()[1]:
+            axes.legend(fontsize=8)
         axes.set_title(f"Flare locations (n={valid.sum()}) — {observer}")
 
         return axes

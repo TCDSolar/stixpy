@@ -163,7 +163,7 @@ def test_flarelist_plots(flarelist_sep, tmp_path):
     plt.close()
     assert out.stat().st_size > 10
 
-    for observer in ("hgs", "earth", "solo"):
+    for observer in ("hgs", "earth", "solo", "carrington"):
         ax = flarelist_sep.plot_locations(observer=observer)
         assert ax is not None
 
@@ -171,7 +171,14 @@ def test_flarelist_plots(flarelist_sep, tmp_path):
         plt.savefig(out)
         plt.close()
         assert out.stat().st_size > 10
-    pass
+
+    # Carrington-specific checks: axis limits cover the whole rotating Sun and
+    # the scatter is non-empty so users actually see something on the test data.
+    ax = flarelist_sep.plot_locations(observer="carrington")
+    assert ax.get_xlim() == (0, 360)
+    assert ax.get_ylim() == (-90, 90)
+    assert any(c.get_offsets().shape[0] > 0 for c in ax.collections)
+    plt.close()
 
 
 def test_flarelist_plot_locations_invalid_observer(flarelist_sep):

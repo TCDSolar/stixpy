@@ -42,6 +42,7 @@ tests = [
     "matplotlib>=3.8.0",
     "pytest-astropy>=0.11.0",
     "pytest-mpl>=0.18",
+    "pytest-rerunfailures>=14.0",
     "pytest-xdist>=3.0.2",
     "pytest>=7.4.0"
 ]

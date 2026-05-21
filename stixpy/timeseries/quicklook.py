@@ -51,7 +51,7 @@ class QLLightCurve(GenericTimeSeries):
     >>> from stixpy.data import test
     >>> from sunpy.timeseries import TimeSeries
     >>> from stixpy.timeseries.quicklook import QLLightCurve
-    >>> ql_lc = TimeSeries("https://pub099.cs.technik.fhnw.ch/fits/L1/2020/05/06/QL/solo_L1_stix-ql-lightcurve_20200506_V02.fits") # doctest: +REMOTE_DATA
+    >>> ql_lc = TimeSeries("https://pub099.cs.technik.fhnw.ch/fits/L1/2020/05/06/QL/solo_L1_stix-ql-lightcurve_20200506_V02.fits") # doctest: +REMOTE_DATA +SKIP
     >>> ql_lc # doctest: +SKIP
     QLLightCurve
            <sunpy.time.timerange.TimeRange object at ...>

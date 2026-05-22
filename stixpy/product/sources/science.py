@@ -735,7 +735,6 @@ class ScienceData(L1Product):
         times_bkg = bkg.times
         energies_bkg = bkg.energies[energy_indices_bkg]
 
-
         # counts, counts_var, t_norm, e_norm, livefrac, elut_cor_fac, times, energies = ScienceData._data_slice(product,
         #                                                                         detector_indices,
         #                                                                         pixel_indices,
@@ -788,7 +787,6 @@ class ScienceData(L1Product):
         counts_var_lvtcorr_bkg = (counts_var_bkg / livefrac_bkg)[...,:] * elut_cor_fac
         counts_var_lvtcorr_scaled_bkg = (counts_var_lvtcorr_bkg/ t_norm_bkg.mean()) * t_norm.reshape(len(t_norm), 1,1,1)
 
-        print(np.shape(counts_var_lvtcorr_scaled_bkg))
 
         spec_in_corr = counts_lvtcorr - count_lvtcorr_scaled_bkg
         spec_in = counts_uncorr - count_uncorr_scaled_bkg

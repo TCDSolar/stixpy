@@ -4,6 +4,8 @@ omit =
   stixpy/*setup_package*
   stixpy/extern/*
   stixpy/version*
+  stixpy/_dev/*
+  */stixpy/_dev/*
   */stixpy/conftest.py
   */stixpy/*setup_package*
   */stixpy/extern/*

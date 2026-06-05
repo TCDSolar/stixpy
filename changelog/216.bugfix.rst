@@ -1,1 +1,0 @@
-Fix :ref:`sphx_glr_generated_gallery_imaging_demo.py` to correctly use center of STIX field of view for initial grid correction and flare position estimation.

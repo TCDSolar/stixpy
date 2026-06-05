@@ -46,7 +46,7 @@ If you use generative AI tools as an aid in developing code or documentation cha
 For more information see our documentation on fair and appropriate `AI usage <https://docs.sunpy.org/en/latest/dev_guide/contents/ai_usage.html>`__.
 
 Acknowledging or Citing ``STIXpy``
----------------------------------
+----------------------------------
 
 If you use ``STIXpy`` in your scientific work, we would appreciate your `citing it in your publications <https://stixpy.readthedocs.io/en/stable/citing.html>`__.
 The continued growth and development of ``STIXPy`` is dependent on the community being aware of ``STIXpy``.

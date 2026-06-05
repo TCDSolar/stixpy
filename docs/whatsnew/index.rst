@@ -10,6 +10,3 @@ This page documents the releases for STIXpy
    :maxdepth: 1
 
    changelog
-
-   0.1.3
-   0.1.2

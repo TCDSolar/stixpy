@@ -1,1 +1,0 @@
-Remove deprecated ``stixpy.science`` module use `stixpy.product.Product` instead.

@@ -1,15 +1,15 @@
 .. _citing:
 
-*************
-Citing STIXpy
-*************
+*****************
+Citing ``STIXpy``
+*****************
 
-If you use STIXpy in your scientific work please citing it in
-your publications. The continued growth and development of STIXpy is dependent
+If you use ``STIXpy`` in your scientific work please citing it in
+your publications. The continued growth and development of ``STIXpy`` is dependent
 on the community being aware of the software.
 
-Citing STIXpy in Publications
-==============================
+Citing ``STIXpy`` in Publications
+=================================
 
 Please add a line such as the following within your methods, conclusion, or
 acknowledgements section:
@@ -67,7 +67,7 @@ You can also retrieve the citation string programmatically::
 Acknowledging Dependencies
 ==========================
 
-STIXpy is built on a number of open-source packages. Where appropriate, please
+``STIXpy`` is built on a number of open-source packages. Where appropriate, please
 also consider citing:
 
 - `SunPy <https://docs.sunpy.org/en/stable/citation.html>`_ — solar data

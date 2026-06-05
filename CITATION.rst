@@ -1,1 +1,1 @@
-sunpy/CITATION.rst
+stixpy/CITATION.rst

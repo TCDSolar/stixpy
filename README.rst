@@ -19,9 +19,9 @@
     :target: https://pypi.python.org/pypi/stixpy
     :alt: Python Versions
 
-.. |Zenodo| image:: https://zenodo.org/badge/DOI/10.5281/zenodo.18938020.svg
-    :target: https://doi.org/10.5281/zenodo.18938020
-    :alt: DOI:10.5281/zenodo.18938020
+.. |Zenodo| image:: https://zenodo.org/badge/DOI/10.5281/zenodo.8086101.svg
+    :target: https://doi.org/10.5281/zenodo.8086101
+    :alt: DOI:10.5281/zenodo.8086101
 
 An open-source Python analysis library for the Spectrometer Telescope for Imaging X-rays (STIX) instrument on Solar Obriter.
 

@@ -18,6 +18,10 @@ merge-check: &merge-check
       git checkout -qf pr/$CIRCLE_PR_NUMBER/merge
     fi
 
+submodules: &submodules
+  name: Update submodules
+  command: git submodule update --init --recursive
+
 apt-run: &apt-install
   name: Install apt packages
   command: |

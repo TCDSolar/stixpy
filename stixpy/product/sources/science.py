@@ -1,4 +1,5 @@
 from pathlib import Path
+from functools import cached_property
 from itertools import product
 
 import numpy as np
@@ -8,13 +9,15 @@ from matplotlib.dates import ConciseDateFormatter, DateFormatter, HourLocator
 from matplotlib.widgets import Slider
 
 import astropy.units as u
-from astropy.table import QTable, vstack
+from astropy.table import vstack
 from astropy.time import Time
 from astropy.visualization import quantity_support
 
 from sunpy.time.timerange import TimeRange
 from sunpy.util import deprecated
 
+from stixpy.calibration.livetime import get_livetime_fraction
+from stixpy.config.instrument import STIX_INSTRUMENT
 from stixpy.io.readers import read_subc_params
 from stixpy.product.product import L1Product
 
@@ -436,6 +439,14 @@ class ScienceData(L1Product):
         return self._energies
 
     @property
+    def time(self):
+        """
+        An `astropy.time.Time` array representing the center of the observed time bins.
+        """
+        return self.data["time"]
+
+    @property
+    @deprecated(name="times", since="0.2", message="Use `time` instead", warning_type=DeprecationWarning)
     def times(self):
         """
         An `astropy.time.Time` array representing the center of the observed time bins.
@@ -453,9 +464,80 @@ class ScienceData(L1Product):
     @property
     def durations(self):
         """
-        An `astropy.units.Quantity` array giving the duration or integration time
+        An `astropy.units.Quantity` array giving the duration or integration time.
+
+        Shape is ``(T, 1, 1, 1)`` to broadcast against ``(T, n_det, n_pix, n_energy)``.
         """
-        return self.data["timedel"]
+        return self.data["timedel"][:, None, None, None]
+
+    @cached_property
+    def livetime_fraction(self):
+        """
+        Livetime fraction.
+
+        Shape is ``(T, n_det, 1, 1)`` to broadcast against ``(T, n_det, n_pix, n_energy)``.
+        """
+        if self.data["triggers"].ndim == 1:
+            triggers = self.data["triggers"].reshape(-1, 1).astype(float)
+        else:
+            trigger_to_detector = STIX_INSTRUMENT.subcol_adc_mapping
+            triggers = self.data["triggers"][:, trigger_to_detector].astype(float)
+        livefrac, *_ = get_livetime_fraction(triggers / self.data["timedel"].to("s").reshape(-1, 1))
+        return livefrac[:, :, None, None]
+
+    @cached_property
+    def livetime(self):
+        """
+        Livetime.
+
+        Shape is ``(T, n_det, 1, 1)`` to broadcast against ``(T, n_det, n_pix, n_energy)``.
+        """
+        return self.livetime_fraction * self.data["timedel"].to("s")[:, None, None, None]
+
+    @property
+    def pixel_area(self):
+        """
+        Pixel areas.
+
+        Shape is ``(1, 1, n_pix, 1)`` (or ``(T, 1, n_pix, 1)`` when pixel masks vary per time)
+        to broadcast against ``(T, n_det, n_pix, n_energy)``.
+        """
+        from stixpy.config.instrument import STIX_INSTRUMENT
+
+        base_areas = STIX_INSTRUMENT.pixel_config["Area"].to("cm2")  # (n_pix,)
+        if "pixel_masks" in self.data.colnames:
+            mask = self.pixel_masks.masks[0].astype(bool)  # (12,)
+            return base_areas[mask][None, None, :, None]  # (1, 1, n_active_pix, 1)
+        return base_areas[None, None, :, None]  # (1, 1, n_pix, 1)
+
+    @cached_property
+    def elut(self):
+        """
+        ELUT correction
+        """
+        from types import SimpleNamespace
+
+        from stixpy.calibration.energy import get_elut
+
+        energy_mask = self.energy_masks.energy_mask.astype(bool)
+        elut = get_elut(self.time_range.center)
+        ebin_edges_low = np.zeros((32, 12, 32), dtype=float)
+        ebin_edges_low[..., 1:] = elut.e_actual
+        ebin_edges_low = ebin_edges_low[..., energy_mask]
+        ebin_edges_high = np.zeros((32, 12, 32), dtype=float)
+        ebin_edges_high[..., 0:-1] = elut.e_actual
+        ebin_edges_high[..., -1] = np.nan
+        ebin_edges_high = ebin_edges_high[..., energy_mask]
+        ebin_widths = ebin_edges_high - ebin_edges_low
+        ebin_sci_edges_low = elut.e[..., 0:-1].value[..., energy_mask]
+        ebin_sci_edges_high = elut.e[..., 1:].value[..., energy_mask]
+        return SimpleNamespace(
+            ebin_edges_low=ebin_edges_low,
+            ebin_edges_high=ebin_edges_high,
+            ebin_widths=ebin_widths,
+            ebin_sci_edges_low=ebin_sci_edges_low,
+            ebin_sci_edges_high=ebin_sci_edges_high,
+        )
 
     def get_data(
         self,
@@ -466,6 +548,8 @@ class ScienceData(L1Product):
         detector_indices=None,
         pixel_indices=None,
         sum_all_times=False,
+        livetime_correction=True,
+        elut_correction=False,
     ):
         r"""
         Return the counts, errors, times, durations and energies for selected data.
@@ -497,6 +581,15 @@ class ScienceData(L1Product):
             sixth pixels while `pixel_indices=[[0, 2],[3, 5]]` would sum the data between.
         sum_all_times : `bool`
             Flag to sum all give time intervals into one
+        livetime_correction : `bool`
+            If `True`, divide counts by the per-detector livetime before applying any vtype normalisation.
+            Applied after detector selection so the correct per-detector fractions are used before any
+            summing over detectors.
+        elut_correction : `bool`
+            If `True` (default), scale the boundary energy bins by the ELUT fractional-coverage
+            correction, matching the correction applied in `create_meta_pixels`. Applied within
+            the energy selection step so the true boundary bins of the selection are corrected.
+            Only active for full pixel data (32 detectors, 12 pixels) with ``energy_masks`` available.
 
         Returns
         -------
@@ -504,138 +597,263 @@ class ScienceData(L1Product):
             Counts, errors, times, deltatimes,  energies
 
         """
+        sum_times, sum_energies, sum_detectors, sum_pixels = [
+            _is_sum(index) for index in [time_indices, energy_indices, detector_indices, pixel_indices]
+        ]
+
         counts = self.data["counts"]
         try:
-            counts_var = self.data["counts_comp_err"] ** 2
+            counts_comp_var = self.data["counts_comp_err"] ** 2
         except KeyError:
-            counts_var = self.data["counts_comp_comp_err"] ** 2
+            counts_comp_var = self.data["counts_comp_comp_err"] ** 2
         shape = counts.shape
         if len(shape) < 4:
             counts = counts.reshape(shape[0], 1, 1, shape[-1])
-            counts_var = counts_var.reshape(shape[0], 1, 1, shape[-1])
+            counts_comp_var = counts_comp_var.reshape(shape[0], 1, 1, shape[-1])
 
-        energies = self.energies[:]
-        times = self.times
+        counts_stat_var = counts.copy()
 
-        if detector_indices is not None:
-            detecor_indices = np.asarray(detector_indices)
-            if detecor_indices.ndim == 1:
-                detector_mask = np.full(32, False)
-                detector_mask[detecor_indices] = True
-                counts = counts[:, detector_mask, ...]
-                counts_var = counts_var[:, detector_mask, ...]
-            elif detecor_indices.ndim == 2:
-                counts = np.hstack(
-                    [np.sum(counts[:, dl : dh + 1, ...], axis=1, keepdims=True) for dl, dh in detecor_indices]
-                )
+        if livetime_correction:
+            # Correct each detector's counts independently before any summation so that
+            # detectors with different livetime fractions are brought to a common effective exposure.
+            lf = self.livetime_fraction  # (T, n_det, 1, 1), dimensionless
+            counts = counts / lf
+            counts_stat_var = counts_stat_var / lf**2
+            counts_comp_var = counts_comp_var / lf**2
 
-                counts_var = np.concatenate(
-                    [np.sum(counts_var[:, dl : dh + 1, ...], axis=1, keepdims=True) for dl, dh in detecor_indices],
-                    axis=1,
-                )
+        elut = self.elut
+        det_mask = self.detector_masks.masks[0].astype(bool)
+        pix_mask = self.pixel_masks.masks[0].astype(bool)
 
-        if pixel_indices is not None:
-            pixel_indices = np.asarray(pixel_indices)
-            if pixel_indices.ndim == 1:
-                pixel_mask = np.full(12, False)
-                pixel_mask[pixel_indices] = True
-                num_pixels = counts.shape[2]
-                counts = counts[..., pixel_mask[:num_pixels], :]
-                counts_var = counts_var[..., pixel_mask[:num_pixels], :]
-            elif pixel_indices.ndim == 2:
-                counts = np.concatenate(
-                    [np.sum(counts[..., pl : ph + 1, :], axis=2, keepdims=True) for pl, ph in pixel_indices], axis=2
-                )
+        # Default edges — all bins, shape (1, n_det, n_pix, n_energy, 2), last axis is [lo, hi]
+        actual_edges = np.stack([elut.ebin_edges_low, elut.ebin_edges_high], axis=-1)  # (32, 12, n_energy, 2)
+        actual_edges = actual_edges[np.ix_(det_mask, pix_mask)][None]  # (1, n_det, n_pix, n_energy, 2)
+        sci_edges = np.stack([elut.ebin_sci_edges_low, elut.ebin_sci_edges_high], axis=-1)[
+            None, None, None
+        ]  # (1, 1, 1, n_energy, 2)
+        dE = actual_edges[..., 1] - actual_edges[..., 0]  # (1, n_det, n_pix, n_energy)
 
-                counts_var = np.concatenate(
-                    [np.sum(counts_var[..., pl : ph + 1, :], axis=2, keepdims=True) for pl, ph in pixel_indices], axis=2
-                )
+        time = self.time
+        area = self.pixel_area
+        duration = self.durations
+        # After livetime correction all detectors share the same effective livetime = duration
+        livetime = duration if livetime_correction else self.livetime
 
-        e_norm = self.dE
-        if energy_indices is not None:
-            energy_indices = np.asarray(energy_indices)
-            if energy_indices.ndim == 1:
-                energy_mask = np.full(shape[-1], False)
-                energy_mask[energy_indices] = True
+        # Normalise elut_correction: True → 'overlap'
+        if elut_correction is True:
+            elut_correction = "overlap"
+
+        if elut_correction == "overlap" and energy_indices is not None:
+            det_lo = elut.ebin_edges_low[..., None]  # (32, 12, n_energy, 1)
+            det_hi = elut.ebin_edges_high[..., None]
+            sci_lo = elut.ebin_sci_edges_low[None, None, None, :]  # (1, 1, 1, n_sci)
+            sci_hi = elut.ebin_sci_edges_high[None, None, None, :]
+            overlap = np.maximum(0.0, np.minimum(det_hi, sci_hi) - np.maximum(det_lo, sci_lo))
+            W = (overlap / (det_hi - det_lo))[np.ix_(det_mask, pix_mask)]  # (n_det, n_pix, n_det_bins, n_sci_bins)
+
+        if energy_indices is not None and sum_energies is False:
+            energy_mask = np.full(counts.shape[-1], False)
+            energy_mask[energy_indices] = True
+            sel_indices = np.where(energy_mask)[0]
+            if elut_correction is False:
                 counts = counts[..., energy_mask]
-                counts_var = counts_var[..., energy_mask]
-                e_norm = self.dE[energy_mask]
-                energies = self.energies[energy_mask]
-            elif energy_indices.ndim == 2:
-                counts = np.concatenate(
-                    [np.sum(counts[..., el : eh + 1], axis=-1, keepdims=True) for el, eh in energy_indices], axis=-1
-                )
+                counts_comp_var = counts_comp_var[..., energy_mask]
+                counts_stat_var = counts_stat_var[..., energy_mask]
+                actual_edges = np.stack(
+                    [elut.ebin_edges_low[..., sel_indices], elut.ebin_edges_high[..., sel_indices]], axis=-1
+                )  # (32, 12, n_sel, 2)
+                actual_edges = actual_edges[np.ix_(det_mask, pix_mask)][None]  # (1, n_det, n_pix, n_sel, 2)
+                sci_edges = np.stack(
+                    [elut.ebin_sci_edges_low[sel_indices], elut.ebin_sci_edges_high[sel_indices]], axis=-1
+                )[None, None, None]
+            elif elut_correction == "overlap":
+                W_sel = W[..., energy_mask]
+                counts = np.einsum("tdpj,dpjk->tdpk", counts, W_sel)
+                counts_stat_var = np.einsum("tdpj,dpjk->tdpk", counts_stat_var, W_sel**2)
+                counts_comp_var = np.einsum("tdpj,dpjk->tdpk", counts_comp_var, W_sel**2)
+                sci_edges = np.stack(
+                    [elut.ebin_sci_edges_low[sel_indices], elut.ebin_sci_edges_high[sel_indices]], axis=-1
+                )[None, None, None]
+                actual_edges = sci_edges
+            elif elut_correction == "edge_weight":
+                # IDL single-bin formula: counts[k] *= sci_width[k] / det_width[k]
+                sci_widths = (elut.ebin_sci_edges_high - elut.ebin_sci_edges_low)[sel_indices]  # (n_sel,)
+                det_widths = elut.ebin_widths[np.ix_(det_mask, pix_mask)][..., sel_indices][
+                    None
+                ]  # (1, n_det, n_pix, n_sel)
+                corr = sci_widths / det_widths  # (1, n_det, n_pix, n_sel)
+                counts = counts[..., energy_mask] * corr
+                counts_stat_var = counts_stat_var[..., energy_mask] * corr**2
+                counts_comp_var = counts_comp_var[..., energy_mask] * corr**2
+                sci_edges = np.stack(
+                    [elut.ebin_sci_edges_low[sel_indices], elut.ebin_sci_edges_high[sel_indices]], axis=-1
+                )[None, None, None]
+                actual_edges = sci_edges
+            dE = actual_edges[..., 1] - actual_edges[..., 0]
 
-                counts_var = np.concatenate(
-                    [np.sum(counts_var[..., el : eh + 1], axis=-1, keepdims=True) for el, eh in energy_indices], axis=-1
-                )
+        elif sum_energies:
+            energy_indices = np.array(energy_indices)
+            low_idx = energy_indices[..., 0]
+            high_idx = energy_indices[..., -1]
+            if elut_correction is False:
+                ebin_idx = np.arange(counts.shape[-1])
+                mask = (ebin_idx[:, None] >= low_idx) & (ebin_idx[:, None] <= high_idx)
+                counts = (counts[..., None] * mask).sum(axis=-2)
+                counts_comp_var = (counts_comp_var[..., None] * mask).sum(axis=-2)
+                counts_stat_var = (counts_stat_var[..., None] * mask).sum(axis=-2)
+                actual_edges = np.stack(
+                    [elut.ebin_edges_low[..., low_idx], elut.ebin_edges_high[..., high_idx]], axis=-1
+                )  # (32, 12, n_ranges, 2)
+                actual_edges = actual_edges[np.ix_(det_mask, pix_mask)][None]
+                sci_edges = np.stack([elut.ebin_sci_edges_low[low_idx], elut.ebin_sci_edges_high[high_idx]], axis=-1)[
+                    None, None, None
+                ]
+            elif elut_correction == "overlap":
+                counts_list, comp_var_list, stat_var_list = [], [], []
+                for lo, hi in zip(low_idx, high_idx):
+                    W_range = W[..., lo : hi + 1]
+                    counts_list.append(np.einsum("tdpj,dpjk->tdpk", counts, W_range).sum(axis=-1, keepdims=True))
+                    comp_var_list.append(
+                        np.einsum("tdpj,dpjk->tdpk", counts_comp_var, W_range**2).sum(axis=-1, keepdims=True)
+                    )
+                    stat_var_list.append(
+                        np.einsum("tdpj,dpjk->tdpk", counts_stat_var, W_range**2).sum(axis=-1, keepdims=True)
+                    )
+                counts = np.concatenate(counts_list, axis=-1)
+                counts_comp_var = np.concatenate(comp_var_list, axis=-1)
+                counts_stat_var = np.concatenate(stat_var_list, axis=-1)
+                sci_edges = np.stack([elut.ebin_sci_edges_low[low_idx], elut.ebin_sci_edges_high[high_idx]], axis=-1)[
+                    None, None, None
+                ]
+                actual_edges = sci_edges
+            elif elut_correction == "edge_weight":
+                # IDL multi-bin formula: scale boundary bins by edge-overlap fraction then sum.
+                # When lo==hi both corrections multiply the same bin (replicates IDL behaviour).
+                ew_edges_high = elut.ebin_edges_high[np.ix_(det_mask, pix_mask)]  # (n_det, n_pix, n_energy)
+                ew_edges_low = elut.ebin_edges_low[np.ix_(det_mask, pix_mask)]
+                ew_widths = elut.ebin_widths[np.ix_(det_mask, pix_mask)]
+                counts_list, comp_var_list, stat_var_list = [], [], []
+                for lo, hi in zip(low_idx, high_idx):
+                    sci_lo_edge = elut.ebin_sci_edges_low[lo]
+                    sci_hi_edge = elut.ebin_sci_edges_high[hi]
+                    w_low = (ew_edges_high[..., lo] - sci_lo_edge) / ew_widths[..., lo]  # (n_det, n_pix)
+                    w_high = (sci_hi_edge - ew_edges_low[..., hi]) / ew_widths[..., hi]  # (n_det, n_pix)
+                    # Build per-bin weight array (1, n_det, n_pix, n_bins)
+                    # When lo==hi, both w_low and w_high multiply the same bin → replicates IDL behaviour
+                    n_bins = hi - lo + 1
+                    w = np.ones((1,) + w_low.shape + (n_bins,), dtype=float)
+                    w[..., 0] *= w_low.unmasked  # (32, 8) broadcasts against (1, 32, 8, n_bins)[..., 0]
+                    w[..., -1] *= w_high.unmasked
+                    c = np.asarray(counts[..., lo : hi + 1], dtype=float) * w
+                    vs = np.asarray(counts_stat_var[..., lo : hi + 1], dtype=float) * w**2
+                    vc = np.asarray(counts_comp_var[..., lo : hi + 1], dtype=float) * w**2
+                    counts_list.append(c.sum(axis=-1, keepdims=True))
+                    stat_var_list.append(vs.sum(axis=-1, keepdims=True))
+                    comp_var_list.append(vc.sum(axis=-1, keepdims=True))
+                counts = np.concatenate(counts_list, axis=-1)
+                counts_comp_var = np.concatenate(comp_var_list, axis=-1)
+                counts_stat_var = np.concatenate(stat_var_list, axis=-1)
+                sci_edges = np.stack([elut.ebin_sci_edges_low[low_idx], elut.ebin_sci_edges_high[high_idx]], axis=-1)[
+                    None, None, None
+                ]
+                actual_edges = sci_edges
+            dE = actual_edges[..., 1] - actual_edges[..., 0]
 
-                e_norm = np.hstack([(energies["e_high"][eh] - energies["e_low"][el]) for el, eh in energy_indices])
+        # Pixel slicing or summation
+        if pixel_indices is not None and sum_pixels is False:
+            pixel_mask = np.full(12, False)
+            pixel_mask[pixel_indices] = True
+            num_pixels = counts.shape[2]
+            counts = counts[..., pixel_mask[:num_pixels], :]
+            counts_comp_var = counts_comp_var[..., pixel_mask[:num_pixels], :]
+            counts_stat_var = counts_stat_var[..., pixel_mask[:num_pixels], :]
+            area = area[..., pixel_mask[:num_pixels], :]
+        elif sum_pixels:
+            counts = np.concatenate(
+                [np.sum(counts[..., pl : ph + 1, :], axis=2, keepdims=True) for pl, ph in pixel_indices], axis=2
+            )
+            counts_comp_var = np.concatenate(
+                [np.sum(counts_comp_var[..., pl : ph + 1, :], axis=2, keepdims=True) for pl, ph in pixel_indices],
+                axis=2,
+            )
+            counts_stat_var = np.concatenate(
+                [np.sum(counts_stat_var[..., pl : ph + 1, :], axis=2, keepdims=True) for pl, ph in pixel_indices],
+                axis=2,
+            )
+            area = np.concatenate(
+                [np.sum(area[..., pl : ph + 1, :], axis=-2, keepdims=True) for pl, ph in pixel_indices], axis=-2
+            )
 
-                energies = np.atleast_2d(
-                    [
-                        (self._energies["e_low"][el].value, self._energies["e_high"][eh].value)
-                        for el, eh in energy_indices
-                    ]
-                )
-                energies = QTable(energies * u.keV, names=["e_low", "e_high"])
+        # Detector slicing or summation
+        if detector_indices and sum_detectors is False:
+            detector_mask = np.full(32, False)
+            detector_mask[detector_indices] = True
+            counts = counts[:, detector_mask, ...]
+            counts_comp_var = counts_comp_var[:, detector_mask, ...]
+            counts_stat_var = counts_stat_var[:, detector_mask, ...]
+            livetime = livetime[:, detector_mask, ...]
+        elif sum_detectors:
+            counts = np.concatenate(
+                [np.sum(counts[:, dl : dh + 1, ...], axis=1, keepdims=True) for dl, dh in detector_indices], axis=1
+            )
+            counts_comp_var = np.concatenate(
+                [np.sum(counts_comp_var[:, dl : dh + 1, ...], axis=1, keepdims=True) for dl, dh in detector_indices],
+                axis=1,
+            )
+            counts_stat_var = np.concatenate(
+                [np.sum(counts_stat_var[:, dl : dh + 1, ...], axis=1, keepdims=True) for dl, dh in detector_indices],
+                axis=1,
+            )
+            livetime = np.concatenate(
+                [np.mean(livetime[:, dl : dh + 1, ...], axis=1, keepdims=True) for dl, dh in detector_indices], axis=1
+            )
 
-        t_norm = self.data["timedel"]
-        if time_indices is not None:
-            time_indices = np.asarray(time_indices)
-            if time_indices.ndim == 1:
-                time_mask = np.full(times.shape, False)
-                time_mask[time_indices] = True
-                counts = counts[time_mask, ...]
-                counts_var = counts_var[time_mask, ...]
-                t_norm = self.data["timedel"][time_mask]
-                times = times[time_mask]
-                # dT = self.data['timedel'][time_mask]
-            elif time_indices.ndim == 2:
-                new_times = []
-                dt = []
-                for tl, th in time_indices:
-                    ts = times[tl] - self.data["timedel"][tl] * 0.5
-                    te = times[th] + self.data["timedel"][th] * 0.5
-                    td = te - ts
-                    tc = ts + (td * 0.5)
-                    dt.append(td.to("s"))
-                    new_times.append(tc)
-                dt = np.hstack(dt)
-                times = Time(new_times)
-                counts = np.vstack([np.sum(counts[tl : th + 1, ...], axis=0, keepdims=True) for tl, th in time_indices])
+        # Time slicing or summation
+        if time_indices is not None and sum_times is False:
+            time_mask = np.full(time.shape, False)
+            time_mask[time_indices] = True
+            counts = counts[time_mask, ...]
+            counts_comp_var = counts_comp_var[time_mask, ...]
+            counts_stat_var = counts_stat_var[time_mask, ...]
+            time = time[time_mask]
+            duration = duration[time_mask]
+            livetime = livetime[time_mask]
+        elif sum_times:
+            new_time_centers = []
+            for tl, th in time_indices:
+                ts = time[tl] - duration[tl, 0, 0, 0] * 0.5
+                te = time[th] + duration[th, 0, 0, 0] * 0.5
+                new_time_centers.append(ts + (te - ts) * 0.5)
 
-                counts_var = np.vstack(
-                    [np.sum(counts_var[tl : th + 1, ...], axis=0, keepdims=True) for tl, th in time_indices]
-                )
-                t_norm = dt
+            time = Time(new_time_centers)
+            duration = np.concatenate(
+                [np.sum(duration[tl : th + 1], axis=0, keepdims=True) for tl, th in time_indices], axis=0
+            )
+            livetime = np.concatenate(
+                [np.sum(livetime[tl : th + 1], axis=0, keepdims=True) for tl, th in time_indices], axis=0
+            )
+            counts = np.concatenate(
+                [np.sum(counts[tl : th + 1, ...], axis=0, keepdims=True) for tl, th in time_indices], axis=0
+            )
+            counts_comp_var = np.concatenate(
+                [np.sum(counts_comp_var[tl : th + 1, ...], axis=0, keepdims=True) for tl, th in time_indices], axis=0
+            )
+            counts_stat_var = np.concatenate(
+                [np.sum(counts_stat_var[tl : th + 1, ...], axis=0, keepdims=True) for tl, th in time_indices], axis=0
+            )
 
-                if sum_all_times and len(new_times) > 1:
-                    counts = np.sum(counts, axis=0, keepdims=True)
-                    counts_var = np.sum(counts_var, axis=0, keepdims=True)
-                    t_norm = np.sum(dt)
-
-        t_norm = t_norm.to("s")
-
-        if e_norm.size != 1:
-            e_norm = e_norm.reshape(1, 1, 1, -1)
-
-        if t_norm.size != 1:
-            t_norm = t_norm.reshape(-1, 1, 1, 1).to("s")
-
-        if vtype == "c":
-            norm = 1
-        elif vtype == "cr":
-            norm = 1 / t_norm
-        elif vtype == "dcr":
-            norm = 1 / (e_norm * t_norm)
-        else:
-            raise ValueError("vtype must be one of 'c', 'cr', 'dcr'.")
-
-        counts_err = np.sqrt(counts * u.ct + counts_var) * norm
-        counts = counts * norm
-
-        return counts, counts_err, times, t_norm, energies
+        return (
+            counts,
+            counts_comp_var,
+            counts_stat_var,
+            actual_edges,
+            sci_edges,
+            dE,
+            time,
+            duration,
+            livetime,
+            area,
+        )
 
     def concatenate(self, others):
         """
@@ -683,6 +901,33 @@ class ScienceData(L1Product):
             f"    {self.pixel_masks}\n"
             f"    {self.energy_masks}"
         )
+
+
+def _is_sum(indices):
+    if indices is None:
+        return False
+
+    arr = np.asarray(indices)
+    if arr.ndim == 2:
+        return True
+
+    return False
+
+
+def _validate_intervals(indices, name, size):
+    if indices is None:
+        return None
+
+    arr = np.asarray(indices)
+
+    if arr.ndim != 2 or arr.shape[1] != 2:
+        raise ValueError(f"{name} expected (n,2) intervals")
+
+    if np.any(arr[:, 0] >= arr[:, 1]):
+        raise ValueError(f"{name} invalid interval: start must be < end")
+
+    if np.any(arr < 0) or np.any(arr > size):
+        raise ValueError("Interval out of bounds")
 
 
 class RawPixelData(ScienceData, PixelPlotMixin, TimesSeriesPlotMixin, SpectrogramPlotMixin):

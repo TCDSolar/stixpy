@@ -16,6 +16,7 @@ import warnings
 from pathlib import Path
 
 import astropy.units as u
+from astropy.io import fits
 from astropy.time import Time
 from astropy.units import Quantity
 
@@ -42,6 +43,12 @@ _FILENAME_TIME_FORMAT = "%Y%m%dT%H%M%S"
 # Strategy parameter: candidate cal files must span at least this long
 # (filename-derived duration).
 _MIN_CAL_DURATION = 12 * u.h
+
+# Defaults for find_energy_calibration_file_for_time. All three are
+# overridable per-call via keyword arguments.
+_DEFAULT_WINDOW_PAST = 5 * u.day  # how far back from day(t) the Fido search reaches
+_DEFAULT_WINDOW_FUTURE = 5 * u.day  # how far forward
+_DEFAULT_MIN_LIVETIME = 30_000 * u.s  # ≈ 8 h; healthy daily files run ~44 ks
 
 
 class CalibrationProduct(L1Product):
@@ -114,47 +121,76 @@ def _normalise(time) -> tuple[Time, Time]:
     return Time(tr.start), Time(tr.start) + (Time(tr.end) - Time(tr.start)) / 2
 
 
-def find_energy_calibration_file_for_time(time) -> Path:
+def _read_livetime(url: str) -> Quantity:
+    """
+    Read the ``LIVETIME`` primary-header value from a CAL FITS file
+    without downloading the full file.
+
+    Uses :func:`astropy.io.fits.open` with ``use_fsspec=True`` and a
+    small ``block_size`` (16 KB), which issues an HTTP Range request
+    for just the first block — enough to cover the FITS primary header
+    (≥ 2880 bytes). For local ``file://`` URLs the read is equally
+    cheap. The default fsspec block size of 5 MB would otherwise fetch
+    the whole ~160 KB CAL file in a single Range request, defeating
+    the partial-download benefit.
+
+    Returns ``LIVETIME`` as `~astropy.units.Quantity` in seconds.
+    """
+    with fits.open(url, use_fsspec=True, fsspec_kwargs={"block_size": 16384}) as hdul:
+        return float(hdul[0].header["LIVETIME"]) * u.s
+
+
+def find_energy_calibration_file_for_time(
+    time,
+    *,
+    min_livetime: Quantity = _DEFAULT_MIN_LIVETIME,
+    window_past: Quantity = _DEFAULT_WINDOW_PAST,
+    window_future: Quantity = _DEFAULT_WINDOW_FUTURE,
+) -> Path:
     """
     Apply the documented selection strategy and return the daily energy-
     calibration FITS file path applicable at the given instant or range.
 
     Accepts either a scalar `~astropy.time.Time` (point query) or a
-    `~sunpy.time.TimeRange` / 2-tuple / length-2 ``Time`` (range query —
-    e.g. a flare time range). All filtering is done on local metadata
-    (Fido search response + the local ``elut_index.csv``); the only CAL
-    file actually downloaded is the one that wins.
+    `~sunpy.time.TimeRange` / 2-tuple / length-2 ``Time`` (range query
+    such as a flare time range). All metadata filters run before any
+    CAL FITS file is fully downloaded: the only `~sunpy.net.Fido.fetch`
+    is on the file that wins.
 
     Strategy
     --------
     1. **Fido search** — ask for CAL files in
-       ``[day(t_lookup) - 1 day, day(t_lookup) + 1 day]`` (the three
-       calendar days centred on the day of ``t_lookup``). If zero rows are
-       returned, raise ``ValueError``. No CAL file is downloaded yet.
+       ``[day(t_lookup) - window_past, day(t_lookup) + window_future + 1 day)``
+       (12 calendar days by default). The wide window lets the helper
+       fall back to older files when the most-recent ones fail the
+       LIVETIME check. If zero rows are returned, raise ``ValueError``.
 
     2. **Metadata-only filtering and ranking** — using ``Start Time`` /
        ``End Time`` (parsed from the filename by
        :meth:`stixpy.net.client.STIXClient.post_search_hook`) and
-       :func:`stixpy.calibration.energy.get_elut`, for every search-result
-       row:
+       :func:`stixpy.calibration.energy.get_elut`, for every row:
 
        * Discard rows whose duration is below 12 hours.
        * Discard rows whose start time maps to a different entry in
-         ``stixpy/config/data/elut/elut_index.csv`` than ``t_lookup``
-         does — i.e. ``get_elut(start).file != get_elut(t_lookup).file``.
+         ``stixpy/config/data/elut/elut_index.csv`` than ``t_lookup``.
        * Rank survivors by ``|file_mid - t_mid|`` ascending.
 
        If nothing survives, raise ``ValueError``.
 
-    3. **Single download** — `~sunpy.net.Fido.fetch` only the best-ranked
-       row. Every other candidate stays remote.
+    3. **LIVETIME walk** — for each candidate in ranked order, read
+       the primary-header ``LIVETIME`` keyword via a fsspec range
+       request (no full download yet). The first candidate with
+       ``LIVETIME >= min_livetime`` wins. If every candidate falls
+       below the threshold, raise ``ValueError`` listing the measured
+       live-times.
 
-    4. **Post-download sanity check** — open the downloaded file via
-       `~stixpy.product.Product`; if its on-board ``ob_elut_name`` doesn't
-       match the ELUT entry the strategy ranked it under, emit a
-       ``UserWarning`` (the file is still returned because it remains the
-       best metadata-based choice — the warning surfaces a divergence
-       between the local index and the file's recorded ELUT).
+    4. **Single download** — `~sunpy.net.Fido.fetch` only the winning
+       row.
+
+    5. **Post-download sanity check** — open the downloaded file via
+       `~stixpy.product.Product`; if its on-board ``ob_elut_name``
+       doesn't match the ELUT entry the local index resolved for the
+       file's start time, emit a ``UserWarning``.
 
     For a point query, ``t_lookup`` and ``t_mid`` collapse to the query
     time. For a range query, ``t_lookup`` is the range start and
@@ -164,6 +200,16 @@ def find_energy_calibration_file_for_time(time) -> Path:
     ----------
     time : `~astropy.time.Time` or `~sunpy.time.TimeRange` or 2-tuple
         Point in time, or time range bounding the data to be calibrated.
+    min_livetime : `~astropy.units.Quantity`, optional
+        Minimum acceptable ``LIVETIME`` (primary FITS header) for the
+        returned file, in time units. Default: ``30 000 s`` (~8 h),
+        roughly two thirds of a healthy daily file's typical
+        ``LIVETIME`` of ~44 ks. Floats are interpreted as seconds.
+    window_past : `~astropy.units.Quantity`, optional
+        How far back from ``day(t_lookup)`` the Fido search reaches.
+        Default: ``10 * u.day``. Floats are interpreted as days.
+    window_future : `~astropy.units.Quantity`, optional
+        How far forward. Default: ``1 * u.day``.
 
     Returns
     -------
@@ -174,13 +220,15 @@ def find_energy_calibration_file_for_time(time) -> Path:
     ------
     ValueError
         If the Fido search returns no rows, if every row fails the
-        duration / ELUT filters, or if the chosen download fails.
+        duration / ELUT filters, if every candidate falls below
+        ``min_livetime``, or if the chosen download fails.
 
     Warns
     -----
     UserWarning
-        If the downloaded file's on-board ``ob_elut_name`` disagrees with
-        the ELUT entry the local index resolved for the file's start time.
+        If the downloaded file's on-board ``ob_elut_name`` disagrees
+        with the ELUT entry the local index resolved for the file's
+        start time.
     """
     # Import locally to avoid a top-level circular import:
     # stixpy.calibration.energy imports Product, which imports this module
@@ -188,12 +236,22 @@ def find_energy_calibration_file_for_time(time) -> Path:
     from stixpy.calibration.energy import get_elut
     from stixpy.product.product_factory import Product
 
+    # Coerce numeric inputs to Quantity in sensible units.
+    if not isinstance(min_livetime, Quantity):
+        min_livetime = float(min_livetime) * u.s
+    if not isinstance(window_past, Quantity):
+        window_past = float(window_past) * u.day
+    if not isinstance(window_future, Quantity):
+        window_future = float(window_future) * u.day
+
     t_lookup, t_mid = _normalise(time)
 
-    # Midnight of the day containing t_lookup, then ±1 / +2 days.
+    # Day-aligned window. The closing bound is kept exclusive (one extra
+    # day past `window_future`) so the Fido search captures any file
+    # whose calendar-day folder is `day + window_future`.
     day_midnight = Time(t_lookup.utc.isot[:10])
-    window_start = day_midnight - 1 * u.day
-    window_end = day_midnight + 2 * u.day
+    window_start = day_midnight - window_past
+    window_end = day_midnight + window_future + 1 * u.day
 
     logger.info(f"Searching CAL files for {t_lookup} (window {window_start} – {window_end})")
     query = Fido.search(
@@ -204,9 +262,7 @@ def find_energy_calibration_file_for_time(time) -> Path:
         a.stix.DataProduct.cal_energy,
     )
     if len(query["stix"]) == 0:
-        raise ValueError(
-            f"No calibration files found in the 3-day window around {t_lookup} ({window_start} – {window_end})."
-        )
+        raise ValueError(f"No calibration files found in the window around {t_lookup} ({window_start} – {window_end}).")
     query["stix"].filter_for_latest_version()
 
     # Metadata-only filtering + ranking. The ELUT match is implemented as
@@ -214,7 +270,7 @@ def find_energy_calibration_file_for_time(time) -> Path:
     # entry in stixpy/config/data/elut/elut_index.csv". get_elut(t).file is
     # the unique identifier of that entry, so a direct string compare is
     # exactly the same-row test — no CAL FITS file content is read.
-    flare_elut_file = get_elut(t_lookup).file
+    flare_elut_file = get_elut(t_lookup.utc.datetime).file
     logger.debug(f"ELUT entry active at {t_lookup}: {flare_elut_file}")
 
     candidates: list[tuple[float, int, str]] = []  # (distance_to_mid, row_idx, filename)
@@ -229,7 +285,7 @@ def find_energy_calibration_file_for_time(time) -> Path:
             rejected_short.append(filename)
             continue
         try:
-            file_elut_file = get_elut(start).file
+            file_elut_file = get_elut(start.utc.datetime).file
         except ValueError:
             # No ELUT entry covers the file's start time → can't compare.
             rejected_elut.append(filename)
@@ -247,9 +303,43 @@ def find_energy_calibration_file_for_time(time) -> Path:
             f"Short duration: {rejected_short}. ELUT mismatch: {rejected_elut}."
         )
 
-    # Single download — the chosen file. Everything before this was metadata-only.
+    # Rank by closest mid-time. Walk down the list checking LIVETIME via
+    # fsspec range reads; first candidate at-or-above the threshold wins.
     candidates.sort(key=lambda c: c[0])
-    distance, idx, filename = candidates[0]
+    rejected_livetime: list[tuple[str, float]] = []  # (filename, observed_livetime_s)
+    winner = None
+    for distance, idx, filename in candidates:
+        url = str(query["stix"][idx]["url"])
+        try:
+            livetime = _read_livetime(url)
+        except Exception as exc:
+            # A header read can fail (network blip, range-request not
+            # supported, missing key). Treat as a fail and continue.
+            logger.warning(f"Could not read LIVETIME from {filename}: {exc}")
+            rejected_livetime.append((filename, float("nan")))
+            continue
+        if livetime >= min_livetime:
+            logger.info(
+                f"Candidate {filename} passed LIVETIME check: "
+                f"{livetime.to_value(u.s):.0f} s >= {min_livetime.to_value(u.s):.0f} s"
+            )
+            winner = (distance, idx, filename)
+            break
+        rejected_livetime.append((filename, livetime.to_value(u.s)))
+        logger.info(
+            f"Candidate {filename} below LIVETIME threshold: "
+            f"{livetime.to_value(u.s):.0f} s < {min_livetime.to_value(u.s):.0f} s"
+        )
+
+    if winner is None:
+        raise ValueError(
+            f"No calibration files passed the LIVETIME threshold "
+            f"({min_livetime.to_value(u.s):.0f} s) for {t_lookup}. "
+            f"Observed live-times (seconds): {rejected_livetime}."
+        )
+
+    # Single download — the winning file.
+    distance, idx, filename = winner
     single = query["stix"][idx : idx + 1]
     downloaded = Fido.fetch(single)
     if len(downloaded.errors) > 0:

@@ -20,7 +20,8 @@ dependencies = [
     "intervaltree>=3.0.2",
     "roentgen>=2.2.0,<=2.4",
     "matplotlib>=3.8.0",
-    "xrayvisim~=0.2.1"
+    "xrayvisim~=0.2.1",
+    "fsspec[http]>=2024.0",
 ]
 dynamic = ["version"]
 keywords = ["solar physics", "solar", "sun", "x-rays"]

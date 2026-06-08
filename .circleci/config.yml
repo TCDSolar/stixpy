@@ -55,6 +55,7 @@ jobs:
       - run: *apt-install
       - run: pip install -U tox
       - run: tox -e build_docs
+        no_output_timeout: 30m
       - run:
           name: Prepare for upload
           command: |

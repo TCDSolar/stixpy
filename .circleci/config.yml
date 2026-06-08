@@ -51,6 +51,7 @@ jobs:
       - run: *no-backports
       - run: *skip-check
       - run: *merge-check
+      - run: *submodules
       - run: *apt-install
       - run: pip install -U tox
       - run: tox -e build_docs

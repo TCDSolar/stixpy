@@ -73,7 +73,7 @@ def stx_estimate_flare_location(cpd_sci, time_range, energy_range=None, plot=Fal
     
     """
 
-    if not energy_range:
+    if energy_range is None:
         energy_range = [6,15]*u.keV 
 
     if not isinstance(cpd_sci,CompressedPixelData):

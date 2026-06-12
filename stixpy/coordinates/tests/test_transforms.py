@@ -112,6 +112,7 @@ def test_stx_to_hpc_obstime_end():
     assert np.all(stix_coord.obstime_end.isclose(stix_coord_rt.obstime_end))
 
 
+@pytest.mark.remote_data
 def test_stx_to_hpc_obstime_end_x2():
     # strange error that the call the second times crashes
     test_stx_to_hpc_obstime_end()

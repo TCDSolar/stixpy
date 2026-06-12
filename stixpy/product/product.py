@@ -23,7 +23,7 @@ class BaseProduct:
 
 
 class GenericProduct(BaseProduct):
-    def __init__(self, *, meta, control, data, idb_versions=None, energies=None):
+    def __init__(self, *, meta, control, data, idb_versions=None, energies=None, **kwargs):
         """
         Generic product composed of meta, control, data and optionally idb, and energy information
 

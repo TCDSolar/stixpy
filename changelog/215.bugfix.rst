@@ -1,0 +1,1 @@
+Fixed `~stixpy.coordinates.transforms.get_hpc_info` not hitting the ephemeris cache for scalar point queries (each call re-ran a ``Fido`` search even when the day's file was already cached) and not hitting the cache for arrays of times either (the strict equality check raised on broadcast). Cache reads now use a nearest-row lookup with a configurable maximum distance.

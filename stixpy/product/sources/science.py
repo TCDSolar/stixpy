@@ -17,6 +17,7 @@ from sunpy.util import deprecated
 
 from stixpy.io.readers import read_subc_params
 from stixpy.product.product import L1Product
+from stixpy.utils.table import drop_fits_checksums
 
 __all__ = [
     "ScienceData",
@@ -660,13 +661,7 @@ class ScienceData(L1Product):
                 other.control["index"] = other.control["index"] + self_control_ind_max
                 other.data["control_index"] = other.data["control_index"] + self_control_ind_max
 
-                try:
-                    [
-                        (table.meta.pop("DATASUM"), table.meta.pop("CHECKSUM"))
-                        for table in [control, other.control, data, other.data]
-                    ]
-                except KeyError:
-                    pass
+                drop_fits_checksums(control, other.control, data, other.data)
 
                 control = vstack([control, other.control])
                 data = vstack([data, other.data])

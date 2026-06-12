@@ -50,26 +50,31 @@ def read_qtable(file, hdu, hdul=None):
     `astropy.table.QTable`
         The corrected QTable with correct data types
     """
-    if hdul is None:
+    own_hdul = hdul is None
+    if own_hdul:
         hdul = fits.open(file)
 
-    qtable = QTable.read(file, hdu)
+    try:
+        qtable = QTable.read(file, hdu)
 
-    for col in hdul[hdu].data.columns:
-        if col.unit:
-            logger.debug(f"Unit present dtype correction needed for {col}")
-            dtype = col.dtype
+        for col in hdul[hdu].data.columns:
+            if col.unit:
+                logger.debug(f"Unit present dtype correction needed for {col}")
+                dtype = col.dtype
 
-            if col.bzero:
-                logger.debug(f"Unit present dtype and bzero correction needed for {col}")
-                bits = np.log2(col.bzero)
-                if bits.is_integer():
-                    dtype = BITS_TO_UINT[int(bits + 1)]
+                if col.bzero:
+                    logger.debug(f"Unit present dtype and bzero correction needed for {col}")
+                    bits = np.log2(col.bzero)
+                    if bits.is_integer():
+                        dtype = BITS_TO_UINT[int(bits + 1)]
 
-            if hasattr(dtype, "subdtype"):
-                dtype = dtype.base
+                if hasattr(dtype, "subdtype"):
+                    dtype = dtype.base
 
-            qtable[col.name] = qtable[col.name].astype(dtype)
+                qtable[col.name] = qtable[col.name].astype(dtype)
+    finally:
+        if own_hdul:
+            hdul.close()
 
     return qtable
 
@@ -114,18 +119,30 @@ class ProductFactory(BasicRegistrationFactory):
             msg = f"Failed to read {fname}."
             raise OSError(msg) from e
 
-        if hdul[0].header.get("INSTRUME", "") != "STIX":
-            raise FileError(f"File '{fname}' is not a STIX fits file.")
+        try:
+            if hdul[0].header.get("INSTRUME", "") != "STIX":
+                raise FileError(f"File '{fname}' is not a STIX fits file.")
 
-        data = {"meta": hdul[0].header}
-        for name in ["CONTROL", "DATA", "IDB_VERSIONS", "ENERGIES"]:
-            try:
-                data[name.lower()] = read_qtable(fname, hdu=name)
-            except KeyError as e:
-                if name in ("IDB_VERSIONS", "ENERGIES"):
-                    logger.debug(f"Extension '{name}' not in file '{fname}'")
-                else:
-                    raise e
+            data = {"meta": hdul[0].header.copy()}
+
+            # determine extensions to load
+            # allow for just data extension if requested
+            if kwargs.get("data_only", False):
+                extensions = ["CONTROL", "DATA"]
+            # normally read all extensions
+            else:
+                extensions = ["CONTROL", "DATA", "IDB_VERSIONS", "ENERGIES"]
+
+            for name in extensions:
+                try:
+                    data[name.lower()] = read_qtable(fname, hdu=name, hdul=hdul)
+                except KeyError as e:
+                    if name in ("IDB_VERSIONS", "ENERGIES"):
+                        logger.debug(f"Extension '{name}' not in file '{fname}'")
+                    else:
+                        raise e
+        finally:
+            hdul.close()
 
         return [data]
 

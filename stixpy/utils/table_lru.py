@@ -31,6 +31,22 @@ class TableLRUCache:
 
     The cache knows nothing about ANC files, Fido, or daily file boundaries.
     Those concerns live in the fetcher / orchestrator layers.
+
+    Indexing
+    --------
+    The ``time`` column is kept sorted ascending (enforced by :meth:`put` and
+    :meth:`_prune`). A float mirror of it in unix seconds, ``_times_unix``, is
+    held alongside the table and refreshed by :meth:`_rebuild_index` whenever
+    the cache is rebuilt or re-sorted. Both query modes binary-search this
+    array with ``numpy.searchsorted`` (O(log n)) rather than scanning every
+    row (O(n)): ``get_point`` locates the insertion point and inspects only the
+    two straddling neighbours, while ``get_range`` resolves its window to a
+    contiguous index slice. Precise, leap-second-aware ``Time`` arithmetic is
+    then applied only to those few candidate rows. This makes the common usage
+    pattern — one bulk day-add followed by many queries against a large cache —
+    cheap; an astropy table index (``add_index``) is deliberately *not* used,
+    as it would be invalidated by the ``vstack``/``unique``/``sort`` in
+    :meth:`put` and does not serve nearest-neighbour or gap-aware range lookups.
     """
 
     def __init__(
@@ -77,6 +93,10 @@ class TableLRUCache:
         self.max_point_distance = max_point_distance
         self.max_gap = max_gap
         self.cache = QTable()
+        # Float (unix seconds) mirror of the sorted ``time`` column, kept in
+        # sync by ``_rebuild_index``. Enables O(log n) ``np.searchsorted``
+        # lookups instead of scanning every row on each query.
+        self._times_unix = np.empty(0, dtype=float)
         self.bypass_cache_read = False
 
     @property
@@ -87,10 +107,24 @@ class TableLRUCache:
     def clear(self) -> None:
         """Empty the cache."""
         self.cache = QTable()
+        self._rebuild_index()
         logger.info(f"{self.name}: Cleared LRU cache.")
 
     def __len__(self) -> int:
         return len(self.cache)
+
+    def _rebuild_index(self) -> None:
+        """
+        Refresh the binary-search lookup array from the cache.
+
+        Must be called whenever ``self.cache`` is rebuilt or re-sorted (i.e.
+        after :meth:`put` / :meth:`_prune` / :meth:`clear`). The ``time``
+        column is assumed sorted ascending, matching the cache invariant.
+        """
+        if len(self.cache) == 0:
+            self._times_unix = np.empty(0, dtype=float)
+        else:
+            self._times_unix = np.asarray(self.cache["time"].unix, dtype=float)
 
     def put(self, anc_data, *, source="unknown") -> None:
         """
@@ -108,6 +142,7 @@ class TableLRUCache:
         self.cache = unique(self.cache, keys=["time"], keep="last")
         self.cache.sort(keys=["time"])
         self._prune()
+        self._rebuild_index()
 
     def _prune(self) -> None:
         """Evict least-recently-used rows down to 80% of maxsize."""
@@ -116,6 +151,7 @@ class TableLRUCache:
             sorted_idx = self.cache.argsort(keys=["__lcu", "time"])
             self.cache = self.cache[sorted_idx[-int(self.maxsize * 0.8) :]]
             self.cache.sort(keys=["time"])
+            self._rebuild_index()
 
     def get_point(self, t: Time, *, _force: bool = False) -> QTable | None:
         """
@@ -144,13 +180,19 @@ class TableLRUCache:
         if len(self.cache) == 0 or (self.bypass_cache_read and not _force):
             return None
 
-        dt = np.abs((self.cache["time"] - t).to_value(u.s))
-        i = int(np.argmin(dt))
-        if dt[i] > self.max_point_distance.to_value(u.s):
+        # Binary search for the insertion point; the nearest row is one of the
+        # two straddling neighbours. Precise (leap-second aware) Time
+        # arithmetic is then done on at most those two rows.
+        pos = int(np.searchsorted(self._times_unix, t.unix))
+        cand = [j for j in (pos - 1, pos) if 0 <= j < len(self._times_unix)]
+        dt = np.abs((self.cache["time"][cand] - t).to_value(u.s))
+        k = int(np.argmin(dt))
+        i = cand[k]
+        if dt[k] > self.max_point_distance.to_value(u.s):
             return None
 
         self.cache["__lcu"][i] = datetime.now().timestamp()
-        logger.info(f"{self.name}: point hit for {t}, nearest row at {self.cache['time'][i]} (Δ={dt[i]:.2f} s).")
+        logger.info(f"{self.name}: point hit for {t}, nearest row at {self.cache['time'][i]} (Δ={dt[k]:.2f} s).")
         ret = self.cache[[i]].copy(copy_data=True)
         ret["__lcu"] = 1
         return ret
@@ -198,17 +240,21 @@ class TableLRUCache:
             return None
 
         times = self.cache["time"]
+        times_unix = self._times_unix
         max_gap_s = self.max_gap.to_value(u.s)
 
         # Coverage uses an expanded window so rows just outside [start, end]
         # can satisfy the bracket condition (essential for short queries).
-        expanded_mask = (times >= start - self.max_gap) & (times <= end + self.max_gap)
-        expanded_idx = np.flatnonzero(expanded_mask)
+        # Binary search bounds the window to a contiguous index slice rather
+        # than scanning every row.
+        lo = int(np.searchsorted(times_unix, (start - self.max_gap).unix, side="left"))
+        hi = int(np.searchsorted(times_unix, (end + self.max_gap).unix, side="right"))
+        expanded_idx = np.arange(lo, hi)
         if expanded_idx.size == 0:
             logger.info(f"{self.name}: no rows near [{start}, {end}] — not covered.")
             return None
 
-        expanded_times = times[expanded_idx]
+        expanded_times = times[lo:hi]
 
         left_dt = float(np.min(np.abs((expanded_times - start).to_value(u.s))))
         right_dt = float(np.min(np.abs((expanded_times - end).to_value(u.s))))
@@ -219,7 +265,7 @@ class TableLRUCache:
             return None
 
         if expanded_idx.size >= 2:
-            diffs = np.diff(expanded_times.unix)
+            diffs = np.diff(times_unix[lo:hi])
             if diffs.max() > max_gap_s:
                 logger.info(f"{self.name}: interior gap {diffs.max():.1f}s exceeds max_gap={max_gap_s}s — not covered.")
                 return None
@@ -229,10 +275,12 @@ class TableLRUCache:
             # Avoid `start - 0*u.s` arithmetic: it's not bit-equal to `start`
             # in astropy.Time, which would exclude rows lying exactly on the
             # boundary.
-            slice_mask = (times >= start - pad) & (times <= end + pad)
+            s_lo = int(np.searchsorted(times_unix, (start - pad).unix, side="left"))
+            s_hi = int(np.searchsorted(times_unix, (end + pad).unix, side="right"))
         else:
-            slice_mask = (times >= start) & (times <= end)
-        slice_idx = np.flatnonzero(slice_mask)
+            s_lo = int(np.searchsorted(times_unix, start.unix, side="left"))
+            s_hi = int(np.searchsorted(times_unix, end.unix, side="right"))
+        slice_idx = np.arange(s_lo, s_hi)
         if slice_idx.size == 0:
             # Very short range with no pad: fall back to the bracketing rows
             # so the caller still has something to interpolate from.

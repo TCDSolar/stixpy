@@ -1,0 +1,1 @@
+The internal ephemeris ``TableLRUCache`` now uses binary search (``numpy.searchsorted``) over the sorted ``time`` column for point and range lookups instead of scanning every cached row, speeding up the common pattern of many queries against a large cache. Internal change only; query semantics are unchanged.

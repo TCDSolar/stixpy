@@ -1,4 +1,22 @@
-"""I/O helpers shared across stixpy."""
+"""
+I/O helpers shared across stixpy.
+
+.. note::
+   :func:`is_valid_fits` is currently **not wired into any download path**.
+   Truncated downloads from the data server (under concurrent load) are handled at
+   the CI level by a clean-cache serial rerun of failed tests
+   (``tools/run_online_tests.py``). The helper and its tests are kept here on
+   purpose: if end-user (non-CI) resilience is wanted, reintroduce a validate +
+   re-download guard at the two download boundaries that read from the server —
+
+   * ``stixpy.product.product_factory.ProductFactory._parse_url``
+     (``cache.download(url, redownload=True)`` on corruption), and
+   * ``stixpy.coordinates._ephemeris_fetcher.fetch_ephemeris_for_range``
+     (``Fido.fetch(query["stix"], overwrite=True)`` on corruption).
+
+   Prefer an *on-error* redownload (try the read, redownload only if it fails) over
+   pre-validating every load, to avoid reading each file twice on the happy path.
+"""
 
 import warnings
 

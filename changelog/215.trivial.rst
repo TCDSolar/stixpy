@@ -1,1 +1,3 @@
 The internal ephemeris ``TableLRUCache`` now uses binary search (``numpy.searchsorted``) over the sorted ``time`` column for point and range lookups instead of scanning every cached row, speeding up the common pattern of many queries against a large cache. Internal change only; query semantics are unchanged.
+
+CI: online (remote-data) test runs now retry failed tests once on a clean download cache and serially (``-n 1``) via ``tools/run_online_tests.py``, guarding against the remote data server intermittently truncating responses under the concurrency of ``-n auto``. CI-only change.

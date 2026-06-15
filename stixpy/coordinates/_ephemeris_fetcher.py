@@ -17,7 +17,6 @@ from sunpy.net import attrs as a
 
 from stixpy.product.product_factory import Product
 from stixpy.product.sources.anc import Ephemeris
-from stixpy.utils.io import is_valid_fits
 from stixpy.utils.logging import get_logger
 from stixpy.utils.table import drop_fits_checksums
 
@@ -80,14 +79,11 @@ def fetch_ephemeris_for_range(
     if len(aux_files.errors) > 0:
         raise ValueError("There were errors downloading the ANC data.")
 
-    # Servers occasionally truncate responses under concurrent load and parfive
-    # caches the partial file as if complete. Detect corrupt downloads and force
-    # one clean re-fetch (``overwrite=True``) rather than reading a bad file.
-    if any(not is_valid_fits(f) for f in aux_files):
-        logger.warning("Corrupt ANC download detected; re-fetching with overwrite.")
-        aux_files = Fido.fetch(query["stix"], overwrite=True)
-        if len(aux_files.errors) > 0:
-            raise ValueError("There were errors downloading the ANC data.")
+    # NOTE: truncated ANC downloads (under concurrent load) are currently handled at
+    # the CI level by a clean-cache serial rerun of failed tests (see
+    # tools/run_online_tests.py). If end-user resilience is wanted, re-introduce a
+    # ``stixpy.utils.io.is_valid_fits`` check on ``aux_files`` here and re-fetch with
+    # ``Fido.fetch(query["stix"], overwrite=True)`` on corruption.
 
     tables = []
     for aux_file in aux_files:

@@ -43,18 +43,31 @@ def _is_remote_data_run(args):
     return any(a == "--remote-data" or a.startswith("--remote-data=") for a in args)
 
 
-def _strip_numprocesses(args):
-    """Drop any xdist ``-n``/``--numprocesses`` option so we can force serial."""
+def _strip_for_rerun(args):
+    """
+    Build the pytest args for the serial retry.
+
+    Drops two kinds of options:
+
+    * xdist ``-n``/``--numprocesses`` — so the retry runs serially, and
+    * all ``--cov*`` / ``--no-cov`` options — so the retry does **not** rewrite the
+      coverage report. The retry only reruns the few failed tests, so letting it
+      regenerate ``coverage.xml`` would collapse the reported project coverage. The
+      first (full) pass already wrote ``coverage.xml`` for the whole suite, including
+      the test that failed, so we simply leave that report untouched.
+    """
+    # Two-token options whose following value must also be dropped.
+    takes_value = {"-n", "--numprocesses", "--cov-report", "--cov-config"}
     out = []
     skip_next = False
     for a in args:
         if skip_next:
             skip_next = False
             continue
-        if a == "-n" or a == "--numprocesses":
-            skip_next = True  # also drop the following value (e.g. "auto")
+        if a in takes_value:
+            skip_next = True
             continue
-        if a.startswith("-n") and a != "-n" or a.startswith("--numprocesses="):
+        if a.startswith(("--cov", "--no-cov", "--numprocesses=")) or (a.startswith("-n") and a != "-n"):
             continue
         out.append(a)
     return out
@@ -90,7 +103,7 @@ def main(argv):
     )
     _clear_caches()
 
-    rerun_args = [*_strip_numprocesses(args), "--last-failed", "--cov-append", "-n", "1"]
+    rerun_args = [*_strip_for_rerun(args), "--last-failed", "-n", "1"]
     return _run(rerun_args)
 
 

@@ -20,6 +20,7 @@ from sunpy.util.functools import seconddispatch
 from sunpy.util.io import is_url, parse_path, possibly_a_path
 
 from stixpy.product.product import GenericProduct
+from stixpy.utils.io import is_valid_fits
 from stixpy.utils.logging import get_logger
 
 __all__ = ["Product", "ProductFactory"]
@@ -231,7 +232,20 @@ class ProductFactory(BasicRegistrationFactory):
     @_parse_arg.register(Request)
     def _parse_url(self, arg, **kwargs):
         url = arg.full_url
-        path = str(cache.download(url).absolute())
+        # Remote data servers occasionally truncate responses under concurrent
+        # load, and the partial file is cached as if complete. Validate the
+        # download and force a fresh copy (``redownload=True``) on corruption —
+        # a plain retry would just re-read the cached bad file.
+        attempts = 3
+        path = None
+        for attempt in range(attempts):
+            path = str(cache.download(url, redownload=attempt > 0).absolute())
+            if is_valid_fits(path):
+                break
+            logger.warning(
+                f"FITS from {url} appears truncated/corrupt (attempt {attempt + 1}/{attempts}); re-downloading."
+            )
+        # If still invalid, fall through so _read_file raises the detailed error.
         pairs = self._read_file(path, **kwargs)
         return pairs
 

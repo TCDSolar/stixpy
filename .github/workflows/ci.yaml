@@ -36,10 +36,7 @@ jobs:
       submodules: true
       coverage: codecov
       toxdeps: tox-pypi-filter
-      # TEMP DIAGNOSTIC: serial (-n 1) to test whether concurrent connections
-      # to the remote data server cause the intermittent truncated-FITS
-      # failures. Revert to "-n auto" once confirmed.
-      posargs: -n 1 --color=yes
+      posargs: -n auto --color=yes
       envs: |
         - linux: py313-online
     secrets:

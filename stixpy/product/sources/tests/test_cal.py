@@ -1,14 +1,17 @@
 """
 Tests for :mod:`stixpy.product.sources.cal`.
 
-Unit tests use the local FITS file under ``stixpy/data/`` for the product class,
-and monkey-patched ``Fido`` / ``Product`` / ``get_elut`` for the helper. The
-helper's strategy logic is exercised entirely offline; only the smoke
-``@pytest.mark.remote_data`` test goes to the network.
+Unit tests use the local FITS file under ``stixpy/data/`` for the product class.
+The file-selection helper ``find_energy_calibration_file_for_time`` is exercised
+entirely offline: the ``cal_env`` fixture mocks its four collaborators
+(``Fido.search`` / ``Fido.fetch``, ``get_elut``, ``_read_livetime`` and
+``Product``) with simple defaults, and each test overrides only the parts it
+needs. Only the ``@pytest.mark.remote_data`` smoke tests hit the network.
 """
 
 from types import SimpleNamespace
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -19,6 +22,7 @@ from sunpy.time import TimeRange
 
 from stixpy.data.test import STIX_CAL_ENERGY
 from stixpy.product import Product
+from stixpy.product.sources import cal
 from stixpy.product.sources.cal import (
     CalibrationProduct,
     EnergyCalibration,
@@ -85,7 +89,7 @@ def test_parse_cal_filename_raises_on_unmatched_name():
 
 
 # ---------------------------------------------------------------------------
-# Helper — Fido / Product / get_elut mocked
+# Helper — find_energy_calibration_file_for_time (collaborators mocked)
 # ---------------------------------------------------------------------------
 
 
@@ -94,284 +98,141 @@ def _make_filename(start: str, end: str, ver: int = 1) -> str:
     return f"solo_CAL_stix-cal-energy_{start}-{end}_V{ver:02d}.fits"
 
 
-class _FakeFidoQueryRow:
-    """
-    Stand-in for the ``Fido.search`` result table.
-
-    Each "row" is a dict with at least ``url``, ``Start Time``, ``End Time``
-    keys — matching the columns ``STIXClient.post_search_hook`` populates on
-    real searches. Supports iteration and ``[i:j]`` slicing (the helper uses
-    a single-row slice to fetch one candidate at a time).
-    """
-
-    def __init__(self, rows):
-        self._rows = list(rows)
-
-    def __len__(self):
-        return len(self._rows)
-
-    def __iter__(self):
-        return iter(self._rows)
-
-    def __getitem__(self, key):
-        if isinstance(key, slice):
-            return _FakeFidoQueryRow(self._rows[key])
-        if isinstance(key, int):
-            return self._rows[key]
-        raise TypeError(f"Unsupported key {key!r}")
+class _Rows(list):
+    """``Fido.search(...)["stix"]`` stand-in: row dicts plus the
+    ``filter_for_latest_version`` no-op the helper calls."""
 
     def filter_for_latest_version(self, *args, **kwargs):
-        return None  # no-op for our tests
+        pass
 
 
-class _FakeFidoResults:
-    def __init__(self, rows):
-        self._rows = list(rows)
+class _Fetched(list):
+    """``Fido.fetch(...)`` stand-in: the downloaded paths, with no errors."""
 
-    def __getitem__(self, key):
-        if key == "stix":
-            return _FakeFidoQueryRow(self._rows)
-        raise KeyError(key)
-
-
-class _FakeFetchResults(list):
     errors = ()
 
 
-class _FakeFido:
-    """Captures search args; returns a fetch result containing the rows' urls."""
-
-    def __init__(self, rows):
-        self._rows = list(rows)
-
-    def search(self, *args, **kwargs):
-        return _FakeFidoResults(self._rows)
-
-    def fetch(self, query, **kwargs):
-        # ``query`` is a sliced (or full) _FakeFidoQueryRow — download is the
-        # urls of whatever rows it contains.
-        return _FakeFetchResults([r["url"] for r in query._rows])
-
-
-class _FakeEnergyCalibration(EnergyCalibration):
-    """
-    Test stand-in built once at module scope so only a single subclass is
-    registered with the Product factory. ``is_datasource_for`` overridden to
-    never claim — the factory must still dispatch real CAL FITS files to the
-    real `~stixpy.product.sources.cal.EnergyCalibration`.
-    """
-
-    def __init__(self, *, ob_elut_name):
-        self._ob_elut_name = ob_elut_name
-
-    @property  # type: ignore[misc]
-    def ob_elut_name(self) -> str:  # type: ignore[override]
-        return self._ob_elut_name
-
-    @classmethod
-    def is_datasource_for(cls, *, meta, **kwargs):
-        return False
-
-
-def _rows_for(paths):
-    """Build row dicts mirroring real STIXClient post-processed results."""
-    rows = []
-    for p in paths:
-        start, end = _parse_cal_filename(Path(p).name)
-        rows.append({"url": str(p), "Start Time": start, "End Time": end})
-    return rows
-
-
-class _FakeHDU:
-    """Minimal stand-in for `fits.open(url, use_fsspec=True)[0]`."""
-
-    def __init__(self, livetime_seconds: float):
-        self.header = {"LIVETIME": livetime_seconds}
-
-
-class _FakeHDUList:
-    """Context-manager stand-in for an open HDUList."""
-
-    def __init__(self, livetime_seconds: float):
-        self._hdu = _FakeHDU(livetime_seconds)
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *exc):
-        return False
-
-    def __getitem__(self, key):
-        if key == 0:
-            return self._hdu
-        raise IndexError(key)
-
-
-def _default_livetime(_path):
-    """LIVETIME comfortably above the default 30 ks threshold."""
-    return 50_000.0
+def _row(path):
+    """A search-result row mirroring the columns ``STIXClient`` populates."""
+    start, end = _parse_cal_filename(Path(path).name)
+    return {"url": str(path), "Start Time": start, "End Time": end}
 
 
 @pytest.fixture
-def mocks_factory(monkeypatch):
+def cal_env(monkeypatch):
     """
-    Returns a callable ``(paths, *, elut_name, file_elut_names=None,
-    ob_elut_per_path=None, livetime_for=None, fetch_recorder=None,
-    fits_open_recorder=None)`` that installs the mocks for the helper.
+    Mock the four collaborators of ``find_energy_calibration_file_for_time`` and
+    return a handle each test tweaks for only what it needs:
 
-    - ``elut_name`` is what ``get_elut`` returns by default (the flare-time
-      lookup and, unless overridden, every file-start lookup).
-    - ``file_elut_names`` is a ``{Path: str}`` mapping; if given, the
-      ``get_elut`` mock returns the per-path ELUT name when called with
-      that path's start time. Used to simulate ELUT-mismatch cases.
-    - ``ob_elut_per_path`` controls the on-board ELUT name returned by the
-      Product loader called for the *final* sanity check. Defaults to the
-      same value as ``elut_name`` so the post-download check is silent.
-    - ``livetime_for`` is a callable ``Path -> float`` (LIVETIME seconds)
-      consulted by the patched ``fits.open(..., use_fsspec=True)``. Default
-      returns 50_000 s for every path (above the 30 ks default threshold).
-    - ``fetch_recorder`` / ``fits_open_recorder``: optional list-like
-      collectors that capture each Fido.fetch / fits.open call for tests
-      that need to assert call counts or argument shape.
+    * ``files`` — paths the Fido search "finds".
+    * ``elut_name`` — ELUT entry name returned for every time (default constant).
+    * ``elut_overrides`` — ``{path: name}`` to return a *different* ELUT entry for
+      that file's start time (to simulate an ELUT mismatch).
+    * ``livetime_of`` — ``callable(Path) -> seconds`` (default 50 ks, above the
+      30 ks threshold).
+
+    Recorders ``searches`` / ``fetches`` / ``livetime_reads`` capture calls for
+    count and argument assertions.
     """
-    FakeCal = _FakeEnergyCalibration
+    env = SimpleNamespace(
+        files=[],
+        elut_name="elut_table_20230101",
+        elut_overrides={},
+        livetime_of=lambda path: 50_000.0,
+        searches=[],
+        fetches=[],
+        livetime_reads=[],
+    )
 
-    def install(
-        paths,
-        *,
-        elut_name,
-        file_elut_names=None,
-        ob_elut_per_path=None,
-        livetime_for=None,
-        fetch_recorder=None,
-        fits_open_recorder=None,
-        search_recorder=None,
-    ):
-        if ob_elut_per_path is None:
-            ob_elut_per_path = {p: elut_name for p in paths}
-        if livetime_for is None:
-            livetime_for = _default_livetime
-        # Map each file's start Time to its ELUT name for the get_elut mock.
-        start_to_elut: dict = {}
-        if file_elut_names is not None:
-            for p, name in file_elut_names.items():
-                start_to_elut[_parse_cal_filename(Path(p).name)[0]] = name
+    def fake_search(*args, **kwargs):
+        env.searches.append((args, kwargs))
+        return {"stix": _Rows(_row(p) for p in env.files)}
 
-        fake_fido = _FakeFido(_rows_for(paths))
+    def fake_fetch(query, **kwargs):
+        env.fetches.append(query)
+        return _Fetched(row["url"] for row in query)
 
-        # Optional spies on _FakeFido's call surface.
-        if search_recorder is not None or fetch_recorder is not None:
-            original_search = fake_fido.search
-            original_fetch = fake_fido.fetch
+    def fake_get_elut(t):
+        t = Time(t)
+        for path, name in env.elut_overrides.items():
+            file_start = _parse_cal_filename(Path(path).name)[0]
+            if abs((t - file_start).sec) < 1e-3:
+                return SimpleNamespace(file=f"{name}.csv")
+        return SimpleNamespace(file=f"{env.elut_name}.csv")
 
-            def _search(*args, **kwargs):
-                if search_recorder is not None:
-                    search_recorder.append((args, kwargs))
-                return original_search(*args, **kwargs)
+    def fake_read_livetime(url):
+        env.livetime_reads.append(url)
+        return env.livetime_of(Path(url)) * u.s
 
-            def _fetch(query, **kwargs):
-                if fetch_recorder is not None:
-                    fetch_recorder.append(query)
-                return original_fetch(query, **kwargs)
-
-            fake_fido.search = _search
-            fake_fido.fetch = _fetch
-
-        monkeypatch.setattr("stixpy.product.sources.cal.Fido", fake_fido)
-
-        def get_elut_mock(t):
-            for ref_t, name in start_to_elut.items():
-                if abs((Time(t) - ref_t).sec) < 1e-3:
-                    return SimpleNamespace(file=f"{name}.csv")
-            return SimpleNamespace(file=f"{elut_name}.csv")
-
-        monkeypatch.setattr("stixpy.calibration.energy.get_elut", get_elut_mock)
-        monkeypatch.setattr(
-            "stixpy.product.product_factory.Product",
-            lambda path: FakeCal(ob_elut_name=ob_elut_per_path[Path(path)]),
-        )
-
-        def fake_fits_open(url, *args, **kwargs):
-            if fits_open_recorder is not None:
-                fits_open_recorder.append((url, kwargs))
-            # Map url back to a path. Mocks set url = str(Path).
-            return _FakeHDUList(livetime_for(Path(url)))
-
-        monkeypatch.setattr("stixpy.product.sources.cal.fits.open", fake_fits_open)
-        return paths
-
-    return install
+    monkeypatch.setattr(cal, "Fido", SimpleNamespace(search=fake_search, fetch=fake_fetch))
+    monkeypatch.setattr(cal, "_read_livetime", fake_read_livetime)
+    monkeypatch.setattr("stixpy.calibration.energy.get_elut", fake_get_elut)
+    # The post-download sanity check loads the file; return a non-EnergyCalibration
+    # object so that block (and its warning, not under test here) is skipped.
+    monkeypatch.setattr("stixpy.product.product_factory.Product", lambda path: object())
+    return env
 
 
-def test_find_energy_calibration_no_files_raises(mocks_factory):
-    mocks_factory([], elut_name="elut_table_20230101")
+def test_find_energy_calibration_no_files_raises(monkeypatch):
+    # Empty search result -> the helper raises before touching any other
+    # collaborator, so just mock Fido.search to return no rows.
+    monkeypatch.setattr(cal, "Fido", SimpleNamespace(search=lambda *args, **kwargs: {"stix": []}))
     with pytest.raises(ValueError, match="No calibration files found"):
         find_energy_calibration_file_for_time(Time("2023-01-02T12:00:00"))
 
 
-def test_find_energy_calibration_no_elut_match_raises(mocks_factory):
-    # get_elut returns a different entry for the file's start time vs the
-    # flare time — the strategy must drop the candidate.
-    paths = [Path(_make_filename("20230101T000000", "20230102T000000"))]
-    mocks_factory(
-        paths,
-        elut_name="elut_table_20230101",
-        file_elut_names={paths[0]: "elut_table_20990101"},
-    )
+def test_find_energy_calibration_no_elut_match_raises(cal_env):
+    # get_elut returns a different entry for the file's start time vs the flare
+    # time, so the strategy drops the candidate.
+    path = Path(_make_filename("20230101T000000", "20230102T000000"))
+    cal_env.files = [path]
+    cal_env.elut_overrides = {path: "elut_table_20990101"}
     with pytest.raises(ValueError, match="ELUT mismatch"):
         find_energy_calibration_file_for_time(Time("2023-01-01T12:00:00"))
 
 
-def test_find_energy_calibration_no_long_enough_files_raises(mocks_factory):
-    # Only a 1-hour file — below the 12-h threshold.
-    paths = [Path(_make_filename("20230101T000000", "20230101T010000"))]
-    mocks_factory(paths, elut_name="elut_table_20230101")
+def test_find_energy_calibration_no_long_enough_files_raises(cal_env):
+    # Only a 1-hour file — below the minimum duration.
+    cal_env.files = [Path(_make_filename("20230101T000000", "20230101T010000"))]
     with pytest.raises(ValueError, match="duration"):
         find_energy_calibration_file_for_time(Time("2023-01-01T12:00:00"))
 
 
-def test_find_energy_calibration_picks_closest_mid_time(mocks_factory):
-    paths = [
-        Path(_make_filename("20230101T000000", "20230102T000000")),  # mid 12:00
-        Path(_make_filename("20230102T000000", "20230103T000000")),  # mid 12:00 next day
-        Path(_make_filename("20230103T000000", "20230104T000000")),  # mid 12:00 day-after
+def test_find_energy_calibration_picks_closest_mid_time(cal_env):
+    cal_env.files = [
+        Path(_make_filename("20230101T000000", "20230102T000000")),  # mid 12:00 day 1
+        Path(_make_filename("20230102T000000", "20230103T000000")),  # mid 12:00 day 2
+        Path(_make_filename("20230103T000000", "20230104T000000")),  # mid 12:00 day 3
     ]
-    mocks_factory(paths, elut_name="elut_table_20230101")
     result = find_energy_calibration_file_for_time(Time("2023-01-02T13:00:00"))
-    assert result == paths[1]
+    assert result == cal_env.files[1]
 
 
-def test_find_energy_calibration_accepts_scalar_time(mocks_factory):
-    paths = [Path(_make_filename("20230101T000000", "20230102T000000"))]
-    mocks_factory(paths, elut_name="elut_table_20230101")
+def test_find_energy_calibration_accepts_scalar_time(cal_env):
+    cal_env.files = [Path(_make_filename("20230101T000000", "20230102T000000"))]
     result = find_energy_calibration_file_for_time(Time("2023-01-01T12:00:00"))
-    assert result == paths[0]
+    assert result == cal_env.files[0]
 
 
-def test_find_energy_calibration_accepts_time_range(mocks_factory):
-    # Two equally eligible files; t_mid (computed from range mid) breaks the tie
-    # towards the file whose mid is closest to the flare midpoint.
-    paths = [
+def test_find_energy_calibration_accepts_time_range(cal_env):
+    # Two equally eligible files; the range mid-time breaks the tie towards the
+    # file whose mid is closest to the flare midpoint.
+    cal_env.files = [
         Path(_make_filename("20230101T000000", "20230102T000000")),  # cal mid 12:00 day 1
         Path(_make_filename("20230102T000000", "20230103T000000")),  # cal mid 12:00 day 2
     ]
-    mocks_factory(paths, elut_name="elut_table_20230101")
-    # Flare range mid = 2023-01-02T01:00:00 → closer to day-2 cal (mid 12:00)
-    # than day-1 cal (mid 12:00 = 13 hours away).
+    # Flare range mid = 2023-01-02T01:00:00 → closer to day-2 cal.
     flare = [Time("2023-01-02T00:30:00"), Time("2023-01-02T01:30:00")]
     result = find_energy_calibration_file_for_time(flare)
-    assert result == paths[1]
+    assert result == cal_env.files[1]
 
 
-def test_find_energy_calibration_range_uses_start_for_lookup(mocks_factory):
-    # Even if mid lands in a different calendar day, the ELUT lookup uses
-    # the range start. Construct a range crossing midnight and verify the
-    # 3-day Fido search window is built around the START's day.
-    paths = [Path(_make_filename("20230101T000000", "20230102T000000"))]
-    mocks_factory(paths, elut_name="elut_table_20230101")
+def test_find_energy_calibration_range_uses_start_for_lookup(cal_env):
+    # A range crossing midnight: the lookup uses the range start's day.
+    cal_env.files = [Path(_make_filename("20230101T000000", "20230102T000000"))]
     flare = [Time("2023-01-01T23:00:00"), Time("2023-01-02T01:00:00")]
     result = find_energy_calibration_file_for_time(flare)
-    assert result == paths[0]
+    assert result == cal_env.files[0]
 
 
 # ---------------------------------------------------------------------------
@@ -379,124 +240,95 @@ def test_find_energy_calibration_range_uses_start_for_lookup(mocks_factory):
 # ---------------------------------------------------------------------------
 
 
-def test_find_energy_calibration_livetime_pass_top_candidate(mocks_factory):
-    """Top-ranked candidate has plenty of LIVETIME -> returned immediately,
-    only one Fido.fetch + one fits.open call."""
-    paths = [
+def test_find_energy_calibration_livetime_pass_top_candidate(cal_env):
+    """Top-ranked candidate has plenty of LIVETIME -> returned immediately, with
+    only one Fido.fetch and one LIVETIME read."""
+    cal_env.files = [
         Path(_make_filename("20230101T000000", "20230102T000000")),
         Path(_make_filename("20230102T000000", "20230103T000000")),
     ]
-    fetch_recorder: list = []
-    fits_open_recorder: list = []
-    mocks_factory(
-        paths,
-        elut_name="elut_table_20230101",
-        livetime_for=lambda _p: 50_000.0,  # well above the 30 ks default
-        fetch_recorder=fetch_recorder,
-        fits_open_recorder=fits_open_recorder,
-    )
-    # Flare mid = noon Jan 2 → closest to paths[1] (mid Jan 2 noon).
+    # Flare mid = noon Jan 2 → closest to files[1] (mid Jan 2 noon).
     result = find_energy_calibration_file_for_time(Time("2023-01-02T12:00:00"))
-    assert result == paths[1]
-    assert len(fetch_recorder) == 1  # only the winner downloaded
-    assert len(fits_open_recorder) == 1  # only the winner's header peeked
+    assert result == cal_env.files[1]
+    assert len(cal_env.fetches) == 1  # only the winner downloaded
+    assert len(cal_env.livetime_reads) == 1  # only the winner's header peeked
 
 
-def test_find_energy_calibration_livetime_walks_back_on_fail(mocks_factory):
+def test_find_energy_calibration_livetime_walks_back_on_fail(cal_env):
     """Top-ranked candidate fails LIVETIME, next-ranked passes."""
-    paths = [
+    cal_env.files = [
         Path(_make_filename("20230101T000000", "20230102T000000")),  # mid Jan 1 noon
         Path(_make_filename("20230102T000000", "20230103T000000")),  # mid Jan 2 noon
     ]
-    # Closest to noon Jan 2 = paths[1]. Make it fail; paths[0] passes.
-    lifetimes = {paths[1]: 1_000.0, paths[0]: 50_000.0}
-    mocks_factory(
-        paths,
-        elut_name="elut_table_20230101",
-        livetime_for=lambda p: lifetimes[p],
-    )
+    # Closest to noon Jan 2 = files[1]. Make it fail; files[0] passes.
+    lifetimes = {cal_env.files[1]: 1_000.0, cal_env.files[0]: 50_000.0}
+    cal_env.livetime_of = lambda path: lifetimes[path]
     result = find_energy_calibration_file_for_time(Time("2023-01-02T13:00:00"))
-    assert result == paths[0]
+    assert result == cal_env.files[0]
 
 
-def test_find_energy_calibration_livetime_all_fail_raises(mocks_factory):
-    paths = [
+def test_find_energy_calibration_livetime_all_fail_raises(cal_env):
+    cal_env.files = [
         Path(_make_filename("20230101T000000", "20230102T000000")),
         Path(_make_filename("20230102T000000", "20230103T000000")),
     ]
-    mocks_factory(
-        paths,
-        elut_name="elut_table_20230101",
-        livetime_for=lambda _p: 100.0,  # 100 s << 30 ks default
-    )
+    cal_env.livetime_of = lambda path: 100.0  # 100 s << 30 ks default
     with pytest.raises(ValueError, match="LIVETIME threshold"):
         find_energy_calibration_file_for_time(Time("2023-01-02T12:00:00"))
 
 
-def test_find_energy_calibration_livetime_custom_threshold(mocks_factory):
+def test_find_energy_calibration_livetime_custom_threshold(cal_env):
     """min_livetime override rejects an otherwise-default-passing file."""
-    paths = [Path(_make_filename("20230101T000000", "20230102T000000"))]
-    mocks_factory(
-        paths,
-        elut_name="elut_table_20230101",
-        livetime_for=lambda _p: 40_000.0,  # passes default (30 ks)
-    )
+    cal_env.files = [Path(_make_filename("20230101T000000", "20230102T000000"))]
+    cal_env.livetime_of = lambda path: 40_000.0  # passes the 30 ks default
     # Bump the bar above 40 ks → no candidates remain.
     with pytest.raises(ValueError, match="LIVETIME threshold"):
-        find_energy_calibration_file_for_time(
-            Time("2023-01-01T12:00:00"),
-            min_livetime=50_000 * u.s,
-        )
+        find_energy_calibration_file_for_time(Time("2023-01-01T12:00:00"), min_livetime=50_000 * u.s)
 
 
-def test_find_energy_calibration_window_uses_module_defaults(mocks_factory):
+def test_find_energy_calibration_window_uses_module_defaults(cal_env):
     """The Fido query window matches the module-level default window."""
-    from stixpy.product.sources.cal import _DEFAULT_WINDOW_FUTURE, _DEFAULT_WINDOW_PAST
-
-    paths = [Path(_make_filename("20230101T000000", "20230102T000000"))]
-    search_recorder: list = []
-    mocks_factory(
-        paths,
-        elut_name="elut_table_20230101",
-        search_recorder=search_recorder,
-    )
-    # We don't care about the return value here, only the search args.
+    cal_env.files = [Path(_make_filename("20230101T000000", "20230102T000000"))]
     find_energy_calibration_file_for_time(Time("2023-01-15T12:00:00"))
-    # Inspect the first positional arg of the search call — it's a.Time(...)
-    # with .start / .end attributes.
-    args, _ = search_recorder[0]
+    # The first positional search arg is a.Time(...) with .start / .end.
+    args, _ = cal_env.searches[0]
     time_attr = args[0]
     day_midnight = Time("2023-01-15T00:00:00")
-    assert Time(time_attr.start).isclose(day_midnight - _DEFAULT_WINDOW_PAST)
+    assert Time(time_attr.start).isclose(day_midnight - cal._DEFAULT_WINDOW_PAST)
     # Closing bound = day + window_future + 1 day (exclusive).
-    assert Time(time_attr.end).isclose(day_midnight + _DEFAULT_WINDOW_FUTURE + 1 * u.day)
+    assert Time(time_attr.end).isclose(day_midnight + cal._DEFAULT_WINDOW_FUTURE + 1 * u.day)
 
 
-def test_find_energy_calibration_livetime_via_fsspec_range_read(mocks_factory):
-    """The LIVETIME walk uses fits.open(url, use_fsspec=True) — no Fido.fetch
-    on rejected candidates."""
-    paths = [
+def test_find_energy_calibration_downloads_only_winner(cal_env):
+    """The LIVETIME walk inspects candidates in rank order and downloads only the
+    winner: top-ranked fails, second-ranked passes -> two header reads, one fetch."""
+    cal_env.files = [
         Path(_make_filename("20230101T000000", "20230102T000000")),
         Path(_make_filename("20230102T000000", "20230103T000000")),
     ]
-    fits_open_recorder: list = []
-    fetch_recorder: list = []
-    # First-ranked fails, second-ranked passes.
-    lifetimes = {paths[1]: 100.0, paths[0]: 50_000.0}
-    mocks_factory(
-        paths,
-        elut_name="elut_table_20230101",
-        livetime_for=lambda p: lifetimes[p],
-        fits_open_recorder=fits_open_recorder,
-        fetch_recorder=fetch_recorder,
-    )
+    # First-ranked (closest to noon Jan 2) fails, second-ranked passes.
+    lifetimes = {cal_env.files[1]: 100.0, cal_env.files[0]: 50_000.0}
+    cal_env.livetime_of = lambda path: lifetimes[path]
     find_energy_calibration_file_for_time(Time("2023-01-02T13:00:00"))
-    # fits.open was called twice (one per candidate inspected), with
-    # use_fsspec=True; Fido.fetch only once (the winning candidate).
-    assert len(fits_open_recorder) == 2
-    for _url, kwargs in fits_open_recorder:
-        assert kwargs.get("use_fsspec") is True
-    assert len(fetch_recorder) == 1
+    assert len(cal_env.livetime_reads) == 2  # one per inspected candidate
+    assert len(cal_env.fetches) == 1  # only the winning candidate downloaded
+
+
+def test_read_livetime_uses_fsspec_range_read(monkeypatch):
+    """``_read_livetime`` opens the file with ``use_fsspec=True`` (an HTTP Range
+    read of the header) and returns LIVETIME in seconds."""
+    captured = {}
+
+    def fake_open(url, *args, **kwargs):
+        captured["kwargs"] = kwargs
+        cm = MagicMock()
+        cm.__enter__.return_value = [MagicMock(header={"LIVETIME": 42.0})]
+        return cm
+
+    monkeypatch.setattr(cal.fits, "open", fake_open)
+    livetime = cal._read_livetime("https://example/cal.fits")
+    assert livetime == 42.0 * u.s
+    assert captured["kwargs"].get("use_fsspec") is True
 
 
 # ---------------------------------------------------------------------------

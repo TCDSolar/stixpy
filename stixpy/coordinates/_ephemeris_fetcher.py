@@ -79,10 +79,10 @@ def fetch_ephemeris_for_range(
     if len(aux_files.errors) > 0:
         raise ValueError("There were errors downloading the ANC data.")
 
-    # NOTE: truncated ANC downloads (under concurrent load) are currently handled at
-    # the CI level by a clean-cache serial rerun of failed tests (see
-    # tools/run_online_tests.py). If end-user resilience is wanted, re-introduce a
-    # ``stixpy.utils.io.is_valid_fits`` check on ``aux_files`` here and re-fetch with
+    # NOTE: the data server truncates large FITS responses under concurrent load;
+    # CI sidesteps this by running the online tests serially (``-n 1``, see tox.ini).
+    # If end-user resilience is wanted, re-introduce a ``stixpy.utils.io.is_valid_fits``
+    # check on ``aux_files`` here and re-fetch with
     # ``Fido.fetch(query["stix"], overwrite=True)`` on corruption.
 
     tables = []

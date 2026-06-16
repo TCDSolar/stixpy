@@ -3,11 +3,11 @@ I/O helpers shared across stixpy.
 
 .. note::
    :func:`is_valid_fits` is currently **not wired into any download path**.
-   Truncated downloads from the data server (under concurrent load) are handled at
-   the CI level by a clean-cache serial rerun of failed tests
-   (``tools/run_online_tests.py``). The helper and its tests are kept here on
-   purpose: if end-user (non-CI) resilience is wanted, reintroduce a validate +
-   re-download guard at the two download boundaries that read from the server —
+   The data server truncates large FITS responses under concurrent load; CI
+   sidesteps this by running the online tests serially (``-n 1``, see tox.ini).
+   The helper and its tests are kept here on purpose: if end-user (non-CI)
+   resilience is wanted, reintroduce a validate + re-download guard at the two
+   download boundaries that read from the server —
 
    * ``stixpy.product.product_factory.ProductFactory._parse_url``
      (``cache.download(url, redownload=True)`` on corruption), and

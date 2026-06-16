@@ -36,7 +36,10 @@ jobs:
       submodules: true
       coverage: codecov
       toxdeps: tox-pypi-filter
-      posargs: -n auto --color=yes
+      # No `-n auto` here: the online env forces `-n 1` (serial) in tox.ini to
+      # avoid the data server truncating concurrent FITS downloads. Passing
+      # `-n auto` would override that.
+      posargs: --color=yes
       envs: |
         - linux: py313-online
     secrets:

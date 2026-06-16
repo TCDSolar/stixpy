@@ -231,11 +231,11 @@ class ProductFactory(BasicRegistrationFactory):
     @_parse_arg.register(Request)
     def _parse_url(self, arg, **kwargs):
         url = arg.full_url
-        # NOTE: truncated downloads from the data server (under concurrent load) are
-        # currently handled at the CI level by a clean-cache serial rerun of failed
-        # tests (see tools/run_online_tests.py). If end-user resilience is wanted,
-        # re-introduce a validate + re-download guard here using
-        # ``stixpy.utils.io.is_valid_fits`` and ``cache.download(url, redownload=True)``.
+        # NOTE: the data server truncates large FITS responses under concurrent
+        # load; CI sidesteps this by running the online tests serially (``-n 1``,
+        # see tox.ini). If end-user resilience is wanted, re-introduce a validate +
+        # re-download guard here using ``stixpy.utils.io.is_valid_fits`` and
+        # ``cache.download(url, redownload=True)``.
         path = str(cache.download(url).absolute())
         pairs = self._read_file(path, **kwargs)
         return pairs

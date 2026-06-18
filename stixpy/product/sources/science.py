@@ -1255,12 +1255,12 @@ class ScienceData(L1Product):
 
         e_high = np.array(energies["e_high"])
 
-        e_high = e_high[~np.isnan(e_high)]
+        # e_high = e_high[~np.isnan(e_high)]
 
         # e_index = np.where((ph_energies >= e_low[0]) &
         #                        (ph_energies <= e_high[-1]) )[0]
 
-        if e_high[-1] == 150:
+        if e_high[-2] == 150:
             e_edges = e_low
             ct_e_diff = np.diff(e_edges)
         else:

@@ -104,7 +104,6 @@ def stx_estimate_flare_location(cpd_sci, time_range, energy_range=None, plot=Fal
 
     # only use subcolimators 7 - 10
     vis10_7 = cal_vis[idx]
-    
 
     # set up image size
     imsize = [512, 512] * u.pixel  

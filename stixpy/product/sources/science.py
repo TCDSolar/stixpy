@@ -12,7 +12,7 @@ from sunkit_spex.spectrum.spectrum import SpectralAxis, Spectrum
 from sunkit_spex.spectrum.uncertainty import PoissonUncertainty
 
 import astropy.units as u
-from astropy.table import QTable, vstack
+from astropy.table import QTable, vstack, Table
 from astropy.time import Time
 from astropy.visualization import quantity_support
 
@@ -1240,11 +1240,19 @@ class ScienceData(L1Product):
 
     def get_masked_srm(self, flare_location):
 
-        PATH_DRM = "/home/jmitchell/software/stixpy-dev/stixpy/config/data/detector/"
-        drm = np.load(PATH_DRM + "stx_drm_energy.npz")["data"]
-        ph_energies = np.load(PATH_DRM + "stx_ph_edges.npy")
-        ct_energies = np.load(PATH_DRM + "stx_ct_edges.npy")
+        # PATH_DRM = "/home/jmitchell/software/stixpy-dev/stixpy/config/data/detector/"
+        # drm = np.load(PATH_DRM + "stx_drm_energy.npz")["data"]
+        # ph_energies = np.load(PATH_DRM + "stx_ph_edges.npy")
+        # ct_energies = np.load(PATH_DRM + "stx_ct_edges.npy")
 
+        HERE = Path(__file__).parent          
+        ROOT = HERE.parent.parent            
+        PATH_DRM = ROOT / "config" / "data" / "detector" / 'stx_detector_response_matrix.fits.gz'
+
+        drm = np.array(Table.read(PATH_DRM,hdu=1)['DRM'])
+        ph_energies = np.array(Table.read(PATH_DRM,hdu=2)['DRM'])
+        ct_energies = np.array(Table.read(PATH_DRM,hdu=3)['DRM'])
+    
         # max_stix = estimate_flare_location(self,time_range)
 
         energies = self.energies

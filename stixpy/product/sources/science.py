@@ -498,7 +498,7 @@ class ScienceData(L1Product):
 
         if livefrac_error is not None:
         
-            counts_var_lvtcorr = np.sqrt(((counts_var/livefrac).value**2) + (livefrac_error.value**2))
+            counts_var_lvtcorr = np.sqrt(((counts_var**2).value) + (livefrac_error.value**2))
 
             return counts_var_lvtcorr * u.ct
         
@@ -683,6 +683,8 @@ class ScienceData(L1Product):
                     counts_var = np.sum(counts_var, axis=0, keepdims=True)
                     t_norm = np.sum(dt)
     
+        print('var shape check = ',counts_var.shape)
+        print('cts shape check = ',counts.shape)
         
         return counts, counts_var, t_norm, e_norm, livefrac, livefrac_error, elut_cor_fac, times, energies
     
@@ -704,7 +706,8 @@ class ScienceData(L1Product):
             counts_var = (product.data["counts_comp_err"].value ** 2)*u.ct
         except KeyError:
             counts_var =  (product.data["counts_comp_comp_err"].value ** 2)*u.ct
-
+        
+        counts_var = np.sqrt(counts + counts_var) 
 
         t_norm = product.data["timedel"]
         times = product.times
@@ -712,6 +715,7 @@ class ScienceData(L1Product):
         
         counts_var = ScienceData._livetime_uncertainty(counts_var,livefrac,livefrac_error)    
 
+        np.save('count_err_check_new.npy', counts_var.value)
 
         e_norm_bkg = bkg.dE[energy_indices_bkg]
         counts_bkg = bkg.data["counts"]
@@ -721,11 +725,10 @@ class ScienceData(L1Product):
             counts_var_bkg = bkg.data["counts_comp_comp_err"] ** 2
 
         counts_var_bkg = ScienceData._livetime_uncertainty(counts_var_bkg,livefrac_bkg,livefrac_error_bkg) 
-        
+
         counts_bkg = counts_bkg[:,detector_indices_bkg,:,:]
         counts_bkg = counts_bkg[:,:,pixel_indices_bkg,:]
         counts_bkg = counts_bkg[:,:,:,energy_indices_bkg]
-
 
         counts_var_bkg = counts_var_bkg[:,detector_indices_bkg,:,:]
         counts_var_bkg = counts_var_bkg[:,:,pixel_indices_bkg,:]
@@ -781,10 +784,10 @@ class ScienceData(L1Product):
         count_rate_lvtcorr_bkg = counts_lvtcorr_bkg / t_norm_bkg.mean()
         count_lvtcorr_scaled_bkg = t_norm.reshape(len(t_norm), 1,1,1) * count_rate_lvtcorr_bkg
 
-
         counts_var_lvtcorr = (counts_var[...,:] * elut_cor_fac) / livefrac
         
         counts_var_lvtcorr_bkg = (counts_var_bkg / livefrac_bkg)[...,:] * elut_cor_fac
+        # counts_var_lvtcorr_bkg = (counts_var_bkg)[...,:] 
         counts_var_lvtcorr_scaled_bkg = (counts_var_lvtcorr_bkg/ t_norm_bkg.mean()) * t_norm.reshape(len(t_norm), 1,1,1)
 
 
@@ -813,19 +816,38 @@ class ScienceData(L1Product):
             spec_in_err = spec_in_err[..., :-1]
             energies = energies[:-1]            
 
+        # top24 = np.array([0, 1, 2, 3, 4, 5, 6, 7, 13, 14, 15, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31])
+        
+        # eff_livefrac = spec_in_lvt[:,top24,:,:].sum(axis=(1,2,3)) / spec_in_corr_lvt[:,top24,:,:].sum(axis=(1,2,3)) 
 
-        eff_livefrac = spec_in_lvt.sum(axis=(3)) / spec_in_corr_lvt.sum(axis=(3)) 
+        eff_livefrac = np.nansum(spec_in_lvt,axis=(3)) /  np.nansum(spec_in_corr_lvt,axis=(3)) 
+
+        # spec_in_err_det_pix =  np.sqrt((spec_in_err[:,top24,:,:]**2).sum(axis=(1,2)))
 
         print(np.shape(spec_in_corr))
         print(np.shape(spec_in_err))
-        
 
+        # spec_in_final = spec_in_corr * eff_livefrac[:, None, None, None]
+        # spec_in_err_final = spec_in_err_det_pix* eff_livefrac[:, None]
+        # spec_in_err_final = spec_in_err * eff_livefrac[:, None, None, None]
         spec_in_final = spec_in_corr * eff_livefrac[...,None]
         spec_in_err_final = spec_in_err * eff_livefrac[...,None]
 
         counts = spec_in_final
         counts_var = spec_in_err_final
         livefrac = eff_livefrac[:, :, :, np.newaxis]
+
+        # livefrac = eff_livefrac[:, np.newaxis,np.newaxis, np.newaxis]
+
+        # livefrac = np.broadcast_to(
+        #         eff_livefrac[:, np.newaxis, np.newaxis, np.newaxis],
+        #             (1325, 32, 8, 1)
+        #             ).copy()
+        
+        # counts_var = np.broadcast_to(
+        #         counts_var[:, np.newaxis, np.newaxis, :],
+        #             (1325, 32, 8, 30)
+        #             ).copy()
 
         return counts, counts_var, t_norm, e_norm, livefrac, elut_cor_fac, times, energies
                                                                        
@@ -907,8 +929,24 @@ class ScienceData(L1Product):
         counts_axis = np.concatenate([energies["e_low"], [energies["e_high"][-1]]])
 
         counts = np.nansum(counts,axis=(1,2))
+        counts_uncertainity = np.sqrt(np.nansum(counts_uncertainity**2,axis=(1,2)))
+        # counts_uncertainity = np.sqrt((counts_uncertainity**2).sum(axis=(1,2)))   
+        # mask = counts < 0
+        # print(mask.sum()) 
 
-        counts[np.nonzero(counts < 0)] = 0
+        # print('zero check u = ',np.where(counts_uncertainity == 0))
+
+
+        counts_uncertainity[counts < 0] = 0
+        counts[counts < 0] = 0
+
+        # print('zero check u = ',np.where(counts_uncertainity == 0))
+
+        # print('zero check = ',np.where(counts <0))
+
+
+        # print('zero check = ',np.where(counts <0))
+        
         # counts_uncertainity = data_dict["rate_err"].sum(axis=1).sum(axis=1) 
 
         # times_start = times_full - (data_dict["t_norm"] / 2)
@@ -946,7 +984,7 @@ class ScienceData(L1Product):
 
         # np.save('/home/jmitchell/Desktop/cts_new.npy',np.array(counts_final))
 
-        counts_uncertainity_final= counts_final
+        counts_uncertainity_final= np.sqrt(np.nansum(counts_uncertainity[inds]**2,axis=0))
 
         e_low = energies["e_low"].value
 
@@ -958,7 +996,7 @@ class ScienceData(L1Product):
 
         systematic_err = systematic_err_percentage * counts_final
 
-        counts_err_final_final = np.sqrt(counts_uncertainity_final**2 + systematic_err**2)
+        counts_err_final_final = np.sqrt(counts_uncertainity_final.value**2 + systematic_err.value**2) * u.ct
 
         counts_uncertainity_pu = PoissonUncertainty(counts_err_final_final)
         counts_spectral_axis = SpectralAxis(counts_axis, bin_specification="edges")

@@ -362,6 +362,8 @@ class TimesSeriesPlotMixin:
             elut_correction=False
         )
 
+        print(errors.unit)
+
         labels = [f"{el.value} - {eh.value} keV" for el, eh in energies["e_low", "e_high"]]
 
         n_time, n_det, n_pix, n_energy = counts.shape
@@ -624,12 +626,16 @@ class ScienceData(L1Product):
     def _livetime_uncertainty(counts_var, livefrac, livefrac_error):
 
         if livefrac_error is not None:
+
+            print('luc1 = ',counts_var.unit)
         
             counts_var_lvtcorr = np.sqrt(((counts_var**2).value) + (livefrac_error.value**2))
 
             return counts_var_lvtcorr * u.ct
         
         else:
+
+            print('luc2 = ',counts_var.unit)
 
             return counts_var
 
@@ -663,6 +669,8 @@ class ScienceData(L1Product):
                 counts_var = product.data["counts_comp_err"] ** 2
             except KeyError:
                 counts_var = product.data["counts_comp_comp_err"] ** 2
+
+            counts_var = np.sqrt(counts.value + counts_var.value) *u.ct
 
             t_norm = product.data["timedel"]
             shape = counts.shape
@@ -1429,6 +1437,7 @@ class ScienceData(L1Product):
             if livetime_correction:
                 counts_var = ScienceData._livetime_uncertainty(counts_var,livefrac,livefrac_error) * livefrac
             
+            print('gd',counts_var.unit)
             counts_var = counts_var * norm
 
             return counts, counts_var, t_norm, e_norm, livefrac, livefrac_error, elut_cor_fac, times, energies

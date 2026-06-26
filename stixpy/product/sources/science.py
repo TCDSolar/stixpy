@@ -488,10 +488,12 @@ class ScienceData(L1Product):
 
 
     @staticmethod
-    def _indices_check(product, detector_indices, pixel_indices):
+    def _indices_check(product, detector_indices, pixel_indices, sunkit_spex_spectrum):
 
         # --- Detector indices ---
         if detector_indices is not None:
+
+
             detector_indices_working = detector_indices
 
             if detector_indices_working == "top24":
@@ -500,6 +502,10 @@ class ScienceData(L1Product):
                 detector_indices = detector_indices_working
             else:
                 detector_indices_full = np.where(product.detector_masks.__dict__["masks"] == 1)[1]
+
+                if sunkit_spex_spectrum:
+                    if np.ndim(detector_indices_working) != 1:
+                        raise ValueError(f"If sunkit_spex_spectrum=True detector_indices must be a 1D list")
 
                 if np.ndim(detector_indices_working) == 2:
                     # [[start, end], ...] range format
@@ -518,6 +524,10 @@ class ScienceData(L1Product):
         if pixel_indices is not None:
             pixel_indices_full = np.where(product.pixel_masks.__dict__["masks"] == 1)[1]
 
+            if sunkit_spex_spectrum:
+                if np.ndim(pixel_indices) != 1:
+                    raise ValueError(f"If sunkit_spex_spectrum=True pixel_indices must be a 1D list")
+                
             if np.ndim(pixel_indices) == 2:
                 # [[start, end], ...] range format
                 for start, end in pixel_indices:
@@ -1254,7 +1264,8 @@ class ScienceData(L1Product):
 
         detector_indices, pixel_indices = self._indices_check(self,
                                                               detector_indices,
-                                                              pixel_indices)
+                                                              pixel_indices,
+                                                              sunkit_spex_spectrum)
         
         if bkg:
             livetime_correction = True

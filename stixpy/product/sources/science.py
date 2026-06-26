@@ -916,9 +916,11 @@ class ScienceData(L1Product):
 
     @staticmethod
     def _get_sunkit_spex_spectrum(product,
-                      sci_data, 
-                     event_time_range,
-                     flare_location):
+                    detector_indices,
+                    pixel_indices,
+                    sci_data, 
+                    event_time_range,
+                    flare_location):
         
 
         counts, counts_uncertainity, t_norm, e_norm, livefrac,_, elut_cor_fac, times_full, energies = sci_data
@@ -964,7 +966,9 @@ class ScienceData(L1Product):
 
 
         flare_location_stx = np.array([flare_location['stx'].Tx.value, flare_location['stx'].Ty.value])
-        srm_dict = product.get_masked_srm(flare_location=flare_location_stx)
+        srm_dict = product.get_masked_srm(flare_location=flare_location_stx,
+                                          detector_indices_input=detector_indices,
+                                          pixel_indices_input=pixel_indices)
 
         distance = (product.meta["DSUN_OBS"] * u.m).to(u.AU)
 
@@ -1318,6 +1322,7 @@ class ScienceData(L1Product):
 
             energy_indices_bkg = self._energies_bkg_sub(self,
                                                         bkg)
+            
 
             pixel_indices_bkg, detector_indices_bkg = self._bkg_indices_check(self,
                                                                               bkg)
@@ -1354,6 +1359,8 @@ class ScienceData(L1Product):
                         'Normalisation selection (vtype) will not be taken into account.')
 
             sunkit_spex_spectrum = self._get_sunkit_spex_spectrum(self,
+                                                        detector_indices,
+                                                        pixel_indices,
                                                         sci_data,
                                                         time_indices,
                                                         flare_location)
@@ -1399,7 +1406,7 @@ class ScienceData(L1Product):
 
         
 
-    def get_masked_srm(self, flare_location):
+    def get_masked_srm(self, flare_location, detector_indices_input, pixel_indices_input):
 
 
         HERE = Path(__file__).parent          
@@ -1419,10 +1426,6 @@ class ScienceData(L1Product):
 
         e_high = np.array(energies["e_high"])
 
-        # e_high = e_high[~np.isnan(e_high)]
-
-        # e_index = np.where((ph_energies >= e_low[0]) &
-        #                        (ph_energies <= e_high[-1]) )[0]
 
         if e_high[-2] == 150:
             e_edges = e_low
@@ -1430,14 +1433,7 @@ class ScienceData(L1Product):
         else:
             e_edges = np.concatenate([e_low, [e_high[-1]]])
             ct_e_diff = np.diff(e_edges)
- 
-        # print('ct_shape = ',len(ct_e_diff))
 
-        # drm_clipped = drm[1:-1, 1:-1]
-        # ph_energies_clipped = ph_energies[1:-1]
-
-        # drm_clipped = drm
-        # ph_energies_clipped = ph_energies
 
         epsilon = 1e-4
 
@@ -1458,19 +1454,9 @@ class ScienceData(L1Product):
 
         pixel_areas = STIX_INSTRUMENT.pixel_config["Area"].to("cm2")
 
-        det_indices_top24 = np.array(
-            [0, 1, 2, 3, 4, 5, 6, 7, 13, 14, 15, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31]
-        )
+        pixel_areas = pixel_areas[pixel_indices_input].value
 
-        det_indices_full = np.where(self.detector_masks.__dict__["masks"] == 1)[1]
-
-        det_indices = [d for i, d in enumerate(det_indices_top24) if d in det_indices_full]
-
-        pix_indices = np.where(self.pixel_masks.__dict__["masks"] == 1)[1]
-
-        pixel_areas = pixel_areas[pix_indices].value
-
-        area_scale = len(det_indices) * np.sum(pixel_areas)
+        area_scale = len(detector_indices_input) * np.sum(pixel_areas)
 
         energy_widths = np.diff(ph_energies_clipped)
 
@@ -1482,13 +1468,11 @@ class ScienceData(L1Product):
 
         attenuation = np.zeros(len(tot_trans["det-1"]))
 
-        for i, det in enumerate(det_indices):
+        for i, det in enumerate(detector_indices_input):
             attenuation += tot_trans[f"det-{det}"]
 
-        attenuation = attenuation / len(det_indices)
+        attenuation = attenuation / len(detector_indices_input)
 
-        # drm_clipped = ((drm_clipped * attenuation[:,None] ) * area_scale)
-        # drm_clipped = (drm_clipped * ph_e_diff[None, :] * attenuation[:, None]).to("s")
 
         drm_clipped = drm_clipped * ph_e_diff[None, :] * attenuation[:, None]
 
@@ -1515,6 +1499,7 @@ class ScienceData(L1Product):
         srm = (drm_new * grid_transmission[:, None]) / ct_e_diff[None, :]
 
         return {"srm": srm, "ph_axis": ph_energies_clipped, "geo_area": area_scale}
+    
 
     def concatenate(self, others):
         """

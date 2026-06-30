@@ -31,7 +31,7 @@ def get_rsun_obs(observer):
     return rsun_obs
 
 
-def stx_estimate_flare_location(cpd_sci, time_range, energy_range=None, plot=False):
+def estimate_flare_location(cpd_sci, time_range, energy_range=None, plot=False):
     """
     Estimate the flare location using STIX imaging data.
 

@@ -937,9 +937,7 @@ class ScienceData(L1Product):
                             distance,
                             srm_dict):
 
-        counts, counts_uncertainity, t_norm, e_norm, livefrac,_, elut_cor_fac, times_full, energies = sci_data
-
-        # print('cts shape check = ',counts.shape)
+        counts, counts_uncertainity, t_norm, _, livefrac,_, _, times_full, energies = sci_data
 
         t_norm = t_norm.to(u.s)
 
@@ -948,18 +946,14 @@ class ScienceData(L1Product):
         counts_uncertainity[counts < 0] = 0
         counts[counts < 0] = 0
 
-        print('CASE_func = ',case)
-
 
         if case == 'spec_1D_detector_collapse':
 
-            print('1111111')
+            counts_final = np.nansum(counts,axis=(0,1,2))
+            counts_uncertainity_final = np.sqrt(np.nansum(counts_uncertainity**2,axis=(0,1,2)))
 
-            counts = np.nansum(counts,axis=(1,2))
-            counts_uncertainity = np.sqrt(np.nansum(counts_uncertainity**2,axis=(1,2)))
-
-            counts_final = np.nansum(counts,axis=0)
-            counts_uncertainity_final= np.sqrt(np.nansum(counts_uncertainity**2,axis=0))
+            # counts_final = np.nansum(counts,axis=0)
+            # counts_uncertainity_final= np.sqrt(np.nansum(counts_uncertainity**2,axis=0))
 
             t_norm = t_norm[:,None,None,None] * livefrac
             t_norm = t_norm.mean(axis=(1,2,3))
@@ -974,71 +968,12 @@ class ScienceData(L1Product):
         
         elif case == 'spec_sequence_detector_expand':
 
-            print('33333333')
-
-            print('counts_final = ', np.shape(counts))
-            print('counts_uncertainity_pu = ', np.shape(counts_uncertainity))
-            print('t_norm_shape = ',np.shape(t_norm))
-            print('Livefrac_shape = ',np.shape(livefrac))
-
             counts_final = np.nansum(counts,axis=(0))
             counts_uncertainity_final = np.sqrt(np.nansum(counts_uncertainity**2,axis=(0)))
-
-            # counts_final = np.nansum(counts,axis=0)
-            # counts_uncertainity_final= np.sqrt(np.nansum(counts_uncertainity**2,axis=0))
 
             t_norm = t_norm * livefrac
             t_norm = t_norm.mean(axis=(0))
 
-
-        # elif case == 'spec_1D_detector_expand':
-        
-        #     print('33333333')
-
-        #     print('counts_final = ', np.shape(counts))
-        #     print('counts_uncertainity_pu = ', np.shape(counts_uncertainity))
-
-
-        #     counts_final = np.nansum(counts,axis=(0,1))
-        #     counts_uncertainity_final = np.sqrt(np.nansum(counts_uncertainity**2,axis=(0,1)))
-
-        #     print('counts_uncertainity_new= ', np.shape(counts_uncertainity_final))
-        #     print('t_norm_shape = ',np.shape(t_norm))
-        #     print('Livefrac_shape = ',np.shape(livefrac))
-        #     # counts_final = np.nansum(counts,axis=0)
-        #     # counts_uncertainity_final= np.sqrt(np.nansum(counts_uncertainity**2,axis=0))
-
-    
-        #     t_norm = t_norm * livefrac
-        #     t_norm = t_norm.mean(axis=(0,1,2))
-
-
-        # if case == 'spec_1D_detector_expand':
-
-        #     counts = np.nansum(counts,axis=(1,2))
-        #     counts_uncertainity = np.sqrt(np.nansum(counts_uncertainity**2,axis=(1,2)))
-
-        #     counts_final = np.nansum(counts,axis=0)
-        #     counts_uncertainity_final= np.sqrt(np.nansum(counts_uncertainity**2,axis=0))
-
-        #     t_norm = t_norm[:,None,None,None] * livefrac
-        #     t_norm = t_norm.mean(axis=(1,2,3))           
-
-        # counts_uncertainity[counts < 0] = 0
-        # counts[counts < 0] = 0
-
-        # times_start = times_full - (t_norm/2)           
-        # times_end = times_full + (t_norm/2)
-
-        # inds = np.where( (times_start >= Time(event_time_range[0]) ) & (times_end <= Time(event_time_range[-1]) ) )[0]
-    
-        # counts_final = np.nansum(counts[inds],axis=0)
-
-        # counts_uncertainity_final= np.sqrt(np.nansum(counts_uncertainity[inds]**2,axis=0))
-
-        # counts_final = np.nansum(counts,axis=0)
-
-        # counts_uncertainity_final= np.sqrt(np.nansum(counts_uncertainity**2,axis=0))
 
         e_low = energies["e_low"].value
 
@@ -1053,17 +988,6 @@ class ScienceData(L1Product):
 
         counts_uncertainity_pu = PoissonUncertainty(counts_err_final_final)
         counts_spectral_axis = SpectralAxis(counts_axis, bin_specification="edges")
-
-
-
-
-        # flare_location_stx = np.array([flare_location['stx'].Tx.value, flare_location['stx'].Ty.value])
-
-        # srm_dict = product.get_masked_srm(flare_location=flare_location_stx,
-        #                                 detector_indices_input=detector_indices,
-        #                                 pixel_indices_input=pixel_indices)
-
-        # distance = (product.meta["DSUN_OBS"] * u.m).to(u.AU)
 
         meta = NDMeta()
 
@@ -1082,7 +1006,6 @@ class ScienceData(L1Product):
 
         ph_energies_trim = np.concatenate([ph_ax_bins_trim[:, 0], ph_ax_bins_trim[:, 1][-1:]])
 
-        # flare_angle = product._flare_angle(product,flare_location)
 
         meta.add("exposure_time", np.sum(t_norm))
         meta.add("geo_area", srm_dict["geo_area"])
@@ -1092,9 +1015,6 @@ class ScienceData(L1Product):
         meta.add("ph_axis", ph_energies_trim * u.keV)
         meta.add("time_range", event_time_range)
 
-        # print('counts_final = ', np.shape(counts_final))
-        # print('counts_uncertainity_pu = ', np.shape(counts_uncertainity_pu))
-        # print('counts_spectral_axis = ', np.shape(counts_spectral_axis))
 
         spec_1d = Spectrum(
             data=counts_final, uncertainty=counts_uncertainity_pu, spectral_axis=counts_spectral_axis, meta=meta
@@ -1234,13 +1154,6 @@ class ScienceData(L1Product):
                     counts, counts_uncertainity, t_norm, e_norm, livefrac,_, elut_cor_fac, times_full, energies = sci_data
 
 
-                    print('t_norm_shape = ', np.shape(t_norm))
-                    print('e_norm_shape = ', np.shape(e_norm))
-                    print('livefrac_shape = ', np.shape(livefrac))
-                    print('elut_cor_fac_shape = ', np.shape(elut_cor_fac))
-                    print('times_full_shape = ', np.shape(times_full))
-
-
                     sci_data_indexed = ( counts[i,...], 
                                         counts_uncertainity[i,...], 
                                         t_norm[i,...], 
@@ -1292,11 +1205,6 @@ class ScienceData(L1Product):
 
                     counts, counts_uncertainity, t_norm, e_norm, livefrac,_, elut_cor_fac, times_full, energies = sci_data
 
-                    print('t_norm_shape = ', np.shape(t_norm))
-                    print('e_norm_shape = ', np.shape(e_norm))
-                    print('livefrac_shape = ', np.shape(livefrac))
-                    print('elut_cor_fac_shape = ', np.shape(elut_cor_fac))
-                    print('times_full_shape = ', np.shape(times_full))
 
                     sci_data_indexed = ( counts[:,i,...], 
                                         counts_uncertainity[:,i,...], 
@@ -1308,11 +1216,6 @@ class ScienceData(L1Product):
                                         times_full, 
                                         energies)
 
-
-
-                    # print('cts shape check = ',counts.shape)
-
-                    print('CASE = ',case)
 
                     spec_1d =  ScienceData._return_spec_object(case,
                                 sci_data_indexed,
@@ -1331,13 +1234,11 @@ class ScienceData(L1Product):
 
                 return spec_collection 
 
-                # put into NDCollection
+
 
             else:
 
-                # check_rcr_states_srm
-
-                # create_srm_for_each_rcr_state            
+          
                 spec_list_collection_working = []
 
                 case = 'spec_sequence_detector_expand'
@@ -1353,36 +1254,15 @@ class ScienceData(L1Product):
 
                     counts, counts_uncertainity, t_norm, e_norm, livefrac,_, elut_cor_fac, times_full, energies = sci_data
 
-                    # print('counts_shape = ', np.shape(counts))
-                    # print('counts_uncertainity_shape = ', np.shape(counts_uncertainity))
-                    # print('t_norm_shape = ', np.shape(t_norm))
-                    # print('e_norm_shape = ', np.shape(e_norm))
-                    # print('livefrac_shape = ', np.shape(livefrac))
-                    # print('elut_cor_fac_shape = ', np.shape(elut_cor_fac))
-                    # print('times_full_shape = ', np.shape(times_full))
-
 
                     counts = counts[:,i,...]
                     counts_uncertainity = counts_uncertainity[:,i,...]
-                    # t_norm = t_norm[:,i,...] 
-                    # e_norm = e_norm[:,i,...] 
                     livefrac = livefrac[:,i,...]
-                    # elut_cor_fac = elut_cor_fac[:,i,...]
-                    # times_full = times_full[:,i,...]
-                    # energies = energies[:,i,...]
+
 
                     spec_list_sequence_working = []
 
                     for j in range(np.shape(counts)[0]):
-
-                        print('counts_shape = ', np.shape(counts))
-                        print('counts_uncertainity_shape = ', np.shape(counts_uncertainity))
-                        print('t_norm_shape = ', np.shape(t_norm))
-                        print('e_norm_shape = ', np.shape(e_norm))
-                        print('livefrac_shape = ', np.shape(livefrac))
-                        print('elut_cor_fac_shape = ', np.shape(elut_cor_fac))
-                        print('times_full_shape = ', np.shape(times_full))
-
 
                         sci_data_indexed = (counts[j,...], 
                                             counts_uncertainity[j,...], 

@@ -1234,13 +1234,20 @@ class ScienceData(L1Product):
                     counts, counts_uncertainity, t_norm, e_norm, livefrac,_, elut_cor_fac, times_full, energies = sci_data
 
 
+                    print('t_norm_shape = ', np.shape(t_norm))
+                    print('e_norm_shape = ', np.shape(e_norm))
+                    print('livefrac_shape = ', np.shape(livefrac))
+                    print('elut_cor_fac_shape = ', np.shape(elut_cor_fac))
+                    print('times_full_shape = ', np.shape(times_full))
+
+
                     sci_data_indexed = ( counts[i,...], 
                                         counts_uncertainity[i,...], 
                                         t_norm[i,...], 
-                                        e_norm[i,...], 
+                                        e_norm, 
                                         livefrac[i,...],
                                         _, 
-                                        elut_cor_fac[i,...], 
+                                        elut_cor_fac, 
                                         times_full[i,...], 
                                         energies)
 

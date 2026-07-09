@@ -7,7 +7,10 @@ from matplotlib import pyplot as plt
 from matplotlib.colors import LogNorm
 from matplotlib.dates import ConciseDateFormatter, DateFormatter, HourLocator
 from matplotlib.widgets import Slider
+
 from ndcube import NDMeta
+from ndcube import NDCubeSequence, NDCollection
+
 from sunkit_spex.spectrum.spectrum import SpectralAxis, Spectrum
 from sunkit_spex.spectrum.uncertainty import PoissonUncertainty
 
@@ -519,6 +522,11 @@ class ScienceData(L1Product):
                     missing = np.setdiff1d(detector_indices_working, detector_indices_full)
                     if missing.size > 0:
                         warnings.warn(f"The following detector indices are not available in the product: {missing.tolist()}")
+            
+        else:
+            detector_indices = np.where(product.detector_masks.__dict__["masks"] == 1)[1]
+
+
 
         # --- Pixel indices ---
         if pixel_indices is not None:
@@ -540,6 +548,9 @@ class ScienceData(L1Product):
                 missing = np.setdiff1d(pixel_indices, pixel_indices_full)
                 if missing.size > 0:
                     warnings.warn(f"The following pixel indices are not available in the product: {missing.tolist()}")
+
+        else:
+            pixel_indices = np.where(product.pixel_masks.__dict__["masks"] == 1)[1]
 
         return np.array(detector_indices), np.array(pixel_indices)
 
@@ -914,37 +925,120 @@ class ScienceData(L1Product):
 
         return livefrac, livefrac_error
 
+
     @staticmethod
-    def _get_sunkit_spex_spectrum(product,
-                    detector_indices,
-                    pixel_indices,
-                    sci_data, 
-                    event_time_range,
-                    flare_location):
-        
+    def _return_spec_object(case,
+                            sci_data,
+                            flare_location,
+                            detector_indices,
+                            pixel_indices,
+                            event_time_range,
+                            flare_angle,
+                            distance,
+                            srm_dict):
 
         counts, counts_uncertainity, t_norm, e_norm, livefrac,_, elut_cor_fac, times_full, energies = sci_data
+
+        # print('cts shape check = ',counts.shape)
 
         t_norm = t_norm.to(u.s)
 
         counts_axis = np.concatenate([energies["e_low"], [energies["e_high"][-1]]])
 
-        counts = np.nansum(counts,axis=(1,2))
-        counts_uncertainity = np.sqrt(np.nansum(counts_uncertainity**2,axis=(1,2)))
-
         counts_uncertainity[counts < 0] = 0
         counts[counts < 0] = 0
 
-        times_start = times_full - (t_norm/2)           
-        times_end = times_full + (t_norm/2)
+        print('CASE_func = ',case)
 
-        inds = np.where( (times_start >= Time(event_time_range[0]) ) & (times_end <= Time(event_time_range[-1]) ) )[0]
+
+        if case == 'spec_1D_detector_collapse':
+
+            print('1111111')
+
+            counts = np.nansum(counts,axis=(1,2))
+            counts_uncertainity = np.sqrt(np.nansum(counts_uncertainity**2,axis=(1,2)))
+
+            counts_final = np.nansum(counts,axis=0)
+            counts_uncertainity_final= np.sqrt(np.nansum(counts_uncertainity**2,axis=0))
+
+            t_norm = t_norm[:,None,None,None] * livefrac
+            t_norm = t_norm.mean(axis=(1,2,3))
+
+        elif case == 'spec_sequence_detector_collapse' or case == 'spec_1D_detector_expand':
+
+            counts_final = np.nansum(counts,axis=(0,1))
+            counts_uncertainity_final = np.sqrt(np.nansum(counts_uncertainity**2,axis=(0,1)))
+
+            t_norm = t_norm * livefrac
+            t_norm = t_norm.mean(axis=(0,1,2))
+        
+        elif case == 'spec_sequence_detector_expand':
+
+            print('33333333')
+
+            print('counts_final = ', np.shape(counts))
+            print('counts_uncertainity_pu = ', np.shape(counts_uncertainity))
+            print('t_norm_shape = ',np.shape(t_norm))
+            print('Livefrac_shape = ',np.shape(livefrac))
+
+            counts_final = np.nansum(counts,axis=(0))
+            counts_uncertainity_final = np.sqrt(np.nansum(counts_uncertainity**2,axis=(0)))
+
+            # counts_final = np.nansum(counts,axis=0)
+            # counts_uncertainity_final= np.sqrt(np.nansum(counts_uncertainity**2,axis=0))
+
+            t_norm = t_norm * livefrac
+            t_norm = t_norm.mean(axis=(0))
+
+
+        # elif case == 'spec_1D_detector_expand':
+        
+        #     print('33333333')
+
+        #     print('counts_final = ', np.shape(counts))
+        #     print('counts_uncertainity_pu = ', np.shape(counts_uncertainity))
+
+
+        #     counts_final = np.nansum(counts,axis=(0,1))
+        #     counts_uncertainity_final = np.sqrt(np.nansum(counts_uncertainity**2,axis=(0,1)))
+
+        #     print('counts_uncertainity_new= ', np.shape(counts_uncertainity_final))
+        #     print('t_norm_shape = ',np.shape(t_norm))
+        #     print('Livefrac_shape = ',np.shape(livefrac))
+        #     # counts_final = np.nansum(counts,axis=0)
+        #     # counts_uncertainity_final= np.sqrt(np.nansum(counts_uncertainity**2,axis=0))
+
     
+        #     t_norm = t_norm * livefrac
+        #     t_norm = t_norm.mean(axis=(0,1,2))
 
-        counts_final = np.nansum(counts[inds],axis=0)
 
+        # if case == 'spec_1D_detector_expand':
 
-        counts_uncertainity_final= np.sqrt(np.nansum(counts_uncertainity[inds]**2,axis=0))
+        #     counts = np.nansum(counts,axis=(1,2))
+        #     counts_uncertainity = np.sqrt(np.nansum(counts_uncertainity**2,axis=(1,2)))
+
+        #     counts_final = np.nansum(counts,axis=0)
+        #     counts_uncertainity_final= np.sqrt(np.nansum(counts_uncertainity**2,axis=0))
+
+        #     t_norm = t_norm[:,None,None,None] * livefrac
+        #     t_norm = t_norm.mean(axis=(1,2,3))           
+
+        # counts_uncertainity[counts < 0] = 0
+        # counts[counts < 0] = 0
+
+        # times_start = times_full - (t_norm/2)           
+        # times_end = times_full + (t_norm/2)
+
+        # inds = np.where( (times_start >= Time(event_time_range[0]) ) & (times_end <= Time(event_time_range[-1]) ) )[0]
+    
+        # counts_final = np.nansum(counts[inds],axis=0)
+
+        # counts_uncertainity_final= np.sqrt(np.nansum(counts_uncertainity[inds]**2,axis=0))
+
+        # counts_final = np.nansum(counts,axis=0)
+
+        # counts_uncertainity_final= np.sqrt(np.nansum(counts_uncertainity**2,axis=0))
 
         e_low = energies["e_low"].value
 
@@ -960,17 +1054,16 @@ class ScienceData(L1Product):
         counts_uncertainity_pu = PoissonUncertainty(counts_err_final_final)
         counts_spectral_axis = SpectralAxis(counts_axis, bin_specification="edges")
 
-        t_norm = t_norm[inds,None,None,None] * livefrac[inds]
-
-        t_norm = t_norm.mean(axis=(1,2,3))
 
 
-        flare_location_stx = np.array([flare_location['stx'].Tx.value, flare_location['stx'].Ty.value])
-        srm_dict = product.get_masked_srm(flare_location=flare_location_stx,
-                                          detector_indices_input=detector_indices,
-                                          pixel_indices_input=pixel_indices)
 
-        distance = (product.meta["DSUN_OBS"] * u.m).to(u.AU)
+        # flare_location_stx = np.array([flare_location['stx'].Tx.value, flare_location['stx'].Ty.value])
+
+        # srm_dict = product.get_masked_srm(flare_location=flare_location_stx,
+        #                                 detector_indices_input=detector_indices,
+        #                                 pixel_indices_input=pixel_indices)
+
+        # distance = (product.meta["DSUN_OBS"] * u.m).to(u.AU)
 
         meta = NDMeta()
 
@@ -989,7 +1082,7 @@ class ScienceData(L1Product):
 
         ph_energies_trim = np.concatenate([ph_ax_bins_trim[:, 0], ph_ax_bins_trim[:, 1][-1:]])
 
-        flare_angle = product._flare_angle(product,flare_location)
+        # flare_angle = product._flare_angle(product,flare_location)
 
         meta.add("exposure_time", np.sum(t_norm))
         meta.add("geo_area", srm_dict["geo_area"])
@@ -999,11 +1092,327 @@ class ScienceData(L1Product):
         meta.add("ph_axis", ph_energies_trim * u.keV)
         meta.add("time_range", event_time_range)
 
+        # print('counts_final = ', np.shape(counts_final))
+        # print('counts_uncertainity_pu = ', np.shape(counts_uncertainity_pu))
+        # print('counts_spectral_axis = ', np.shape(counts_spectral_axis))
+
         spec_1d = Spectrum(
             data=counts_final, uncertainty=counts_uncertainity_pu, spectral_axis=counts_spectral_axis, meta=meta
         )
 
         return spec_1d
+
+
+
+    @staticmethod
+    def _srm_expand_ranges(pairs):
+        """Expand a list of [start, end] pairs into a flat inclusive list of ints."""
+        result = []
+        for start, end in pairs:
+            result.extend(range(start, end + 1))
+        return result
+
+    @staticmethod
+    def _srm_is_list_of_pairs(indices):
+        """Check whether indices is a list of [start, end] pairs (each length 2)."""
+        return len(indices) > 0 and all(
+            isinstance(item, (list, tuple)) and len(item) == 2 for item in indices
+        )
+
+    @staticmethod
+    def _srm_format_flat_or_ranges(indices):
+        """
+        Format indices given as either:
+            - a flat list of ints, e.g. [1, 2, 3, 4, 5]  -> returned unchanged
+            - a list of [start, end] pairs, e.g. [[1, 5], [9, 10]]
+              -> expanded to [1, 2, 3, 4, 5, 9, 10]
+        """
+        if indices is None:
+            return []
+
+        if ScienceData._srm_is_list_of_pairs(indices):
+            return ScienceData._srm_expand_ranges(indices)
+
+        return list(indices)
+
+    @staticmethod
+    def _srm_format_single_or_range(indices):
+        """
+        Format indices given as either:
+            - a single-entry list, e.g. [3]  -> returned unchanged
+            - a two-entry list [start, end], e.g. [1, 5]
+              -> expanded to [1, 2, 3, 4, 5]
+            - anything else -> returned unchanged as a flat list
+        """
+        if indices is None:
+            return []
+
+        if len(indices) == 1:
+            return list(indices)
+
+        if len(indices) == 2:
+            start, end = indices
+            return list(range(start, end + 1))
+
+        return list(indices)
+
+    @staticmethod
+    def _srm_det_pix_indices_format(detector_indices, pixel_indices, case):
+        """
+        Both detector_indices and pixel_indices can be:
+            - a flat list of ints, e.g. [1, 2, 3, 4, 5]  -> returned unchanged
+            - a list of [start, end] pairs, e.g. [[1, 5], [9, 10]]
+              -> expanded to [1, 2, 3, 4, 5, 9, 10]
+        """
+        if case == 'spec_1D_detector_collapse' or 'spec_sequence_detector_collapse':
+            det_formatted = ScienceData._srm_format_flat_or_ranges(detector_indices)
+            pix_formatted = ScienceData._srm_format_flat_or_ranges(pixel_indices)
+        
+        if case =='spec_1D_detector_expanded' or 'spec_sequence_detector_expanded':
+            det_formatted = ScienceData._srm_format_single_or_range(detector_indices)
+            pix_formatted = ScienceData._srm_format_flat_or_ranges(pixel_indices)
+
+        return det_formatted, pix_formatted
+
+
+    @staticmethod
+    def _get_sunkit_spex_spectrum(product,
+                    detector_indices,
+                    pixel_indices,
+                    sci_data, 
+                    event_time_range,
+                    flare_location,
+                    detector_sum=True,
+                    rcr=None):
+        
+        counts, counts_uncertainity, t_norm, e_norm, livefrac, _, elut_cor_fac, times_full, energies = sci_data
+
+
+        flare_location_stx = np.array([flare_location['stx'].Tx.value, flare_location['stx'].Ty.value])
+        flare_angle = product._flare_angle(product,flare_location)
+        distance = (product.meta["DSUN_OBS"] * u.m).to(u.AU)
+
+        print('det_sum = ',detector_sum)
+
+        if detector_sum:
+
+            if np.shape(counts)[0] == 1:
+
+                case = 'spec_1D_detector_collapse'
+
+                detector_indices_srm, pixel_indices_srm = ScienceData._srm_det_pix_indices_format(detector_indices, pixel_indices, case)
+
+                srm_dict = product.get_masked_srm(flare_location=flare_location_stx,
+                                            detector_indices_input=detector_indices_srm, 
+                                            pixel_indices_input=pixel_indices_srm)
+
+
+                return ScienceData._return_spec_object(case,
+                            sci_data,
+                            flare_location,
+                            detector_indices,
+                            pixel_indices,
+                            event_time_range,
+                            flare_angle,
+                            distance,
+                            srm_dict)
+            
+            else:
+
+                case = 'spec_sequence_detector_collapse'
+
+                detector_indices_srm, pixel_indices_srm = ScienceData._srm_det_pix_indices_format(detector_indices, pixel_indices, case)
+
+                srm_dict = product.get_masked_srm(flare_location=flare_location_stx,
+                                            detector_indices_input=detector_indices_srm, 
+                                            pixel_indices_input=pixel_indices_srm)
+
+                spec_list_working = []
+
+                for i in range(np.shape(counts)[0]):
+
+                    counts, counts_uncertainity, t_norm, e_norm, livefrac,_, elut_cor_fac, times_full, energies = sci_data
+
+
+                    sci_data_indexed = ( counts[i,...], 
+                                        counts_uncertainity[i,...], 
+                                        t_norm[i,...], 
+                                        e_norm[i,...], 
+                                        livefrac[i,...],
+                                        _, 
+                                        elut_cor_fac[i,...], 
+                                        times_full[i,...], 
+                                        energies)
+
+    
+
+                    spec_1d =  ScienceData._return_spec_object(case,
+                                sci_data_indexed,
+                                flare_location,
+                                detector_indices,
+                                pixel_indices,
+                                event_time_range,
+                                flare_angle,
+                                distance,
+                                srm_dict)
+
+                    spec_list_working.append(spec_1d)
+                
+                spec_sequence = NDCubeSequence(spec_list_working,
+                            meta={"detector": "det1", "instrument": "STIX"},  # sequence-level
+                            common_axis=0
+                                )    
+
+                return spec_sequence              
+
+        else:
+            
+            if np.shape(counts)[0] == 1:
+
+                case = 'spec_1D_detector_expand'
+
+                spec_list_working = []
+
+                print(np.shape(counts))
+
+                for i in range(np.shape(counts)[1]):
+
+                    detector_indices_srm, pixel_indices_srm = ScienceData._srm_det_pix_indices_format(detector_indices, pixel_indices, case)
+
+                    srm_dict = product.get_masked_srm(flare_location=flare_location_stx,
+                                            detector_indices_input=detector_indices_srm, 
+                                            pixel_indices_input=pixel_indices_srm)
+
+                    counts, counts_uncertainity, t_norm, e_norm, livefrac,_, elut_cor_fac, times_full, energies = sci_data
+
+                    print('t_norm_shape = ', np.shape(t_norm))
+                    print('e_norm_shape = ', np.shape(e_norm))
+                    print('livefrac_shape = ', np.shape(livefrac))
+                    print('elut_cor_fac_shape = ', np.shape(elut_cor_fac))
+                    print('times_full_shape = ', np.shape(times_full))
+
+                    sci_data_indexed = ( counts[:,i,...], 
+                                        counts_uncertainity[:,i,...], 
+                                        t_norm, 
+                                        e_norm, 
+                                        livefrac[:,i,...],
+                                        _, 
+                                        elut_cor_fac, 
+                                        times_full, 
+                                        energies)
+
+
+
+                    # print('cts shape check = ',counts.shape)
+
+                    print('CASE = ',case)
+
+                    spec_1d =  ScienceData._return_spec_object(case,
+                                sci_data_indexed,
+                                flare_location,
+                                detector_indices,
+                                pixel_indices,
+                                event_time_range,
+                                flare_angle,
+                                distance,
+                                srm_dict)
+
+                    spec_list_working.append((f"{detector_indices[i]}",spec_1d))
+                
+                spec_collection = NDCollection(spec_list_working,
+                                               aligned_axes="all" ) 
+
+                return spec_collection 
+
+                # put into NDCollection
+
+            else:
+
+                # check_rcr_states_srm
+
+                # create_srm_for_each_rcr_state            
+                spec_list_collection_working = []
+
+                case = 'spec_sequence_detector_expand'
+
+                for i in range(np.shape(counts)[1]):
+
+
+                    detector_indices_srm, pixel_indices_srm = ScienceData._srm_det_pix_indices_format(detector_indices, pixel_indices, case)
+
+                    srm_dict = product.get_masked_srm(flare_location=flare_location_stx,
+                                            detector_indices_input=detector_indices_srm, 
+                                            pixel_indices_input=pixel_indices_srm)
+
+                    counts, counts_uncertainity, t_norm, e_norm, livefrac,_, elut_cor_fac, times_full, energies = sci_data
+
+                    # print('counts_shape = ', np.shape(counts))
+                    # print('counts_uncertainity_shape = ', np.shape(counts_uncertainity))
+                    # print('t_norm_shape = ', np.shape(t_norm))
+                    # print('e_norm_shape = ', np.shape(e_norm))
+                    # print('livefrac_shape = ', np.shape(livefrac))
+                    # print('elut_cor_fac_shape = ', np.shape(elut_cor_fac))
+                    # print('times_full_shape = ', np.shape(times_full))
+
+
+                    counts = counts[:,i,...]
+                    counts_uncertainity = counts_uncertainity[:,i,...]
+                    # t_norm = t_norm[:,i,...] 
+                    # e_norm = e_norm[:,i,...] 
+                    livefrac = livefrac[:,i,...]
+                    # elut_cor_fac = elut_cor_fac[:,i,...]
+                    # times_full = times_full[:,i,...]
+                    # energies = energies[:,i,...]
+
+                    spec_list_sequence_working = []
+
+                    for j in range(np.shape(counts)[0]):
+
+                        print('counts_shape = ', np.shape(counts))
+                        print('counts_uncertainity_shape = ', np.shape(counts_uncertainity))
+                        print('t_norm_shape = ', np.shape(t_norm))
+                        print('e_norm_shape = ', np.shape(e_norm))
+                        print('livefrac_shape = ', np.shape(livefrac))
+                        print('elut_cor_fac_shape = ', np.shape(elut_cor_fac))
+                        print('times_full_shape = ', np.shape(times_full))
+
+
+                        sci_data_indexed = (counts[j,...], 
+                                            counts_uncertainity[j,...], 
+                                            t_norm[j,...], 
+                                            e_norm, 
+                                            livefrac[j,...],
+                                            _, 
+                                            elut_cor_fac, 
+                                            times_full[j,...], 
+                                            energies)
+
+
+                        spec_1d =  ScienceData._return_spec_object(case,
+                                    sci_data_indexed,
+                                    flare_location,
+                                    detector_indices,
+                                    pixel_indices,
+                                    event_time_range,
+                                    flare_angle,
+                                    distance,
+                                    srm_dict)
+
+                        spec_list_sequence_working.append(spec_1d)
+                
+                    spec_sequence = NDCubeSequence(spec_list_sequence_working,
+                            meta={"detector": "det1", "instrument": "STIX"},  # sequence-level
+                            common_axis=0
+                                )
+                
+                    spec_list_collection_working.append((f'{detector_indices[i]}',spec_sequence))
+
+                spec_collection = NDCollection(spec_list_collection_working,
+                                               aligned_axes="all" ) 
+
+                return spec_collection    
+
+                    
     
     @staticmethod
     def _flare_angle(product, flare_location):
@@ -1043,59 +1452,58 @@ class ScienceData(L1Product):
             elif rat_bot_top >= tolerance:
                 warnings.warn(f'Bottom pixel total 5% higher than top row with a ratio of {np.round(rat_bot_top,2)}. Possible pixel shadowing. Recommend using only top pixels for analysis.')
 
-
     @staticmethod
     def _time_indices_format(time_indices,times,rcr,sunkit_spex_spectrum):
         
         first = time_indices[0]
 
-        if sunkit_spex_spectrum:
-            if not isinstance(first, (str, Time)):
-                raise ValueError(
-                f"If sunkit_spex_spectrm=True, time_indices must be a time range in the format [start_time,end_time]."
-            )
-            if isinstance(first, (str, Time)):
-                if isinstance(first, (str, Time)) and not isinstance(time_indices[0], (list, tuple)):
-                    bins = [time_indices]
-                else:
-                    bins = time_indices
-                result = ScienceData._handle_datetime_strings(bins, times)
-                ScienceData._handle_nested_pairs(result, rcr)
-                return time_indices
-        else:
-            if isinstance(first, int):
-                ScienceData._rcr_warning(time_indices, rcr)
-                return time_indices
-            
+        # if sunkit_spex_spectrum:
+        #     if not isinstance(first, (str, Time)):
+        #         raise ValueError(
+        #         f"If sunkit_spex_spectrm=True, time_indices must be a time range in the format [start_time,end_time]."
+        #     )
+        #     if isinstance(first, (str, Time)):
+        #         if isinstance(first, (str, Time)) and not isinstance(time_indices[0], (list, tuple)):
+        #             bins = [time_indices]
+        #         else:
+        #             bins = time_indices
+        #         result = ScienceData._handle_datetime_strings(bins, times)
+        #         ScienceData._handle_nested_pairs(result, rcr)
+        #         return time_indices
+        # else:
+        if isinstance(first, int):
+            ScienceData._rcr_warning(time_indices, rcr)
+            return time_indices
+        
 
-            if isinstance(first, (str, Time)):
-                # Single bin ["st", "et"] or multiple bins [["st1","et1"],["st2","et2"]]
-                # Wrap single bin in a list so _handle_datetime_strings always gets [[st,et],...]
-                if isinstance(first, (str, Time)) and not isinstance(time_indices[0], (list, tuple)):
-                    bins = [time_indices]
-                else:
-                    bins = time_indices
-                result = ScienceData._handle_datetime_strings(bins, times)
+        if isinstance(first, (str, Time)):
+            # Single bin ["st", "et"] or multiple bins [["st1","et1"],["st2","et2"]]
+            # Wrap single bin in a list so _handle_datetime_strings always gets [[st,et],...]
+            if isinstance(first, (str, Time)) and not isinstance(time_indices[0], (list, tuple)):
+                bins = [[time_indices[i], time_indices[i+1]] for i in range(len(time_indices) - 1)]
+            else:
+                bins = time_indices
+            result = ScienceData._handle_datetime_strings(bins, times)
+            ScienceData._handle_nested_pairs(result, rcr)
+
+            return result
+
+        if isinstance(first, (list, tuple)):
+            if isinstance(first[0], (str, Time)):
+                # [["st1","et1"],["st2","et2"]]
+                result = ScienceData._handle_datetime_strings(time_indices, times)
                 ScienceData._handle_nested_pairs(result, rcr)
                 return result
-
-            if isinstance(first, (list, tuple)):
-                if isinstance(first[0], (str, Time)):
-                    # [["st1","et1"],["st2","et2"]]
-                    result = ScienceData._handle_datetime_strings(time_indices, times)
-                    ScienceData._handle_nested_pairs(result, rcr)
-                    return result
-                if len(first) == 2 and all(isinstance(v, int) for v in first):
-                    ScienceData._handle_nested_pairs(time_indices, rcr)
-                    return time_indices
-                raise ValueError(
-                    f"Nested lists must be [start, end] integer or time pairs, got: {first}"
-                )
-
+            if len(first) == 2 and all(isinstance(v, int) for v in first):
+                ScienceData._handle_nested_pairs(time_indices, rcr)
+                return time_indices
             raise ValueError(
-                f"Cannot determine format from first element: {first!r}"
-            )   
+                f"Nested lists must be [start, end] integer or time pairs, got: {first}"
+            )
 
+        raise ValueError(
+            f"Cannot determine format from first element: {first!r}"
+        )   
 
     @staticmethod
     def _rcr_warning(time_indices, rcr):
@@ -1110,7 +1518,6 @@ class ScienceData(L1Product):
                     f"Use with caution!"
                 )
         return 
-
 
     @staticmethod
     def _rcr_error(indices, rcr):
@@ -1136,12 +1543,10 @@ class ScienceData(L1Product):
                     f"index {i} has RCR={rcr[i]!r}."
                 )
 
-
     @staticmethod
     def _handle_datetime_strings(
         time_bin: list[list[str | Time]],
-        times: list[str | Time]
-    ) -> list[list[int]]:
+        times: list[str | Time]) -> list[list[int]]:
 
         results = []
         for n, bin in enumerate(time_bin):
@@ -1164,7 +1569,6 @@ class ScienceData(L1Product):
         print()
 
         return results
-
 
     @staticmethod
     def _handle_nested_pairs(time_indices: list[list[int]], rcr: list) -> list[list[int]]:
@@ -1202,7 +1606,6 @@ class ScienceData(L1Product):
         return time_indices
 
     
-
     def get_data(
         self,
         *,
@@ -1217,7 +1620,8 @@ class ScienceData(L1Product):
         sunkit_spex_spectrum=False,
         flare_location=None,
         bkg=None,
-        systematic_error=True
+        systematic_error=True,
+        sunkit_spex_detector_sum=True
     ):
     
         r"""
@@ -1263,8 +1667,9 @@ class ScienceData(L1Product):
         # =====================================================
 
         if time_indices is not None:
-            time_indices = self._time_indices_format(time_indices,self.times,self.rcr, sunkit_spex_spectrum)
+            time_indices = self._time_indices_format(time_indices, self.times, self.rcr, sunkit_spex_spectrum)
 
+            print('t_check = ',time_indices)
 
         detector_indices, pixel_indices = self._indices_check(self,
                                                               detector_indices,
@@ -1363,7 +1768,8 @@ class ScienceData(L1Product):
                                                         pixel_indices,
                                                         sci_data,
                                                         time_indices,
-                                                        flare_location)
+                                                        flare_location,
+                                                        detector_sum=sunkit_spex_detector_sum)
             
             return sunkit_spex_spectrum
         

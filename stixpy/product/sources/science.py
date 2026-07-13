@@ -354,7 +354,7 @@ class TimesSeriesPlotMixin:
         if pixel_indices == "all":
             pixel_indices = [[0, 11]]
 
-# counts, counts_var, t_norm, e_norm, livefrac, livefrac_error, elut_cor_fac, times, energies
+
         counts, errors, timedeltas, _, _, _, _, times, energies = self.get_data(
             vtype=vtype,
             detector_indices=detector_indices,
@@ -492,6 +492,38 @@ class ScienceData(L1Product):
 
     @staticmethod
     def _indices_check(product, detector_indices, pixel_indices, sunkit_spex_spectrum):
+        """
+        Validate and normalize the requested detector and pixel indices against what is
+        actually available in the product's masks.
+
+        If `detector_indices` is None, all detectors available in `product.detector_masks`
+        are used. The special string "top24" selects a fixed set of 24 detector indices
+        excluding the background/CFL detectors. Otherwise, indices may be given as either
+        a flat 1D list of individual indices or a 2D list of [start, end] range pairs; in
+        both cases a warning is raised if any requested index/range is not present in the
+        product. The same logic applies independently to `pixel_indices` using
+        `product.pixel_masks`. If `sunkit_spex_spectrum=True`, both `detector_indices` and
+        `pixel_indices` (if not None) must be 1D, otherwise a ValueError is raised.
+
+        Parameters
+        ----------
+        product : ScienceData
+            The data product whose `detector_masks` and `pixel_masks` are used to
+            determine which indices are actually available.
+        detector_indices : list, numpy.ndarray, str, or None
+            Requested detector indices (flat list, [start, end] pairs, "top24", or None
+            to use all available detectors).
+        pixel_indices : list, numpy.ndarray, or None
+            Requested pixel indices (flat list, [start, end] pairs, or None to use all
+            available pixels).
+        sunkit_spex_spectrum : bool
+            If True, enforces that `detector_indices` and `pixel_indices` are 1D.
+
+        Returns
+        -------
+        tuple of numpy.ndarray
+            The validated `detector_indices` and `pixel_indices` as numpy arrays.
+        """
 
         # --- Detector indices ---
         if detector_indices is not None:
@@ -556,6 +588,28 @@ class ScienceData(L1Product):
 
     @staticmethod
     def _livetime_uncertainty(counts_var, livefrac, livefrac_error):
+        """
+        Combine count variance with livetime-fraction error, if available.
+
+        If `livefrac_error` is provided, propagates its uncertainty into the count
+        variance in quadrature. Otherwise, the count variance is returned unchanged.
+
+        Parameters
+        ----------
+        counts_var : astropy.units.Quantity
+            Variance (or uncertainty) on the counts.
+        livefrac : astropy.units.Quantity or None
+            Livetime fraction. Unused directly in this function but kept for
+            signature consistency with callers.
+        livefrac_error : astropy.units.Quantity or None
+            Uncertainty on the livetime fraction. If None, no correction is applied.
+
+        Returns
+        -------
+        astropy.units.Quantity
+            Count variance, optionally combined in quadrature with the livetime
+            fraction error, in units of counts.
+        """
 
         if livefrac_error is not None:
         
@@ -578,6 +632,53 @@ class ScienceData(L1Product):
                     elut_cor_fac,
                     sum_all_times):
         
+        """
+        Select and/or sum counts, variance, livetime fraction, and associated metadata
+        along the detector, pixel, energy, and time axes according to the requested
+        indices.
+
+        Accepts either a `ScienceData` product (from which counts, variance, time
+        normalization, energy normalization, times, and energies are extracted) or a
+        pre-unpacked tuple of the same quantities (e.g. as produced by `_bkg_sub`). For
+        each of detector, pixel, energy, and time axes, indices given as a flat 1D
+        array are treated as a boolean mask/selection, while indices given as a 2D
+        array of [start, end] pairs are summed (or averaged, for livetime fraction)
+        within each pair and concatenated across pairs. If `sum_all_times=True` and
+        multiple time bins were requested, all resulting time bins are further summed
+        into one.
+
+        Parameters
+        ----------
+        product : ScienceData or tuple
+            The science data product, or a pre-extracted tuple of
+            (counts, counts_var, t_norm, e_norm, livefrac, elut_cor_fac, times, energies).
+        detector_indices : numpy.ndarray or None
+            Detector indices to select/sum, as a flat array or 2D array of ranges.
+        pixel_indices : list, numpy.ndarray, or None
+            Pixel indices to select/sum, as a flat array or 2D array of ranges.
+        energy_indices : list, numpy.ndarray, or None
+            Energy indices to select/sum, as a flat array or 2D array of ranges.
+        time_indices : list, numpy.ndarray, or None
+            Time indices to select/sum, as a flat array or 2D array of ranges. If the
+            first element is a string or `Time` object, time selection is skipped.
+        livefrac : numpy.ndarray or None
+            Livetime fraction array, selected/averaged alongside the other axes.
+        livefrac_error : numpy.ndarray or None
+            Uncertainty on the livetime fraction, selected/combined alongside
+            `livefrac`.
+        elut_cor_fac : numpy.ndarray or None
+            ELUT correction factor, selected/averaged along the energy axis.
+        sum_all_times : bool
+            If True and `time_indices` produced multiple bins, sum all bins into one.
+
+        Returns
+        -------
+        tuple
+            (counts, counts_var, t_norm, e_norm, livefrac, livefrac_error,
+            elut_cor_fac, times, energies) after applying the requested selection
+            and/or summation.
+        """
+
 
         if isinstance(product,ScienceData):
 
@@ -772,6 +873,52 @@ class ScienceData(L1Product):
                 livefrac_error_bkg,
                 elut_cor_fac): 
         
+        """
+        Perform livetime- and ELUT-corrected background subtraction of a science
+        product using a matched background product.
+
+        Computes the livetime- and uncorrected count rates for both the science and
+        background data, scales the background counts to the science product's
+        integration times, and subtracts the scaled background from the science
+        counts. Uncertainties are propagated in quadrature. Handles removal of the
+        zero-energy bin and any trailing NaN energy bin, and computes an effective
+        livetime fraction from the ratio of uncorrected to livetime-corrected counts
+        summed over energy.
+
+        Parameters
+        ----------
+        product : ScienceData
+            The science data product to background-subtract.
+        bkg : ScienceData
+            The background data product.
+        detector_indices_bkg : list or numpy.ndarray
+            Detector indices in the background product matching those available in
+            `product`.
+        pixel_indices_bkg : list or numpy.ndarray
+            Pixel indices in the background product matching those available in
+            `product`.
+        energy_indices_bkg : numpy.ndarray
+            Energy indices in the background product matching the energy bins of
+            `product`.
+        livefrac : numpy.ndarray
+            Livetime fraction for the science product.
+        livefrac_error : numpy.ndarray
+            Uncertainty on the livetime fraction for the science product.
+        livefrac_bkg : numpy.ndarray
+            Livetime fraction for the background product.
+        livefrac_error_bkg : numpy.ndarray
+            Uncertainty on the livetime fraction for the background product.
+        elut_cor_fac : numpy.ndarray
+            ELUT correction factor to apply to both science and background counts.
+
+        Returns
+        -------
+        tuple
+            (counts, counts_var, t_norm, e_norm, livefrac, elut_cor_fac, times,
+            energies) for the background-subtracted science data, where `livefrac`
+            here is the effective livetime fraction derived from the subtraction.
+        """
+
         e_norm = product.dE
         counts = product.data["counts"]
         try:
@@ -880,13 +1027,50 @@ class ScienceData(L1Product):
                                                                        
     @staticmethod
     def _energies_bkg_sub(product,bkg):
-         
+
+        """
+        Find the energy bin indices in the background product that correspond to the
+        energy bins present in the science product.
+
+        Parameters
+        ----------
+        product : ScienceData
+            The science data product whose energy bins define the reference set.
+        bkg : ScienceData
+            The background data product to be matched against the science product's
+            energy bins.
+
+        Returns
+        -------
+        numpy.ndarray
+            Indices into `bkg.energies` corresponding to the energy bins shared with
+            `product.energies`, in the order matching `product.energies["e_low"]`.
+        """
+
          _, _, indices_sub = np.intersect1d(product.energies["e_low"], bkg.energies["e_low"], return_indices=True)
 
          return indices_sub
 
     @staticmethod
     def _bkg_indices_check(product, bkg):
+
+        """
+        Determine which detector and pixel indices are common to both a science
+        product and its background product.
+
+        Parameters
+        ----------
+        product : ScienceData
+            The science data product.
+        bkg : ScienceData
+            The background data product.
+
+        Returns
+        -------
+        tuple of list
+            `pixel_indices` and `detector_indices` present in both `product` and
+            `bkg`, ordered as they appear in `product`.
+        """
         
         pixel_indices_full = np.where(product.pixel_masks.__dict__["masks"] == 1)[1]
         pixel_indices_full_bkg = np.where(bkg.pixel_masks.__dict__["masks"] == 1)[1]
@@ -900,6 +1084,29 @@ class ScienceData(L1Product):
 
     @staticmethod
     def _livefrac(product):
+
+        """
+        Compute the livetime fraction and its uncertainty for a data product from its
+        trigger counts.
+
+        Maps trigger counts onto detectors, converts to a trigger rate using the
+        integration time, and derives the livetime fraction via
+        `get_livetime_fraction`. The uncertainty is estimated by propagating the
+        trigger count uncertainty through the livetime fraction calculation and taking
+        half the resulting spread in corrected counts.
+
+        Parameters
+        ----------
+        product : ScienceData
+            The data product from which triggers, trigger errors, and integration
+            times are taken.
+
+        Returns
+        -------
+        tuple of numpy.ndarray
+            `livefrac` and `livefrac_error`, each broadcast to shape
+            (n_times, n_detectors, 1, 1).
+        """
 
         trigger_to_detector = STIX_INSTRUMENT.subcol_adc_mapping
         triggers = product.data["triggers"][:, trigger_to_detector].astype(float)[...]
@@ -925,7 +1132,6 @@ class ScienceData(L1Product):
 
         return livefrac, livefrac_error
 
-
     @staticmethod
     def _return_spec_object(case,
                             sci_data,
@@ -935,7 +1141,59 @@ class ScienceData(L1Product):
                             event_time_range,
                             flare_angle,
                             distance,
-                            srm_dict):
+                            srm_dict,
+                            systematic):
+
+        """
+        Build a `sunkit_spex` `Spectrum` object from selected science data for a given
+        detector/pixel summation case.
+
+        Sums counts and propagates uncertainties over the appropriate axes depending
+        on `case` (whether detectors/pixels are collapsed or expanded, and whether the
+        input is a single time bin or a sequence), computes a livetime-weighted mean
+        exposure time, optionally adds an energy-dependent systematic uncertainty, and
+        assembles the spectral response matrix (SRM), photon axis, and other metadata
+        needed by the `Spectrum` object.
+
+        Parameters
+        ----------
+        case : str
+            One of 'spec_1D_detector_collapse', 'spec_sequence_detector_collapse',
+            'spec_1D_detector_expand', or 'spec_sequence_detector_expand', selecting
+            which axes to sum over.
+        sci_data : tuple
+            Tuple of (counts, counts_uncertainty, t_norm, e_norm, livefrac, ...,
+            times, energies) for the (possibly detector/pixel-indexed) data to
+            convert.
+        flare_location : dict
+            Flare location information, expected to contain 'stx' and 'hpc' keys.
+        detector_indices : list or numpy.ndarray
+            Detector indices used to build the spectrum (used for SRM/metadata
+            purposes upstream; not directly summed here).
+        pixel_indices : list or numpy.ndarray
+            Pixel indices used to build the spectrum.
+        event_time_range : list or numpy.ndarray
+            Time range of the event, stored in the output metadata.
+        flare_angle : astropy.units.Quantity
+            Angle between the spacecraft and the flare location.
+        distance : astropy.units.Quantity
+            Distance from the spacecraft to the Sun.
+        srm_dict : dict
+            Dictionary containing the spectral response matrix ('srm'), photon axis
+            ('ph_axis'), and geometric area ('geo_area'), as returned by
+            `get_masked_srm`.
+        systematic : bool
+            If True, adds an energy-dependent systematic uncertainty (as a percentage
+            of counts) in quadrature with the statistical uncertainty.
+
+        Returns
+        -------
+        sunkit_spex.spectrum.Spectrum
+            A 1D spectrum with counts, propagated uncertainty, spectral axis, and
+            metadata (exposure time, geometric area, angle, distance, SRM, photon
+            axis, time range).
+        """
+
 
         counts, counts_uncertainity, t_norm, _, livefrac,_, _, times_full, energies = sci_data
 
@@ -951,9 +1209,6 @@ class ScienceData(L1Product):
 
             counts_final = np.nansum(counts,axis=(0,1,2))
             counts_uncertainity_final = np.sqrt(np.nansum(counts_uncertainity**2,axis=(0,1,2)))
-
-            # counts_final = np.nansum(counts,axis=0)
-            # counts_uncertainity_final= np.sqrt(np.nansum(counts_uncertainity**2,axis=0))
 
             t_norm = t_norm[:,None,None,None] * livefrac
             t_norm = t_norm.mean(axis=(1,2,3))
@@ -974,19 +1229,24 @@ class ScienceData(L1Product):
             t_norm = t_norm * livefrac
             t_norm = t_norm.mean(axis=(0))
 
-
         e_low = energies["e_low"].value
 
-        energy_conditions = [e_low < 7, (e_low < 10) & (e_low >= 7), e_low >= 10]
-        percentage = [0.07, 0.05, 0.03]
+        if systematic:
 
-        systematic_err_percentage = np.select(energy_conditions, percentage)
+            energy_conditions = [e_low < 7, (e_low < 10) & (e_low >= 7), e_low >= 10]
+            percentage = [0.07, 0.05, 0.03]
 
-        systematic_err = systematic_err_percentage * counts_final
+            systematic_err_percentage = np.select(energy_conditions, percentage)
 
-        counts_err_final_final = np.sqrt(counts_uncertainity_final.value**2 + systematic_err.value**2) * u.ct
+            systematic_err = systematic_err_percentage * counts_final
 
-        counts_uncertainity_pu = PoissonUncertainty(counts_err_final_final)
+            counts_uncertainity_pu = PoissonUncertainty(np.sqrt(counts_uncertainity_final.value**2 + systematic_err.value**2) * u.ct)
+
+        else:
+
+            counts_uncertainity_pu = PoissonUncertainty(counts_uncertainity_final)
+        
+        
         counts_spectral_axis = SpectralAxis(counts_axis, bin_specification="edges")
 
         meta = NDMeta()
@@ -1006,7 +1266,6 @@ class ScienceData(L1Product):
 
         ph_energies_trim = np.concatenate([ph_ax_bins_trim[:, 0], ph_ax_bins_trim[:, 1][-1:]])
 
-
         meta.add("exposure_time", np.sum(t_norm))
         meta.add("geo_area", srm_dict["geo_area"])
         meta.add("angle", flare_angle)
@@ -1015,18 +1274,28 @@ class ScienceData(L1Product):
         meta.add("ph_axis", ph_energies_trim * u.keV)
         meta.add("time_range", event_time_range)
 
-
         spec_1d = Spectrum(
             data=counts_final, uncertainty=counts_uncertainity_pu, spectral_axis=counts_spectral_axis, meta=meta
         )
 
         return spec_1d
 
-
-
     @staticmethod
     def _srm_expand_ranges(pairs):
-        """Expand a list of [start, end] pairs into a flat inclusive list of ints."""
+        """
+        Expand a list of [start, end] pairs into a flat, inclusive list of integers.
+
+        Parameters
+        ----------
+        pairs : list of list or tuple
+            List of [start, end] pairs, e.g. [[1, 5], [9, 10]].
+
+        Returns
+        -------
+        list of int
+            Flat list of all integers covered by the given ranges, inclusive of both
+            endpoints, e.g. [1, 2, 3, 4, 5, 9, 10].
+        """
         result = []
         for start, end in pairs:
             result.extend(range(start, end + 1))
@@ -1034,7 +1303,21 @@ class ScienceData(L1Product):
 
     @staticmethod
     def _srm_is_list_of_pairs(indices):
-        """Check whether indices is a list of [start, end] pairs (each length 2)."""
+        """
+        Check whether a sequence of indices is formatted as a list of [start, end]
+        pairs rather than a flat list of individual indices.
+
+        Parameters
+        ----------
+        indices : list or tuple
+            Sequence of indices to check.
+
+        Returns
+        -------
+        bool
+            True if `indices` is non-empty and every element is a list or tuple of
+            length 2, False otherwise.
+        """
         return len(indices) > 0 and all(
             isinstance(item, (list, tuple)) and len(item) == 2 for item in indices
         )
@@ -1042,10 +1325,21 @@ class ScienceData(L1Product):
     @staticmethod
     def _srm_format_flat_or_ranges(indices):
         """
-        Format indices given as either:
-            - a flat list of ints, e.g. [1, 2, 3, 4, 5]  -> returned unchanged
-            - a list of [start, end] pairs, e.g. [[1, 5], [9, 10]]
-              -> expanded to [1, 2, 3, 4, 5, 9, 10]
+        Normalize detector/pixel indices given either as a flat list of ints or as a
+        list of [start, end] range pairs into a single flat list of ints.
+
+        Parameters
+        ----------
+        indices : list, tuple, or None
+            Either a flat list of indices (e.g. [1, 2, 3, 4, 5]) or a list of
+            [start, end] pairs (e.g. [[1, 5], [9, 10]]). If None, an empty list is
+            returned.
+
+        Returns
+        -------
+        list of int
+            Flat list of indices. Flat input is returned unchanged (as a list);
+            range-pair input is expanded via `_srm_expand_ranges`.
         """
         if indices is None:
             return []
@@ -1058,11 +1352,22 @@ class ScienceData(L1Product):
     @staticmethod
     def _srm_format_single_or_range(indices):
         """
-        Format indices given as either:
-            - a single-entry list, e.g. [3]  -> returned unchanged
-            - a two-entry list [start, end], e.g. [1, 5]
-              -> expanded to [1, 2, 3, 4, 5]
-            - anything else -> returned unchanged as a flat list
+        Normalize an index specification given as either a single-entry list or a
+        two-entry [start, end] range into a flat list of ints.
+
+        Parameters
+        ----------
+        indices : list, tuple, or None
+            A single-entry list (e.g. [3]), a two-entry [start, end] list (e.g.
+            [1, 5]), or any other sequence. If None, an empty list is returned.
+
+        Returns
+        -------
+        list of int
+            - If `indices` has one entry, it is returned unchanged as a list.
+            - If `indices` has two entries, they are treated as [start, end] and
+            expanded to a full inclusive range.
+            - Otherwise, `indices` is returned unchanged as a flat list.
         """
         if indices is None:
             return []
@@ -1079,11 +1384,30 @@ class ScienceData(L1Product):
     @staticmethod
     def _srm_det_pix_indices_format(detector_indices, pixel_indices, case):
         """
-        Both detector_indices and pixel_indices can be:
-            - a flat list of ints, e.g. [1, 2, 3, 4, 5]  -> returned unchanged
-            - a list of [start, end] pairs, e.g. [[1, 5], [9, 10]]
-              -> expanded to [1, 2, 3, 4, 5, 9, 10]
+        Format detector and pixel indices into the flat-list form expected by
+        `get_masked_srm`, using a different expansion rule depending on the
+        detector/pixel summation case.
+
+        Parameters
+        ----------
+        detector_indices : list, tuple, or None
+            Detector indices, as either a flat list or a list of [start, end] pairs.
+        pixel_indices : list, tuple, or None
+            Pixel indices, as either a flat list or a list of [start, end] pairs.
+        case : str
+            One of 'spec_1D_detector_collapse', 'spec_sequence_detector_collapse',
+            'spec_1D_detector_expanded', or 'spec_sequence_detector_expanded'.
+            Collapse cases expand both `detector_indices` and `pixel_indices` via
+            `_srm_format_flat_or_ranges`; expanded cases expand `detector_indices` via
+            `_srm_format_single_or_range` and `pixel_indices` via
+            `_srm_format_flat_or_ranges`.
+
+        Returns
+        -------
+        tuple of list
+            The formatted (`detector_indices`, `pixel_indices`) as flat lists of ints.
         """
+
         if case == 'spec_1D_detector_collapse' or 'spec_sequence_detector_collapse':
             det_formatted = ScienceData._srm_format_flat_or_ranges(detector_indices)
             pix_formatted = ScienceData._srm_format_flat_or_ranges(pixel_indices)
@@ -1093,7 +1417,6 @@ class ScienceData(L1Product):
             pix_formatted = ScienceData._srm_format_flat_or_ranges(pixel_indices)
 
         return det_formatted, pix_formatted
-
 
     @staticmethod
     def _get_sunkit_spex_spectrum(product,
@@ -1105,6 +1428,52 @@ class ScienceData(L1Product):
                     detector_sum=True,
                     rcr=None):
         
+        """
+        Convert selected science data into one or more `sunkit_spex` spectral
+        products (a single `Spectrum`, an `NDCubeSequence` of spectra, or an
+        `NDCollection` of spectra/sequences), depending on whether detectors are
+        summed and whether the data spans a single time bin or multiple.
+
+        If `detector_sum=True`, detectors are collapsed into a single spectrum (or a
+        sequence of spectra over time). If `detector_sum=False`, a separate spectrum
+        (or sequence of spectra) is produced for each detector, and results across
+        detectors are combined into an `NDCollection`. In all cases, a masked spectral
+        response matrix (SRM) is computed via `product.get_masked_srm` for the
+        relevant detector/pixel combination.
+
+        Parameters
+        ----------
+        product : ScienceData
+            The science data product used for flare angle, distance, and SRM
+            calculations.
+        detector_indices : list or numpy.ndarray
+            Detector indices included in the data.
+        pixel_indices : list or numpy.ndarray
+            Pixel indices included in the data.
+        sci_data : tuple
+            Tuple of (counts, counts_uncertainty, t_norm, e_norm, livefrac, ...,
+            elut_cor_fac, times_full, energies) as returned by `_data_select` /
+            `get_data`.
+        event_time_range : list or numpy.ndarray
+            Time range of the event, passed through to metadata.
+        flare_location : dict
+            Flare location information, expected to contain 'stx' and 'hpc' keys.
+        detector_sum : bool
+            If True, sum over detectors to produce one spectrum (or sequence of
+            spectra); if False, produce one spectrum (or sequence) per detector.
+        rcr : optional
+            Currently unused; reserved for RCR-state-aware processing.
+
+        Returns
+        -------
+        sunkit_spex.spectrum.Spectrum or ndcube.NDCubeSequence or
+        ndcube.NDCollection
+            A single spectrum if the data has one time bin and detectors are summed;
+            an `NDCubeSequence` of spectra if there are multiple time bins and
+            detectors are summed; or an `NDCollection` (of spectra or sequences) keyed
+            by detector index if `detector_sum=False`.
+        """
+
         counts, counts_uncertainity, t_norm, e_norm, livefrac, _, elut_cor_fac, times_full, energies = sci_data
 
 
@@ -1297,12 +1666,29 @@ class ScienceData(L1Product):
                 spec_collection = NDCollection(spec_list_collection_working,
                                                aligned_axes="all" ) 
 
-                return spec_collection    
-
-                    
+                return spec_collection               
     
     @staticmethod
     def _flare_angle(product, flare_location):
+
+        """
+        Compute the angle between the spacecraft-to-Sun line and the spacecraft-to-flare
+        line at the start of the product's time range.
+
+        Parameters
+        ----------
+        product : ScienceData
+            The data product whose time range is used to determine spacecraft
+            pointing and position.
+        flare_location : dict
+            Flare location information, expected to contain an 'hpc' key giving the
+            flare's helioprojective coordinates.
+
+        Returns
+        -------
+        astropy.units.Quantity
+            The angle between the spacecraft and the flare as seen from the Sun.
+        """
         
         roll, solo_xyz, pointing = get_hpc_info(product.time_range.start, product.time_range.start)
 
@@ -1315,6 +1701,29 @@ class ScienceData(L1Product):
 
     @staticmethod
     def _check_shadowing(product,detector_indices):
+
+        """
+        Check for possible pixel shadowing by comparing summed counts in the top vs.
+        bottom pixel rows for the given detectors, and warn if either row's total
+        exceeds the other's by more than a set tolerance.
+
+        Only performs the check if both the top pixels (0-3) and bottom pixels (4-8)
+        are present in the product's pixel mask.
+
+        Parameters
+        ----------
+        product : ScienceData
+            The data product whose counts and pixel masks are used for the check.
+        detector_indices : list or numpy.ndarray
+            Detector indices to include in the shadowing check.
+
+        Returns
+        -------
+        None
+            Issues a `warnings.warn` if the top-to-bottom or bottom-to-top count
+            ratio (summed over the first 25 energy bins) exceeds the tolerance
+            (1.05); otherwise returns nothing.
+        """
 
         tolerance = 1.05
 
@@ -1340,32 +1749,54 @@ class ScienceData(L1Product):
                 warnings.warn(f'Bottom pixel total 5% higher than top row with a ratio of {np.round(rat_bot_top,2)}. Possible pixel shadowing. Recommend using only top pixels for analysis.')
 
     @staticmethod
-    def _time_indices_format(time_indices,times,rcr,sunkit_spex_spectrum):
+    def _time_indices_format(time_indices,times,rcr):
+
+        """
+        Normalize a user-supplied `time_indices` specification into a canonical list
+        of integer indices or [start, end] integer pairs, and apply RCR-state
+        consistency checks.
+
+        Supports four input formats:
+            - A flat list of integer indices (RCR state is checked with a warning).
+            - A flat list of strings/`Time` objects, treated as bin edges and
+            converted to [start, end] integer pairs via `_handle_datetime_strings`.
+            - A list of [start, end] string/`Time` pairs, similarly converted.
+            - A list of [start, end] integer pairs (RCR state is checked within each
+            pair, raising an error on a within-pair change and warning on a
+            between-pair difference).
+
+        Parameters
+        ----------
+        time_indices : list
+            The user-supplied time selection, in any of the supported formats.
+        times : list or astropy.time.Time
+            The full array of times associated with the data, used to resolve
+            string/`Time` bin edges to integer indices.
+        rcr : list
+            Full RCR (rate control regime) state array, indexed the same as `times`.
+
+        Returns
+        -------
+        list
+            The time indices normalized to either a flat list of ints or a list of
+            [start, end] integer pairs.
+
+        Raises
+        ------
+        ValueError
+            If the format of `time_indices` cannot be determined, or if nested
+            pairs are not valid [start, end] integer or time pairs.
+        """
         
         first = time_indices[0]
 
-        # if sunkit_spex_spectrum:
-        #     if not isinstance(first, (str, Time)):
-        #         raise ValueError(
-        #         f"If sunkit_spex_spectrm=True, time_indices must be a time range in the format [start_time,end_time]."
-        #     )
-        #     if isinstance(first, (str, Time)):
-        #         if isinstance(first, (str, Time)) and not isinstance(time_indices[0], (list, tuple)):
-        #             bins = [time_indices]
-        #         else:
-        #             bins = time_indices
-        #         result = ScienceData._handle_datetime_strings(bins, times)
-        #         ScienceData._handle_nested_pairs(result, rcr)
-        #         return time_indices
-        # else:
         if isinstance(first, int):
             ScienceData._rcr_warning(time_indices, rcr)
             return time_indices
         
 
         if isinstance(first, (str, Time)):
-            # Single bin ["st", "et"] or multiple bins [["st1","et1"],["st2","et2"]]
-            # Wrap single bin in a list so _handle_datetime_strings always gets [[st,et],...]
+
             if isinstance(first, (str, Time)) and not isinstance(time_indices[0], (list, tuple)):
                 bins = [[time_indices[i], time_indices[i+1]] for i in range(len(time_indices) - 1)]
             else:
@@ -1377,7 +1808,7 @@ class ScienceData(L1Product):
 
         if isinstance(first, (list, tuple)):
             if isinstance(first[0], (str, Time)):
-                # [["st1","et1"],["st2","et2"]]
+
                 result = ScienceData._handle_datetime_strings(time_indices, times)
                 ScienceData._handle_nested_pairs(result, rcr)
                 return result
@@ -1395,6 +1826,24 @@ class ScienceData(L1Product):
     @staticmethod
     def _rcr_warning(time_indices, rcr):
 
+        """
+        Warn if the RCR (rate control regime) state is not constant across a flat
+        list of time indices.
+
+        Parameters
+        ----------
+        time_indices : list of int
+            Time indices to check for RCR state consistency.
+        rcr : list
+            Full RCR state array, indexed the same as the data's time axis.
+
+        Returns
+        -------
+        None
+            Issues a `warnings.warn` if any index in `time_indices` has a different
+            RCR state than the first index; otherwise returns nothing.
+        """
+
         first_rcr = rcr[time_indices[0]]
         for i in time_indices[1:]:
             if rcr[i] != first_rcr:
@@ -1409,15 +1858,24 @@ class ScienceData(L1Product):
     @staticmethod
     def _rcr_error(indices, rcr):
         """
-        Raise a ValueError if the RCR state is not uniform across the given indices.
+        Raise a ValueError if the RCR (rate control regime) state is not uniform
+        across the given indices.
 
-        Args:
-            indices: List of indices into rcr to check.
-            rcr:     Full RCR state list.
-            context: Optional label for the error message.
+        Parameters
+        ----------
+        indices : list of int
+            Indices into `rcr` to check for state consistency.
+        rcr : list
+            Full RCR state array.
 
-        Raises:
-            ValueError: If any index has a different RCR value from the first.
+        Returns
+        -------
+        None
+
+        Raises
+        ------
+        ValueError
+            If any index in `indices` has a different RCR value from the first.
         """
         if not indices:
             return
@@ -1434,6 +1892,30 @@ class ScienceData(L1Product):
     def _handle_datetime_strings(
         time_bin: list[list[str | Time]],
         times: list[str | Time]) -> list[list[int]]:
+
+        """
+        Convert a list of [start, end] time bins, given as strings or `Time` objects,
+        into [start, end] integer index pairs by matching against a reference time
+        array.
+
+        Parameters
+        ----------
+        time_bin : list of list of str or astropy.time.Time
+            List of [start, end] time bins.
+        times : list of str or astropy.time.Time
+            Reference time array to search for indices falling within each bin.
+
+        Returns
+        -------
+        list of list of int
+            For each input bin, the [first, last] index into `times` whose value
+            falls within [start, end] (inclusive).
+
+        Raises
+        ------
+        ValueError
+            If any bin does not contain exactly 2 elements.
+        """
 
         results = []
         for n, bin in enumerate(time_bin):
@@ -1453,8 +1935,6 @@ class ScienceData(L1Product):
 
             results.append([matched[0], matched[-1]])
         
-        print()
-
         return results
 
     @staticmethod
@@ -1507,46 +1987,80 @@ class ScienceData(L1Product):
         sunkit_spex_spectrum=False,
         flare_location=None,
         bkg=None,
-        systematic_error=True,
+        sunkit_spex_systematic_error=True,
         sunkit_spex_detector_sum=True
     ):
     
         r"""
-        Return the counts, errors, times, durations and energies for selected data.
-
-        Optionally summing in time and or energy.
+        Return the counts, errors, times, durations and energies for selected data,
+        optionally applying livetime and ELUT corrections, background subtraction,
+        and/or summing over time, energy, detector, or pixel axes.
 
         Parameters
         ----------
         vtype : str
-            Type of value to return (vtype) controls the normalisation:
-                * 'c' - count [c]
-                * 'cr' - count rate [c/s]
-                * 'dcr' - differential count rate [c/(s keV)]
-        time_indices : `list` or `numpy.ndarray`
-            If an 1xN array will be treated as mask if 2XN array will sum data between given
-            indices. For example `time_indices=[0, 2, 5]` would return only the first, third and
-            sixth times while `time_indices=[[0, 2],[3, 5]]` would sum the data between.
-        energy_indices : `list` or `numpy.ndarray`
-            If an 1xN array will be treated as mask if 2XN array will sum data between given
-            indices. For example `energy_indices=[0, 2, 5]` would return only the first, third and
-            sixth times while `energy_indices=[[0, 2],[3, 5]]` would sum the data between.
-        detector_indices : `list` or `numpy.ndarray`
-            If an 1xN array will be treated as mask if 2XN array will sum data between given
-            indices. For example `detector_indices=[0, 2, 5]` would return only the first, third and
-            sixth detectors while `detector_indices=[[0, 2],[3, 5]]` would sum the data between.
-        pixel_indices : `list` or `numpy.ndarray`
-            If an 1xN array will be treated as mask if 2XN array will sum data between given
-            indices. For example `pixel_indices=[0, 2, 5]` would return only the first, third and
-            sixth pixels while `pixel_indices=[[0, 2],[3, 5]]` would sum the data between.
-        sum_all_times : `bool`
-            Flag to sum all give time intervals into one
+            Type of value to return. Controls the normalisation:
+                * 'c' - counts [ct]
+                * 'cr' - count rate [ct/s]
+                * 'dcr' - differential count rate [ct/(s keV)]
+        time_indices : list or numpy.ndarray, optional
+            If a 1xN array, treated as a mask; if a 2xN array (or list of
+            [start, end] pairs), sums data between the given indices. Also accepts
+            strings or `~astropy.time.Time` objects as bin edges, which are resolved
+            against `self.times`. For example `time_indices=[0, 2, 5]` returns only
+            the first, third, and sixth times, while `time_indices=[[0, 2], [3, 5]]`
+            sums the data between those indices.
+        energy_indices : list or numpy.ndarray, optional
+            If a 1xN array, treated as a mask; if a 2xN array, sums data between the
+            given indices. For example `energy_indices=[0, 2, 5]` returns only the
+            first, third, and sixth energy bins, while `energy_indices=[[0, 2], [3, 5]]`
+            sums the data between those indices.
+        detector_indices : list, numpy.ndarray, or str, optional
+            If a 1xN array, treated as a mask; if a 2xN array, sums data between the
+            given indices. The special string "top24" selects a fixed set of 24
+            detectors. If None, all detectors available in the product are used.
+        pixel_indices : list or numpy.ndarray, optional
+            If a 1xN array, treated as a mask; if a 2xN array, sums data between the
+            given indices. If None, all pixels available in the product are used.
+        sum_all_times : bool
+            If True, sums all requested time bins into a single time bin.
+        livetime_correction : bool
+            If True, applies a livetime-fraction correction to the counts and
+            propagates the associated uncertainty.
+        elut_correction : bool
+            If True, applies an energy lookup table (ELUT) correction factor to the
+            counts.
+        sunkit_spex_spectrum : bool
+            If True, returns the data as one or more `sunkit_spex` spectral objects
+            (see Returns) instead of raw arrays. When True, `vtype` is ignored and
+            all data is returned as counts.
+        flare_location : dict, optional
+            Flare location information, required if `sunkit_spex_spectrum=True`.
+            Expected to contain 'stx' (Helioprojective Tx/Ty) and 'hpc' (SkyCoord)
+            keys.
+        bkg : ScienceData, optional
+            A background data product to subtract from the science data. If
+            provided, `livetime_correction` and `elut_correction` are forced to True.
+        sunkit_spex_systematic_error : bool
+            If True (and `sunkit_spex_spectrum=True`), adds an energy-dependent
+            systematic uncertainty in quadrature with the statistical uncertainty.
+        sunkit_spex_detector_sum : bool
+            If True (and `sunkit_spex_spectrum=True`), sums over detectors to
+            produce a single spectrum (or sequence of spectra); if False, produces
+            one spectrum (or sequence) per detector.
 
         Returns
         -------
-        `tuple`
-            Counts, errors, times, deltatimes,  energies
+        tuple or sunkit_spex.spectrum.Spectrum or ndcube.NDCubeSequence or ndcube.NDCollection
+            If `sunkit_spex_spectrum=False` (default), returns a tuple of
+            `(counts, counts_var, t_norm, e_norm, livefrac, livefrac_error,
+            elut_cor_fac, times, energies)` normalised according to `vtype`.
 
+            If `sunkit_spex_spectrum=True`, returns a `sunkit_spex` spectral product:
+            a single `Spectrum` if there is one time bin and detectors are summed;
+            an `NDCubeSequence` of spectra if there are multiple time bins and
+            detectors are summed; or an `NDCollection` (of spectra or sequences)
+            keyed by detector index if `sunkit_spex_detector_sum=False`.
         """
 
         # =====================================================
@@ -1555,8 +2069,6 @@ class ScienceData(L1Product):
 
         if time_indices is not None:
             time_indices = self._time_indices_format(time_indices, self.times, self.rcr, sunkit_spex_spectrum)
-
-            print('t_check = ',time_indices)
 
         detector_indices, pixel_indices = self._indices_check(self,
                                                               detector_indices,
@@ -1656,7 +2168,8 @@ class ScienceData(L1Product):
                                                         sci_data,
                                                         time_indices,
                                                         flare_location,
-                                                        detector_sum=sunkit_spex_detector_sum)
+                                                        detector_sum=sunkit_spex_detector_sum,
+                                                        systematic=sunkit_spex_systematic_error)
             
             return sunkit_spex_spectrum
         
@@ -1701,6 +2214,36 @@ class ScienceData(L1Product):
 
     def get_masked_srm(self, flare_location, detector_indices_input, pixel_indices_input):
 
+        """
+        Build a spectral response matrix (SRM) masked/scaled for a given flare
+        location and set of detectors and pixels.
+
+        Loads the detector response matrix (DRM) and its photon/count energy grids
+        from the on-disk calibration file, clips the DRM to the energy edges of the
+        current product, applies grid and detector transmission corrections for the
+        given flare location and detectors, rebins the DRM onto the product's count
+        energy bins, and scales by the total active pixel area.
+
+        Parameters
+        ----------
+        flare_location : array-like
+            Flare location in Helioprojective Tx/Ty coordinates, e.g.
+            [Tx.value, Ty.value].
+        detector_indices_input : list or numpy.ndarray
+            Detector indices to include when computing the mean attenuation and the
+            total collecting area.
+        pixel_indices_input : list or numpy.ndarray
+            Pixel indices to include when computing the total collecting area.
+
+        Returns
+        -------
+        dict
+            Dictionary with keys:
+                - "srm": the masked, rebinned spectral response matrix.
+                - "ph_axis": the (clipped) photon energy axis bin edges.
+                - "geo_area": the total geometric area (cm^2) for the selected
+                detectors and pixels.
+        """
 
         HERE = Path(__file__).parent          
         ROOT = HERE.parent.parent            

@@ -254,7 +254,7 @@ class SpectrogramPlotMixin:
                     raise ValueError("Spectrogram plots can only one sum detector or summed over a number of detectors")
                 pid = pixel_indices
 
-        counts, errors, timedeltas, _, _, _, _, times, energies = self.get_data(
+        counts, errors, timedeltas, _, _, _, _, times, energies, _ = self.get_data(
             vtype=vtype,
             detector_indices=did,
             pixel_indices=pid,
@@ -355,7 +355,7 @@ class TimesSeriesPlotMixin:
             pixel_indices = [[0, 11]]
 
 
-        counts, errors, timedeltas, _, _, _, _, times, energies = self.get_data(
+        counts, errors, timedeltas, _, _, _, _, times, energies, _ = self.get_data(
             vtype=vtype,
             detector_indices=detector_indices,
             pixel_indices=pixel_indices,
@@ -627,6 +627,7 @@ class ScienceData(L1Product):
                     livefrac,
                     livefrac_error,
                     elut_cor_fac,
+                    rcr,
                     sum_all_times):
         
         """
@@ -698,10 +699,11 @@ class ScienceData(L1Product):
             t_norm = product.data["timedel"]
             times = product.times
             energies = product.energies
+            rcr = product.rcr
 
         else:
 
-            counts, counts_var, t_norm, e_norm, livefrac, elut_cor_fac, times, energies = product
+            counts, counts_var, t_norm, e_norm, livefrac, elut_cor_fac, times, energies, rcr = product
 
 
 
@@ -815,10 +817,6 @@ class ScienceData(L1Product):
                 energies = QTable(energies * u.keV, names=["e_low", "e_high"])
 
         if time_indices is not None:
-            if isinstance(time_indices[0], (str, Time)):
-                time_indices=None
-
-        if time_indices is not None:
             time_indices = np.asarray(time_indices)
             if time_indices.ndim == 1:
                 time_mask = np.full(times.shape, False)
@@ -826,6 +824,7 @@ class ScienceData(L1Product):
                 counts = counts[time_mask, ...]
                 counts_var = counts_var[time_mask, ...]
                 t_norm = t_norm[time_mask]
+                rcr = rcr[time_mask]
                 if livefrac is not None:
                     livefrac = livefrac[time_mask, ...]
                 times = times[time_mask]
@@ -840,9 +839,12 @@ class ScienceData(L1Product):
                     tc = ts + (td * 0.5)
                     dt.append(td.to("s"))
                     new_times.append(tc)
+
                 dt = np.hstack(dt)
                 times = Time(new_times)
                 counts = np.vstack([np.sum(counts[tl : th + 1, ...], axis=0, keepdims=True) for tl, th in time_indices])
+                rcr = np.vstack([np.mean(rcr[tl : th + 1, ...], axis=0, keepdims=True) for tl, th in time_indices])
+
 
                 if livefrac is not None:
                     livefrac = np.vstack([np.mean(livefrac[tl : th + 1, ...], axis=0, keepdims=True) for tl, th in time_indices])
@@ -860,7 +862,7 @@ class ScienceData(L1Product):
                     counts_var = np.sum(counts_var, axis=0, keepdims=True)
                     t_norm = np.sum(dt)
     
-        return counts, counts_var, t_norm, e_norm, livefrac, livefrac_error, elut_cor_fac, times, energies
+        return counts, counts_var, t_norm, e_norm, livefrac, livefrac_error, elut_cor_fac, times, energies, rcr
     
     @staticmethod
     def _bkg_sub(product,
@@ -872,7 +874,8 @@ class ScienceData(L1Product):
                 livefrac_error,
                 livefrac_bkg,
                 livefrac_error_bkg,
-                elut_cor_fac): 
+                elut_cor_fac,
+                rcr): 
         
         """
         Perform livetime- and ELUT-corrected background subtraction of a science
@@ -1018,7 +1021,7 @@ class ScienceData(L1Product):
         counts_var = spec_in_err_final
         livefrac = eff_livefrac[:, :, :, np.newaxis]
 
-        return counts, counts_var, t_norm, e_norm, livefrac, elut_cor_fac, times, energies
+        return counts, counts_var, t_norm, e_norm, livefrac, elut_cor_fac, times, energies, rcr
                                                                        
     @staticmethod
     def _energies_bkg_sub(product,bkg):
@@ -1183,7 +1186,7 @@ class ScienceData(L1Product):
         """
 
 
-        counts, counts_uncertainity, t_norm, _, livefrac,_, _, times_full, energies = sci_data
+        counts, counts_uncertainity, t_norm, _, livefrac,_, _, times_full, energies, _ = sci_data
 
         t_norm = t_norm.to(u.s)
 
@@ -1459,11 +1462,12 @@ class ScienceData(L1Product):
             by detector index if `detector_sum=False`.
         """
 
-        counts, counts_uncertainity, t_norm, e_norm, livefrac, _, elut_cor_fac, times_full, energies = sci_data
+        counts, counts_uncertainity, t_norm, e_norm, livefrac, _, elut_cor_fac, times_full, energies, rcr = sci_data
 
         flare_location_stx = np.array([flare_location['stx'].Tx.value, flare_location['stx'].Ty.value])
         flare_angle = product._flare_angle(product,flare_location)
         distance = (product.meta["DSUN_OBS"] * u.m).to(u.AU)
+        rcr_unique = np.unique(rcr)
 
         if detector_sum:
 
@@ -1475,7 +1479,8 @@ class ScienceData(L1Product):
 
                 srm_dict = product.get_masked_srm(flare_location=flare_location_stx,
                                             detector_indices_input=detector_indices_srm, 
-                                            pixel_indices_input=pixel_indices_srm)
+                                            pixel_indices_input=pixel_indices_srm,
+                                            rcr=rcr_unique)
 
                 return ScienceData._return_spec_object(case,
                             sci_data,
@@ -1483,16 +1488,22 @@ class ScienceData(L1Product):
                             distance,
                             srm_dict,
                             systematic)
-            
+
             else:
 
                 case = 'spec_sequence_detector_collapse'
-
+                
                 detector_indices_srm, pixel_indices_srm = ScienceData._srm_det_pix_indices_format(detector_indices, pixel_indices, case)
 
-                srm_dict = product.get_masked_srm(flare_location=flare_location_stx,
-                                            detector_indices_input=detector_indices_srm, 
-                                            pixel_indices_input=pixel_indices_srm)
+                srm_dict_by_rcr = {
+                    rcr_val: product.get_masked_srm(
+                        flare_location=flare_location_stx,
+                        detector_indices_input=detector_indices_srm,
+                        pixel_indices_input=pixel_indices_srm,
+                        rcr=rcr_val,
+                    )
+                    for rcr_val in np.unique(rcr)
+                }
 
                 spec_list_working = []
 
@@ -1514,11 +1525,11 @@ class ScienceData(L1Product):
                                 sci_data_indexed,
                                 flare_angle,
                                 distance,
-                                srm_dict,
+                                srm_dict_by_rcr[rcr[i]],
                                 systematic)
 
                     spec_list_working.append(spec_1d)
-                
+
                 spec_sequence = NDCubeSequence(spec_list_working,
                             meta={"detector": "det1", "instrument": "STIX"},  
                             common_axis=0
@@ -1580,9 +1591,15 @@ class ScienceData(L1Product):
 
                     detector_indices_srm, pixel_indices_srm = ScienceData._srm_det_pix_indices_format(detector_indices, pixel_indices, case)
 
-                    srm_dict = product.get_masked_srm(flare_location=flare_location_stx,
-                                            detector_indices_input=detector_indices_srm, 
-                                            pixel_indices_input=pixel_indices_srm)
+                    srm_dict_by_rcr = {
+                        rcr_val: product.get_masked_srm(
+                            flare_location=flare_location_stx,
+                            detector_indices_input=detector_indices_srm,
+                            pixel_indices_input=pixel_indices_srm,
+                            rcr=rcr_val,
+                        )
+                        for rcr_val in np.unique(rcr)
+                    }
 
                     counts, counts_uncertainity, t_norm, e_norm, livefrac,_, elut_cor_fac, times_full, energies = sci_data
 
@@ -1608,7 +1625,7 @@ class ScienceData(L1Product):
                                     sci_data_indexed,
                                     flare_angle,
                                     distance,
-                                    srm_dict,
+                                    srm_dict_by_rcr[rcr[i]],
                                     systematic)
 
                         spec_list_sequence_working.append(spec_1d)
@@ -2183,12 +2200,13 @@ class ScienceData(L1Product):
         # =====================================================
         # livetime
         # =====================================================
+        rcr=self.rcr
 
         if energy_indices is not None:
             energy_indices = self._energy_indices_format(energy_indices,self.energies)
 
         if time_indices is not None:
-            time_indices = self._time_indices_format(time_indices, self.times, self.rcr)
+            time_indices = self._time_indices_format(time_indices, self.times, rcr)
 
         detector_indices, pixel_indices = self._indices_check(self,
                                                               detector_indices,
@@ -2236,6 +2254,7 @@ class ScienceData(L1Product):
                                     livefraction_sci,
                                     livefraction_sci_error,
                                     elut_cor_fac,
+                                    rcr,
                                     sum_all_times)
 
         else:
@@ -2258,7 +2277,8 @@ class ScienceData(L1Product):
                                     livefraction_sci_error,
                                     livefraction_bkg,
                                     livefraction_bkg_error,
-                                    elut_cor_fac) 
+                                    elut_cor_fac,
+                                    rcr) 
             
 
             sci_data = self._data_select(sci_data_all,
@@ -2269,6 +2289,7 @@ class ScienceData(L1Product):
                                     livefraction_sci,
                                     None,
                                     elut_cor_fac,
+                                    rcr,
                                     sum_all_times)
  
         # =====================================================
@@ -2286,13 +2307,14 @@ class ScienceData(L1Product):
                                                         sci_data,
                                                         flare_location,
                                                         systematic=sunkit_spex_systematic_error,
-                                                        detector_sum=sunkit_spex_detector_sum)
+                                                        detector_sum=sunkit_spex_detector_sum,
+                                                        rcr=rcr)
 
             return sunkit_spex_spectrum
         
         else:
             
-            counts, counts_var, t_norm, e_norm, livefrac, livefrac_error, elut_cor_fac, times, energies = sci_data
+            counts, counts_var, t_norm, e_norm, livefrac, livefrac_error, elut_cor_fac, times, energies, rcr = sci_data
             
             e_norm = e_norm[np.newaxis, np.newaxis, np.newaxis, :]  
             t_norm = t_norm[:, np.newaxis, np.newaxis, np.newaxis].to(u.s) 
@@ -2324,11 +2346,11 @@ class ScienceData(L1Product):
             
             counts_var = counts_var * norm
 
-            return counts, counts_var, t_norm, e_norm, livefrac, livefrac_error, elut_cor_fac, times, energies
+            return counts, counts_var, t_norm, e_norm, livefrac, livefrac_error, elut_cor_fac, times, energies, rcr
 
         
 
-    def get_masked_srm(self, flare_location, detector_indices_input, pixel_indices_input):
+    def get_masked_srm(self, flare_location, detector_indices_input, pixel_indices_input, rcr):
 
         """
         Build a spectral response matrix (SRM) masked/scaled for a given flare
@@ -2404,9 +2426,10 @@ class ScienceData(L1Product):
 
         ph_e_diff = np.diff(ph_energies_clipped)
 
-        pixel_areas = STIX_INSTRUMENT.pixel_config["Area"].to("cm2")
+        pixel_areas_full = STIX_INSTRUMENT.pixel_config["Area"].to("cm2")
+        
+        pixel_areas = pixel_areas_full[pixel_indices_input].value
 
-        pixel_areas = pixel_areas[pixel_indices_input].value
 
         area_scale = len(detector_indices_input) * np.sum(pixel_areas)
 
@@ -2416,7 +2439,20 @@ class ScienceData(L1Product):
 
         trans = Transmission()
 
-        tot_trans = trans.get_transmission(energies=e_mids * u.keV)
+        if rcr == 0:
+            tot_trans = trans.get_transmission(energies=e_mids * u.keV)
+        else:
+            tot_trans = trans.get_transmission(energies=e_mids * u.keV,
+                                                attenuator=True)     
+
+        rcr_state_all = np.array([0.8096, 0.80961, 0.4048, 0.2024, 0.1012, 0.0396, 0.0198, 0.0099])
+        pixel_indices_input_rcr = np.arange(0,12,1)
+        print('rcr = ', rcr)
+        rcr_state = rcr_state_all[int(rcr[0])]  
+        rcr_factor = rcr_state / np.sum(pixel_areas_full[pixel_indices_input_rcr].value)
+
+        print('rcr_factor = ',rcr_factor)
+        print('np.sum(pixel_areas) = ',np.sum(pixel_areas))
 
         attenuation = np.zeros(len(tot_trans["det-1"]))
 
@@ -2450,7 +2486,7 @@ class ScienceData(L1Product):
 
         srm = (drm_new * grid_transmission[:, None]) / ct_e_diff[None, :]
 
-        return {"srm": srm, "ph_axis": ph_energies_clipped, "geo_area": area_scale}
+        return {"srm": srm, "ph_axis": ph_energies_clipped, "geo_area": area_scale*rcr_factor}
     
 
     def concatenate(self, others):

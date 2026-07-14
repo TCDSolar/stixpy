@@ -491,7 +491,7 @@ class ScienceData(L1Product):
 
 
     @staticmethod
-    def _indices_check(product, detector_indices, pixel_indices, sunkit_spex_spectrum):
+    def _indices_check(product, detector_indices, pixel_indices):
         """
         Validate and normalize the requested detector and pixel indices against what is
         actually available in the product's masks.
@@ -528,7 +528,6 @@ class ScienceData(L1Product):
         # --- Detector indices ---
         if detector_indices is not None:
 
-
             detector_indices_working = detector_indices
 
             if detector_indices_working == "top24":
@@ -538,9 +537,9 @@ class ScienceData(L1Product):
             else:
                 detector_indices_full = np.where(product.detector_masks.__dict__["masks"] == 1)[1]
 
-                if sunkit_spex_spectrum:
-                    if np.ndim(detector_indices_working) != 1:
-                        raise ValueError(f"If sunkit_spex_spectrum=True detector_indices must be a 1D list")
+                # if sunkit_spex_spectrum:
+                #     if np.ndim(detector_indices_working) != 1:
+                #         raise ValueError(f"If sunkit_spex_spectrum=True detector_indices must be a 1D list")
 
                 if np.ndim(detector_indices_working) == 2:
                     # [[start, end], ...] range format
@@ -562,9 +561,9 @@ class ScienceData(L1Product):
         if pixel_indices is not None:
             pixel_indices_full = np.where(product.pixel_masks.__dict__["masks"] == 1)[1]
 
-            if sunkit_spex_spectrum:
-                if np.ndim(pixel_indices) != 1:
-                    raise ValueError(f"If sunkit_spex_spectrum=True pixel_indices must be a 1D list")
+            # if sunkit_spex_spectrum:
+            #     if np.ndim(pixel_indices) != 1:
+            #         raise ValueError(f"If sunkit_spex_spectrum=True pixel_indices must be a 1D list")
                 
             if np.ndim(pixel_indices) == 2:
                 # [[start, end], ...] range format
@@ -682,15 +681,21 @@ class ScienceData(L1Product):
 
             e_norm = product.dE
             counts = product.data["counts"]
-            try:
+
+            shape = counts.shape
+
+            try: 
                 counts_var = product.data["counts_comp_err"] ** 2
             except KeyError:
                 counts_var = product.data["counts_comp_comp_err"] ** 2
 
+            # if len(shape) < 4:
+            #     counts = counts.reshape(shape[0], 1, 1, shape[-1])
+            #     counts_var = counts_var.reshape(shape[0], 1, 1, shape[-1])
+
             counts_var = np.sqrt(counts.value + counts_var.value) *u.ct
 
             t_norm = product.data["timedel"]
-            shape = counts.shape
             times = product.times
             energies = product.energies
 
@@ -917,10 +922,16 @@ class ScienceData(L1Product):
 
         e_norm = product.dE
         counts = product.data["counts"]
+        # shape = counts.shape
+
         try:
             counts_var = (product.data["counts_comp_err"].value ** 2)*u.ct
         except KeyError:
             counts_var =  (product.data["counts_comp_comp_err"].value ** 2)*u.ct
+        
+        # if len(shape) < 4:
+        #     counts = counts.reshape(shape[0], 1, 1, shape[-1])
+        #     counts_var = counts_var.reshape(shape[0], 1, 1, shape[-1])
         
         counts_var = np.sqrt(counts + counts_var) 
 
@@ -1798,7 +1809,7 @@ class ScienceData(L1Product):
                     f"index {i} has RCR={rcr[i]!r}."
                     f"Use with caution!"
                 )
-        return 
+        return None
 
     @staticmethod
     def _rcr_error(indices, rcr):
@@ -1823,7 +1834,7 @@ class ScienceData(L1Product):
             If any index in `indices` has a different RCR value from the first.
         """
         if not indices:
-            return
+            return None
         first_rcr = rcr[indices[0]]
         for i in indices[1:]:
             if rcr[i] != first_rcr:
@@ -1917,8 +1928,6 @@ class ScienceData(L1Product):
 
         return time_indices
 
-
-
     @staticmethod
     def _find_bin_index(start, end, e_low, e_high):
         """
@@ -1951,7 +1960,7 @@ class ScienceData(L1Product):
 
         if matches.size == 0:
             raise ValueError(
-                f"Energy range {start} - {end} keV does not fall within any product energy bin."
+                f"Energy range [{start} - {end}] keV does not fall within any product energy bin."
             )
         
         return [np.min(matches),np.max(matches)]
@@ -1982,7 +1991,6 @@ class ScienceData(L1Product):
         pairs = []
         for i in range(len(values) - 1):
             idx = ScienceData._find_bin_index(values[i],values[i+1], e_low, e_high)
-            # end_idx = ScienceData._find_bin_index(values[i + 1], e_low, e_high, which="end")
             pairs.append(idx)
         return pairs
 
@@ -2062,8 +2070,8 @@ class ScienceData(L1Product):
 
         energy_indices = energy_indices.to(u.keV)
 
-        e_low = energies["e_low"].to(u.keV).value
-        e_high = energies["e_high"].to(u.keV).value
+        e_low = energies["e_low"].value
+        e_high = energies["e_high"].value
 
         if energy_indices.ndim == 1:
             return ScienceData._energy_indices_from_flat_edges(
@@ -2184,8 +2192,7 @@ class ScienceData(L1Product):
 
         detector_indices, pixel_indices = self._indices_check(self,
                                                               detector_indices,
-                                                              pixel_indices,
-                                                              sunkit_spex_spectrum)
+                                                              pixel_indices)
         
         if bkg:
             livetime_correction = True
@@ -2198,7 +2205,6 @@ class ScienceData(L1Product):
             if bkg and isinstance(bkg, ScienceData):
 
                 livefraction_bkg,livefraction_bkg_error = self._livefrac(bkg)
-
 
         else:
             livefraction_sci = None
@@ -2213,6 +2219,7 @@ class ScienceData(L1Product):
             _, _, elut_cor_fac = get_elut_correction(np.array(self.energies["channel"]), 
                                                        self)
         else:
+
             elut_cor_fac = None
 
         # =====================================================
@@ -2287,7 +2294,6 @@ class ScienceData(L1Product):
             
             counts, counts_var, t_norm, e_norm, livefrac, livefrac_error, elut_cor_fac, times, energies = sci_data
             
-
             e_norm = e_norm[np.newaxis, np.newaxis, np.newaxis, :]  
             t_norm = t_norm[:, np.newaxis, np.newaxis, np.newaxis].to(u.s) 
  

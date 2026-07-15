@@ -365,8 +365,6 @@ class TimesSeriesPlotMixin:
             elut_correction=False
         )
 
-        print(errors.unit)
-
         labels = [f"{el.value} - {eh.value} keV" for el, eh in energies["e_low", "e_high"]]
 
         n_time, n_det, n_pix, n_energy = counts.shape
@@ -1185,8 +1183,7 @@ class ScienceData(L1Product):
             axis, time range).
         """
 
-
-        counts, counts_uncertainity, t_norm, _, livefrac,_, _, times_full, energies, _ = sci_data
+        counts, counts_uncertainity, t_norm, _, livefrac, _, _, times_full, energies, _ = sci_data
 
         t_norm = t_norm.to(u.s)
 
@@ -1288,33 +1285,13 @@ class ScienceData(L1Product):
             endpoints, e.g. [1, 2, 3, 4, 5, 9, 10].
         """
         result = []
-        for start, end in pairs:
-            result.extend(range(start, end + 1))
+        for pair in pairs:
+            result.append(np.arange(pair[0], pair[1] + 1,1))
         return result
 
-    @staticmethod
-    def _srm_is_list_of_pairs(indices):
-        """
-        Check whether a sequence of indices is formatted as a list of [start, end]
-        pairs rather than a flat list of individual indices.
-
-        Parameters
-        ----------
-        indices : list or tuple
-            Sequence of indices to check.
-
-        Returns
-        -------
-        bool
-            True if `indices` is non-empty and every element is a list or tuple of
-            length 2, False otherwise.
-        """
-        return len(indices) > 0 and all(
-            isinstance(item, (list, tuple)) and len(item) == 2 for item in indices
-        )
 
     @staticmethod
-    def _srm_format_flat_or_ranges(indices):
+    def _srm_format_flat_or_ranges(indices, case):
         """
         Normalize detector/pixel indices given either as a flat list of ints or as a
         list of [start, end] range pairs into a single flat list of ints.
@@ -1332,45 +1309,25 @@ class ScienceData(L1Product):
             Flat list of indices. Flat input is returned unchanged (as a list);
             range-pair input is expanded via `_srm_expand_ranges`.
         """
+
         if indices is None:
             return []
+     
+        elif isinstance(indices[0], (int, np.integer)):
 
-        if ScienceData._srm_is_list_of_pairs(indices):
-            return ScienceData._srm_expand_ranges(indices)
+            return indices
+        
+        elif isinstance(indices[0], (list, np.ndarray)):
 
-        return list(indices)
+            
+            indices = ScienceData._srm_expand_ranges(indices)
 
-    @staticmethod
-    def _srm_format_single_or_range(indices):
-        """
-        Normalize an index specification given as either a single-entry list or a
-        two-entry [start, end] range into a flat list of ints.
+            if case in ('spec_1D_detector_collapse', 'spec_sequence_detector_collapse'):
+                return [idx for ls in indices for idx in ls]
+            
+            elif case in ('spec_1D_detector_expand', 'spec_sequence_detector_expand'):
+                return indices
 
-        Parameters
-        ----------
-        indices : list, tuple, or None
-            A single-entry list (e.g. [3]), a two-entry [start, end] list (e.g.
-            [1, 5]), or any other sequence. If None, an empty list is returned.
-
-        Returns
-        -------
-        list of int
-            - If `indices` has one entry, it is returned unchanged as a list.
-            - If `indices` has two entries, they are treated as [start, end] and
-            expanded to a full inclusive range.
-            - Otherwise, `indices` is returned unchanged as a flat list.
-        """
-        if indices is None:
-            return []
-
-        if len(indices) == 1:
-            return list(indices)
-
-        if len(indices) == 2:
-            start, end = indices
-            return list(range(start, end + 1))
-
-        return list(indices)
 
     @staticmethod
     def _srm_det_pix_indices_format(detector_indices, pixel_indices, case):
@@ -1399,13 +1356,9 @@ class ScienceData(L1Product):
             The formatted (`detector_indices`, `pixel_indices`) as flat lists of ints.
         """
 
-        if case == 'spec_1D_detector_collapse' or 'spec_sequence_detector_collapse':
-            det_formatted = ScienceData._srm_format_flat_or_ranges(detector_indices)
-            pix_formatted = ScienceData._srm_format_flat_or_ranges(pixel_indices)
-        
-        if case =='spec_1D_detector_expanded' or 'spec_sequence_detector_expanded':
-            det_formatted = ScienceData._srm_format_single_or_range(detector_indices)
-            pix_formatted = ScienceData._srm_format_flat_or_ranges(pixel_indices)
+        det_formatted = ScienceData._srm_format_flat_or_ranges(detector_indices,case)
+        pix_formatted = ScienceData._srm_format_flat_or_ranges(pixel_indices,case)
+
 
         return det_formatted, pix_formatted
 
@@ -1495,6 +1448,8 @@ class ScienceData(L1Product):
                 
                 detector_indices_srm, pixel_indices_srm = ScienceData._srm_det_pix_indices_format(detector_indices, pixel_indices, case)
 
+                rcr_unique =  np.unique(rcr)
+
                 srm_dict_by_rcr = {
                     rcr_val: product.get_masked_srm(
                         flare_location=flare_location_stx,
@@ -1502,14 +1457,14 @@ class ScienceData(L1Product):
                         pixel_indices_input=pixel_indices_srm,
                         rcr=rcr_val,
                     )
-                    for rcr_val in np.unique(rcr)
+                    for rcr_val in rcr_unique
                 }
 
                 spec_list_working = []
 
                 for i in range(np.shape(counts)[0]):
 
-                    counts, counts_uncertainity, t_norm, e_norm, livefrac,_, elut_cor_fac, times_full, energies = sci_data
+                    counts, counts_uncertainity, t_norm, e_norm, livefrac,_, elut_cor_fac, times_full, energies, rcr = sci_data
 
                     sci_data_indexed = ( counts[i,...], 
                                         counts_uncertainity[i,...], 
@@ -1519,13 +1474,14 @@ class ScienceData(L1Product):
                                         _, 
                                         elut_cor_fac, 
                                         times_full[i,...], 
-                                        energies)
+                                        energies,
+                                        rcr)
 
                     spec_1d =  ScienceData._return_spec_object(case,
                                 sci_data_indexed,
                                 flare_angle,
                                 distance,
-                                srm_dict_by_rcr[rcr[i]],
+                                srm_dict_by_rcr[int(rcr[i][0])],
                                 systematic)
 
                     spec_list_working.append(spec_1d)
@@ -1545,17 +1501,16 @@ class ScienceData(L1Product):
 
                 spec_list_working = []
 
-                print(np.shape(counts))
+
+                detector_indices_srm, pixel_indices_srm = ScienceData._srm_det_pix_indices_format(detector_indices, pixel_indices, case)
 
                 for i in range(np.shape(counts)[1]):
 
-                    detector_indices_srm, pixel_indices_srm = ScienceData._srm_det_pix_indices_format(detector_indices, pixel_indices, case)
-
                     srm_dict = product.get_masked_srm(flare_location=flare_location_stx,
-                                            detector_indices_input=detector_indices_srm, 
+                                            detector_indices_input=detector_indices_srm[i], 
                                             pixel_indices_input=pixel_indices_srm)
 
-                    counts, counts_uncertainity, t_norm, e_norm, livefrac,_, elut_cor_fac, times_full, energies = sci_data
+                    counts, counts_uncertainity, t_norm, e_norm, livefrac,_, elut_cor_fac, times_full, energies, rcr = sci_data
 
                     sci_data_indexed = ( counts[:,i,...], 
                                         counts_uncertainity[:,i,...], 
@@ -1565,7 +1520,8 @@ class ScienceData(L1Product):
                                         _, 
                                         elut_cor_fac, 
                                         times_full, 
-                                        energies)
+                                        energies,
+                                        rcr)
 
                     spec_1d =  ScienceData._return_spec_object(case,
                                 sci_data_indexed,
@@ -1587,21 +1543,24 @@ class ScienceData(L1Product):
 
                 case = 'spec_sequence_detector_expand'
 
+                detector_indices_srm, pixel_indices_srm = ScienceData._srm_det_pix_indices_format(detector_indices, pixel_indices, case)
+
+
                 for i in range(np.shape(counts)[1]):
 
-                    detector_indices_srm, pixel_indices_srm = ScienceData._srm_det_pix_indices_format(detector_indices, pixel_indices, case)
+                    rcr_unique =  np.unique(rcr)
 
                     srm_dict_by_rcr = {
                         rcr_val: product.get_masked_srm(
                             flare_location=flare_location_stx,
-                            detector_indices_input=detector_indices_srm,
+                            detector_indices_input=detector_indices_srm[i],
                             pixel_indices_input=pixel_indices_srm,
                             rcr=rcr_val,
                         )
-                        for rcr_val in np.unique(rcr)
+                        for rcr_val in rcr_unique
                     }
 
-                    counts, counts_uncertainity, t_norm, e_norm, livefrac,_, elut_cor_fac, times_full, energies = sci_data
+                    counts, counts_uncertainity, t_norm, e_norm, livefrac,_, elut_cor_fac, times_full, energies, rcr = sci_data
 
                     counts = counts[:,i,...]
                     counts_uncertainity = counts_uncertainity[:,i,...]
@@ -1619,13 +1578,15 @@ class ScienceData(L1Product):
                                             _, 
                                             elut_cor_fac, 
                                             times_full[j,...], 
-                                            energies)
+                                            energies,
+                                            rcr)
+
 
                         spec_1d =  ScienceData._return_spec_object(case,
                                     sci_data_indexed,
                                     flare_angle,
                                     distance,
-                                    srm_dict_by_rcr[rcr[i]],
+                                    srm_dict_by_rcr[int(rcr[j][0])],
                                     systematic)
 
                         spec_list_sequence_working.append(spec_1d)
@@ -2212,6 +2173,7 @@ class ScienceData(L1Product):
                                                               detector_indices,
                                                               pixel_indices)
         
+        
         if bkg:
             livetime_correction = True
             elut_correction = True
@@ -2447,12 +2409,9 @@ class ScienceData(L1Product):
 
         rcr_state_all = np.array([0.8096, 0.80961, 0.4048, 0.2024, 0.1012, 0.0396, 0.0198, 0.0099])
         pixel_indices_input_rcr = np.arange(0,12,1)
-        print('rcr = ', rcr)
-        rcr_state = rcr_state_all[int(rcr[0])]  
-        rcr_factor = rcr_state / np.sum(pixel_areas_full[pixel_indices_input_rcr].value)
 
-        print('rcr_factor = ',rcr_factor)
-        print('np.sum(pixel_areas) = ',np.sum(pixel_areas))
+        rcr_state = rcr_state_all[int(rcr)]  
+        rcr_factor = rcr_state / np.sum(pixel_areas_full[pixel_indices_input_rcr].value)
 
         attenuation = np.zeros(len(tot_trans["det-1"]))
 

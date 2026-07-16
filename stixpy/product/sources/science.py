@@ -1805,6 +1805,55 @@ class ScienceData(L1Product):
     @staticmethod
     def _rcr_shift(rcr,counts):
 
+        """
+        Shift/align an RCR (state) array to match segment boundaries derived from
+        discontinuities in the summed counts data.
+
+        The method first identifies the indices where `rcr` changes value (state
+        transitions). It then independently detects "jumps" in the total counts
+        (summed over the last two axes of `counts`, using the 3rd slice along the
+        last axis) that exceed a threshold of 1e4. These jump indices are used to
+        redefine segment boundaries, and each segment is filled with the
+        corresponding state value from `rcr`, producing a new array
+        (`rcr_shifted`) that is aligned to the counts-derived segments rather
+        than the original `rcr` transition points.
+
+        This is useful when the original `rcr` state boundaries are believed to
+        be misaligned (e.g., off by a few indices) relative to where the counts
+        actually change, and you want to "shift" the state labels to match the
+        true count-based transitions.
+
+        Parameters
+        ----------
+        rcr : array-like
+            1D array of state/category labels (e.g., integers) for each time
+            index. If all values are <= 0, no shifting is performed and `rcr`
+            is returned unchanged.
+        counts : ndarray
+            4D array of counts data with shape (time, ..., ..., channels).
+            The last axis is expected to have at least 3 entries; index 2
+            (the 3rd channel) is summed over axes (1, 2) to produce a 1D
+            counts-per-time-index array used for jump detection.
+
+        Returns
+        -------
+        ndarray
+            If `np.max(rcr) > 0`: a 1D array the same length as `counts` along
+            axis 0, where each segment (defined by detected counts jumps) is
+            filled with the corresponding state value from `rcr`.
+            Otherwise: the original `rcr` array, unmodified.
+
+        Notes
+        -----
+        - Jump detection uses a fixed threshold (`> 1e4`) on the absolute
+        difference between consecutive summed-counts values.
+        - Consecutive detected jump indices that are adjacent (`curr == prev + 1`)
+        are collapsed into a single boundary via `inds_clipped`.
+        - This function assumes at least one jump is detected when
+        `np.max(rcr) > 0`; if `inds` is empty, `inds_clipped = [inds[0]]` will
+        raise an IndexError.
+        """
+
         if np.max(rcr) > 0:
 
             rcr = np.asarray(rcr)

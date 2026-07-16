@@ -481,7 +481,15 @@ class ScienceData(L1Product):
         return self.data["timedel"]
     
     @property
-    def rcr(self):
+    def rcr_shifted(self):
+        """
+        The rcr state
+        """ 
+        return ScienceData.rcr_shift(self.data["rcr"],self.data["counts"])
+
+
+    @property
+    def rcr_raw(self):
         """
         The rcr state
         """
@@ -697,7 +705,7 @@ class ScienceData(L1Product):
             t_norm = product.data["timedel"]
             times = product.times
             energies = product.energies
-            rcr = product.rcr
+            rcr = product.rcr_raw
 
         else:
 
@@ -749,9 +757,12 @@ class ScienceData(L1Product):
                 num_pixels = counts.shape[2]
                 counts = counts[..., pixel_mask[:num_pixels], :]
                 counts_var = counts_var[..., pixel_mask[:num_pixels], :]
-                if livefrac is not None:
+                if livefrac is not None and livefrac.shape[2] !=1:
+                    print('lvf_shape = ',np.shape(livefrac))
+                    print('pm = ',np.shape(pixel_mask))
+                    print('np = ',np.shape(num_pixels))
                     livefrac = livefrac[:,:,pixel_mask[:num_pixels],:]
-                if livefrac_error is not None:
+                if livefrac_error is not None and livefrac_error.shape[2] !=1:
                     livefrac_error = livefrac_error[:,:,pixel_mask[:num_pixels],:]      
 
 
@@ -1508,7 +1519,7 @@ class ScienceData(L1Product):
 
                     srm_dict = product.get_masked_srm(flare_location=flare_location_stx,
                                             detector_indices_input=detector_indices_srm[i], 
-                                            pixel_indices_input=pixel_indices_srm)
+                                            pixel_indices_input=pixel_indices_srm,rcr=rcr_unique)
 
                     counts, counts_uncertainity, t_norm, e_norm, livefrac,_, elut_cor_fac, times_full, energies, rcr = sci_data
 
@@ -1757,6 +1768,8 @@ class ScienceData(L1Product):
             f"Cannot determine format from first element: {first!r}"
         )   
 
+
+
     @staticmethod
     def _rcr_warning(time_indices, rcr):
 
@@ -1788,6 +1801,56 @@ class ScienceData(L1Product):
                     f"Use with caution!"
                 )
         return None
+
+    @staticmethod
+    def rcr_shift(rcr,counts):
+
+        if np.max(rcr) > 0:
+
+            rcr = np.asarray(rcr)
+
+            diffs = rcr[1:] - rcr[:-1]
+            q = np.where(diffs != 0)[0]
+
+            index = np.concatenate(([0], q + 1))
+            state = rcr[index]
+
+            cts_collapse = np.nansum(counts[:,:,:,2], axis=(1,2))
+
+            inds = []
+
+            for i in range(len(cts_collapse)-1):
+
+                if abs(cts_collapse[i] - cts_collapse[i+1]).value > 1e4: 
+                    inds.append(i+1)
+            
+            inds_clipped = [inds[0]]
+
+            for prev, curr in zip(inds, inds[1:]):
+                if curr != prev + 1:
+                    inds_clipped.append(curr)
+
+            length = counts.shape[0]
+
+            # Length of each state segment
+            segment_lengths = np.diff(np.concatenate(([0], inds_clipped, [length])))
+
+            # rcr_shoft_lists = []
+            # for i, l in enumerate(segment_lengths):
+
+            # Repeat each state for its segment length
+            rcr_shifted = np.concatenate([
+                np.full(n, s)
+                for s, n in zip(state, segment_lengths)
+            ])
+
+            return rcr_shifted
+
+        else:
+
+            return rcr
+
+
 
     @staticmethod
     def _rcr_error(indices, rcr):
@@ -2067,7 +2130,6 @@ class ScienceData(L1Product):
                 "(flat list of bin edges) or 2D (list of [start, end] pairs)."
             )
 
-
     def get_data(
         self,
         *,
@@ -2161,7 +2223,7 @@ class ScienceData(L1Product):
         # =====================================================
         # livetime
         # =====================================================
-        rcr=self.rcr
+        rcr=self.rcr_raw
 
         if energy_indices is not None:
             energy_indices = self._energy_indices_format(energy_indices,self.energies)
@@ -2172,8 +2234,7 @@ class ScienceData(L1Product):
         detector_indices, pixel_indices = self._indices_check(self,
                                                               detector_indices,
                                                               pixel_indices)
-        
-        
+
         if bkg:
             livetime_correction = True
             elut_correction = True
@@ -2311,7 +2372,6 @@ class ScienceData(L1Product):
             return counts, counts_var, t_norm, e_norm, livefrac, livefrac_error, elut_cor_fac, times, energies, rcr
 
         
-
     def get_masked_srm(self, flare_location, detector_indices_input, pixel_indices_input, rcr):
 
         """
@@ -2353,7 +2413,6 @@ class ScienceData(L1Product):
         ph_energies = np.array(Table.read(PATH_DRM,hdu=2)['DRM'])
         ct_energies = np.array(Table.read(PATH_DRM,hdu=3)['DRM'])
     
-
         energies = self.energies
         e_low = np.array(energies["e_low"])
 
@@ -2362,14 +2421,12 @@ class ScienceData(L1Product):
 
         e_high = np.array(energies["e_high"])
 
-
         if e_high[-2] == 150:
             e_edges = e_low
             ct_e_diff = np.diff(e_edges)
         else:
             e_edges = np.concatenate([e_low, [e_high[-1]]])
             ct_e_diff = np.diff(e_edges)
-
 
         epsilon = 1e-4
 
@@ -2393,7 +2450,7 @@ class ScienceData(L1Product):
         pixel_areas = pixel_areas_full[pixel_indices_input].value
 
 
-        area_scale = len(detector_indices_input) * np.sum(pixel_areas)
+        area_scale = np.size(detector_indices_input) * np.sum(pixel_areas)
 
         energy_widths = np.diff(ph_energies_clipped)
 
@@ -2415,10 +2472,13 @@ class ScienceData(L1Product):
 
         attenuation = np.zeros(len(tot_trans["det-1"]))
 
-        for i, det in enumerate(detector_indices_input):
-            attenuation += tot_trans[f"det-{det}"]
+        if np.size(detector_indices_input) !=1:
+            for i, det in enumerate(detector_indices_input):
+                attenuation += tot_trans[f"det-{det}"]
+        else:
+            attenuation += tot_trans[f"det-{detector_indices_input}"]
 
-        attenuation = attenuation / len(detector_indices_input)
+        attenuation = attenuation / np.size(detector_indices_input)
 
 
         drm_clipped = drm_clipped * ph_e_diff[None, :] * attenuation[:, None]

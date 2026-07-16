@@ -485,7 +485,7 @@ class ScienceData(L1Product):
         """
         The rcr state
         """ 
-        return ScienceData.rcr_shift(self.data["rcr"],self.data["counts"])
+        return ScienceData._rcr_shift(self.data["rcr"],self.data["counts"])
 
 
     @property
@@ -705,7 +705,7 @@ class ScienceData(L1Product):
             t_norm = product.data["timedel"]
             times = product.times
             energies = product.energies
-            rcr = product.rcr_raw
+            rcr = product.rcr_shifted
 
         else:
 
@@ -1803,7 +1803,7 @@ class ScienceData(L1Product):
         return None
 
     @staticmethod
-    def rcr_shift(rcr,counts):
+    def _rcr_shift(rcr,counts):
 
         if np.max(rcr) > 0:
 
@@ -1815,15 +1815,16 @@ class ScienceData(L1Product):
             index = np.concatenate(([0], q + 1))
             state = rcr[index]
 
-            cts_collapse = np.nansum(counts[:,:,:,2], axis=(1,2))
+            cts_collapse = np.nansum(counts[:,:,:,2], axis=(1,2)).astype(np.int64)
 
             inds = []
 
             for i in range(len(cts_collapse)-1):
 
-                if abs(cts_collapse[i] - cts_collapse[i+1]).value > 1e4: 
+                if abs(cts_collapse[i] - cts_collapse[i+1]).value > 1e4:
+
                     inds.append(i+1)
-            
+        
             inds_clipped = [inds[0]]
 
             for prev, curr in zip(inds, inds[1:]):
@@ -1833,16 +1834,16 @@ class ScienceData(L1Product):
             length = counts.shape[0]
 
             # Length of each state segment
-            segment_lengths = np.diff(np.concatenate(([0], inds_clipped, [length])))
+            range_vals = np.concatenate(([0], inds_clipped, [length]))
+            segment_lengths = np.diff(range_vals)
 
-            # rcr_shoft_lists = []
-            # for i, l in enumerate(segment_lengths):
 
-            # Repeat each state for its segment length
-            rcr_shifted = np.concatenate([
-                np.full(n, s)
-                for s, n in zip(state, segment_lengths)
-            ])
+            rcr_shift_lists = []
+            for i in range(len(segment_lengths)):
+                rg = np.full(segment_lengths[i],state[i])
+                rcr_shift_lists.append(rg)
+            
+            rcr_shifted = np.concatenate(rcr_shift_lists)
 
             return rcr_shifted
 
@@ -2223,7 +2224,7 @@ class ScienceData(L1Product):
         # =====================================================
         # livetime
         # =====================================================
-        rcr=self.rcr_raw
+        rcr=self.rcr_shifted
 
         if energy_indices is not None:
             energy_indices = self._energy_indices_format(energy_indices,self.energies)

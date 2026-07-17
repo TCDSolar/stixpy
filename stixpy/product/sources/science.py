@@ -532,6 +532,7 @@ class ScienceData(L1Product):
         """
 
         # --- Detector indices ---
+
         if detector_indices is not None:
 
             if len(product.data['counts'].shape) < 4:
@@ -539,7 +540,8 @@ class ScienceData(L1Product):
                 warnings.warn(f"As a spectrogram file is being used, the user selected detector indices \
                                 {detector_indices} will not be used, defaulting to the indices used in the creation \
                                 of the spectrgram file.")
-                detector_indices = np.where(product.detector_masks.__dict__["masks"] == 1)[1]
+
+                detector_indices = None
             
             else:
 
@@ -566,8 +568,10 @@ class ScienceData(L1Product):
                 
         else:
 
-            # detector_indices = np.where(product.detector_masks.__dict__["masks"] == 1)[1]
-            detector_indices = None
+            if len(product.data['counts'].shape) < 4:
+                detector_indices = None
+            else:
+                detector_indices = np.where(product.detector_masks.__dict__["masks"] == 1)[1]
 
         # --- Pixel indices ---
         if pixel_indices is not None:
@@ -578,7 +582,7 @@ class ScienceData(L1Product):
                 warnings.warn(f"As a spectrogram file is being used, the user selected detector indices \
                                 {pixel_indices} will not be used, defaulting to the indices used in the creation \
                                 of the spectrgram file.")
-                pixel_indices = pixel_indices_full
+                pixel_indices = None
             
             else:
                     
@@ -595,8 +599,11 @@ class ScienceData(L1Product):
 
         else:
 
-            # pixel_indices = np.where(product.pixel_masks.__dict__["masks"] == 1)[1]
-            pixel_indices = None
+            if len(product.data['counts'].shape) < 4:
+                pixel_indices = None
+            else:
+                pixel_indices = np.where(product.pixel_masks.__dict__["masks"] == 1)[1]
+
 
         return np.array(detector_indices), np.array(pixel_indices)
 
@@ -1176,9 +1183,6 @@ class ScienceData(L1Product):
 
         livefrac_error = (counts_lower - counts_upper) / 2        
 
-        print('lvt = ',livefrac.shape)
-        print('lvt_error = ',livefrac_error.shape)
-
         return livefrac, livefrac_error
 
     @staticmethod
@@ -1364,6 +1368,8 @@ class ScienceData(L1Product):
             range-pair input is expanded via `_srm_expand_ranges`.
         """
 
+        print('ind = ',indices)
+
         if indices is None:
             return []
      
@@ -1471,10 +1477,19 @@ class ScienceData(L1Product):
 
         counts, counts_uncertainity, t_norm, e_norm, livefrac, _, elut_cor_fac, times_full, energies, rcr = sci_data
 
+
         flare_location_stx = np.array([flare_location['stx'].Tx.value, flare_location['stx'].Ty.value])
         flare_angle = product._flare_angle(product,flare_location)
         distance = (product.meta["DSUN_OBS"] * u.m).to(u.AU)
         rcr_unique = np.unique(rcr)
+
+        shape = np.shape(product.data['counts'])
+
+        if len(shape) < 4:
+
+            detector_indices = np.where(product.detector_masks.__dict__["masks"] == 1)[1]
+            pixel_indices = np.where(product.pixel_masks.__dict__["masks"] == 1)[1]
+            detector_sum = True
 
         if detector_sum:
 
@@ -2332,6 +2347,7 @@ class ScienceData(L1Product):
         detector_indices, pixel_indices = self._indices_check(self,
                                                               detector_indices,
                                                               pixel_indices)
+        print('dt1 =',detector_indices)
 
         if bkg:
             livetime_correction = True
@@ -2400,7 +2416,6 @@ class ScienceData(L1Product):
                                     livefraction_bkg_error,
                                     elut_cor_fac,
                                     rcr) 
-            
 
             sci_data = self._data_select(sci_data_all,
                                     detector_indices,

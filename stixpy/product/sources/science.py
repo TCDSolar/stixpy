@@ -534,58 +534,69 @@ class ScienceData(L1Product):
         # --- Detector indices ---
         if detector_indices is not None:
 
-            detector_indices_working = detector_indices
+            if len(product.data['counts'].shape) < 4:
 
-            if detector_indices_working == "top24":
-                detector_indices_working = np.array(
-                    [0, 1, 2, 3, 4, 5, 6, 7, 13, 14, 15, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31])
-                detector_indices = detector_indices_working
-            else:
-                detector_indices_full = np.where(product.detector_masks.__dict__["masks"] == 1)[1]
-
-                # if sunkit_spex_spectrum:
-                #     if np.ndim(detector_indices_working) != 1:
-                #         raise ValueError(f"If sunkit_spex_spectrum=True detector_indices must be a 1D list")
-
-                if np.ndim(detector_indices_working) == 2:
-                    # [[start, end], ...] range format
-                    for start, end in detector_indices_working:
-                        requested = np.arange(start, end + 1)
-                        missing = np.setdiff1d(requested, detector_indices_full)
-                        if missing.size > 0:
-                            warnings.warn(f"Detector indices {missing.tolist()} in range [{start}, {end}] are not available in the product.")
-                else:
-                    # flat list of individual indices
-                    missing = np.setdiff1d(detector_indices_working, detector_indices_full)
-                    if missing.size > 0:
-                        warnings.warn(f"The following detector indices are not available in the product: {missing.tolist()}")
+                warnings.warn(f"As a spectrogram file is being used, the user selected detector indices \
+                                {detector_indices} will not be used, defaulting to the indices used in the creation \
+                                of the spectrgram file.")
+                detector_indices = np.where(product.detector_masks.__dict__["masks"] == 1)[1]
             
+            else:
+
+                detector_indices_working = detector_indices
+
+                if detector_indices_working == "top24":
+                    detector_indices_working = np.array(
+                        [0, 1, 2, 3, 4, 5, 6, 7, 13, 14, 15, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31])
+                    detector_indices = detector_indices_working
+                else:
+                    detector_indices_full = np.where(product.detector_masks.__dict__["masks"] == 1)[1]
+
+                    if np.ndim(detector_indices_working) == 2:
+                        # [[start, end], ...] range format
+                        for start, end in detector_indices_working:
+                            requested = np.arange(start, end + 1)
+                            missing = np.setdiff1d(requested, detector_indices_full)
+                            if missing.size > 0:
+                                warnings.warn(f"Detector indices {missing.tolist()} in range [{start}, {end}] are not available in the product.")
+                    else:
+                        missing = np.setdiff1d(detector_indices_working, detector_indices_full)
+                        if missing.size > 0:
+                            warnings.warn(f"The following detector indices are not available in the product: {missing.tolist()}")
+                
         else:
-            detector_indices = np.where(product.detector_masks.__dict__["masks"] == 1)[1]
+
+            # detector_indices = np.where(product.detector_masks.__dict__["masks"] == 1)[1]
+            detector_indices = None
 
         # --- Pixel indices ---
         if pixel_indices is not None:
             pixel_indices_full = np.where(product.pixel_masks.__dict__["masks"] == 1)[1]
 
-            # if sunkit_spex_spectrum:
-            #     if np.ndim(pixel_indices) != 1:
-            #         raise ValueError(f"If sunkit_spex_spectrum=True pixel_indices must be a 1D list")
-                
-            if np.ndim(pixel_indices) == 2:
-                # [[start, end], ...] range format
-                for start, end in pixel_indices:
-                    requested = np.arange(start, end + 1)
-                    missing = np.setdiff1d(requested, pixel_indices_full)
-                    if missing.size > 0:
-                        warnings.warn(f"Pixel indices {missing.tolist()} in range [{start}, {end}] are not available in the product.")
+            if len(product.data['counts'].shape) < 4:
+
+                warnings.warn(f"As a spectrogram file is being used, the user selected detector indices \
+                                {pixel_indices} will not be used, defaulting to the indices used in the creation \
+                                of the spectrgram file.")
+                pixel_indices = pixel_indices_full
+            
             else:
-                # flat list of individual indices
-                missing = np.setdiff1d(pixel_indices, pixel_indices_full)
-                if missing.size > 0:
-                    warnings.warn(f"The following pixel indices are not available in the product: {missing.tolist()}")
+                    
+                if np.ndim(pixel_indices) == 2:
+                    for start, end in pixel_indices:
+                        requested = np.arange(start, end + 1)
+                        missing = np.setdiff1d(requested, pixel_indices_full)
+                        if missing.size > 0:
+                            warnings.warn(f"Pixel indices {missing.tolist()} in range [{start}, {end}] are not available in the product.")
+                else:
+                    missing = np.setdiff1d(pixel_indices, pixel_indices_full)
+                    if missing.size > 0:
+                        warnings.warn(f"The following pixel indices are not available in the product: {missing.tolist()}")
 
         else:
-            pixel_indices = np.where(product.pixel_masks.__dict__["masks"] == 1)[1]
+
+            # pixel_indices = np.where(product.pixel_masks.__dict__["masks"] == 1)[1]
+            pixel_indices = None
 
         return np.array(detector_indices), np.array(pixel_indices)
 
@@ -696,9 +707,12 @@ class ScienceData(L1Product):
             except KeyError:
                 counts_var = product.data["counts_comp_comp_err"] ** 2
 
-            # if len(shape) < 4:
-            #     counts = counts.reshape(shape[0], 1, 1, shape[-1])
-            #     counts_var = counts_var.reshape(shape[0], 1, 1, shape[-1])
+            if len(shape) < 4:
+                counts = counts.reshape(shape[0], 1, 1, shape[-1])
+                counts_var = counts_var.reshape(shape[0], 1, 1, shape[-1])
+                
+                detector_indices = None
+                pixel_indices = None
 
             counts_var = np.sqrt(counts.value + counts_var.value) *u.ct
 
@@ -710,8 +724,6 @@ class ScienceData(L1Product):
         else:
 
             counts, counts_var, t_norm, e_norm, livefrac, elut_cor_fac, times, energies, rcr = product
-
-
 
         if detector_indices is not None:  
 
@@ -758,9 +770,6 @@ class ScienceData(L1Product):
                 counts = counts[..., pixel_mask[:num_pixels], :]
                 counts_var = counts_var[..., pixel_mask[:num_pixels], :]
                 if livefrac is not None and livefrac.shape[2] !=1:
-                    print('lvf_shape = ',np.shape(livefrac))
-                    print('pm = ',np.shape(pixel_mask))
-                    print('np = ',np.shape(num_pixels))
                     livefrac = livefrac[:,:,pixel_mask[:num_pixels],:]
                 if livefrac_error is not None and livefrac_error.shape[2] !=1:
                     livefrac_error = livefrac_error[:,:,pixel_mask[:num_pixels],:]      
@@ -934,31 +943,21 @@ class ScienceData(L1Product):
 
         e_norm = product.dE
         counts = product.data["counts"]
-        # shape = counts.shape
+        shape = counts.shape
 
         try:
             counts_var = (product.data["counts_comp_err"].value ** 2)*u.ct
         except KeyError:
             counts_var =  (product.data["counts_comp_comp_err"].value ** 2)*u.ct
-        
-        # if len(shape) < 4:
-        #     counts = counts.reshape(shape[0], 1, 1, shape[-1])
-        #     counts_var = counts_var.reshape(shape[0], 1, 1, shape[-1])
-        
-        counts_var = np.sqrt(counts + counts_var) 
-
-        t_norm = product.data["timedel"]
-        times = product.times
-        energies = product.energies
-
-        counts_var = ScienceData._livetime_uncertainty(counts_var,livefrac_error)    
 
         counts_bkg = bkg.data["counts"]
-        try:
-            counts_var_bkg = bkg.data["counts_comp_err"] ** 2
-        except KeyError:
-            counts_var_bkg = bkg.data["counts_comp_comp_err"] ** 2
 
+        try:
+            counts_var_bkg = (bkg.data["counts_comp_err"].value ** 2) *u.ct
+        except KeyError:
+            counts_var_bkg = (bkg.data["counts_comp_comp_err"].value ** 2) *u.ct
+        
+        counts_var_bkg = np.sqrt(counts_bkg + counts_var_bkg) 
         counts_var_bkg = ScienceData._livetime_uncertainty(counts_var_bkg,livefrac_error_bkg) 
 
         counts_bkg = counts_bkg[:,detector_indices_bkg,:,:]
@@ -968,6 +967,31 @@ class ScienceData(L1Product):
         counts_var_bkg = counts_var_bkg[:,detector_indices_bkg,:,:]
         counts_var_bkg = counts_var_bkg[:,:,pixel_indices_bkg,:]
         counts_var_bkg = counts_var_bkg[:,:,:,energy_indices_bkg]
+
+        if len(shape) < 4:
+
+            counts = counts.reshape(shape[0], 1, 1, shape[-1])
+            print('cts_var = ',counts_var.shape)
+            counts_var = counts_var.reshape(shape[0], 1, 1, shape[-1])
+            print('cts_var_2 = ',counts_var.shape)
+
+            livefrac = np.nanmean(livefrac,axis=1, keepdims=True)
+            livefrac_error = np.nanmean(livefrac_error,axis=(1,2), keepdims=True)
+
+            counts_bkg = np.nansum(counts_bkg, axis=(1,2), keepdims=True)
+            counts_var_bkg = np.nansum(counts_var_bkg, axis=(1,2), keepdims=True)
+
+            livefrac_bkg = np.nanmean(livefrac_bkg,axis=1, keepdims=True)
+            livefrac_error_bkg = np.nanmean(livefrac_error_bkg,axis=(1,2), keepdims=True)
+
+        
+        counts_var = np.sqrt(counts + counts_var) 
+
+        t_norm = product.data["timedel"]
+        times = product.times
+        energies = product.energies
+
+        counts_var = ScienceData._livetime_uncertainty(counts_var,livefrac_error)   
 
         t_norm_bkg = bkg.data["timedel"]
         t_norm = t_norm.to(u.s)
@@ -985,8 +1009,12 @@ class ScienceData(L1Product):
         count_rate_lvtcorr_bkg = counts_lvtcorr_bkg / t_norm_bkg.mean()
         count_lvtcorr_scaled_bkg = t_norm.reshape(len(t_norm), 1,1,1) * count_rate_lvtcorr_bkg
 
+        print('elut_cor_fac =',elut_cor_fac.shape)
+        print('livefrac =',livefrac.shape)
+        print('counts_var =',counts_var.shape)
+
         counts_var_lvtcorr = (counts_var[...,:] * elut_cor_fac) / livefrac
-        
+
         counts_var_lvtcorr_bkg = (counts_var_bkg / livefrac_bkg)[...,:] * elut_cor_fac
         counts_var_lvtcorr_scaled_bkg = (counts_var_lvtcorr_bkg/ t_norm_bkg.mean()) * t_norm.reshape(len(t_norm), 1,1,1)
 
@@ -1077,7 +1105,7 @@ class ScienceData(L1Product):
             `pixel_indices` and `detector_indices` present in both `product` and
             `bkg`, ordered as they appear in `product`.
         """
-        
+
         pixel_indices_full = np.where(product.pixel_masks.__dict__["masks"] == 1)[1]
         pixel_indices_full_bkg = np.where(bkg.pixel_masks.__dict__["masks"] == 1)[1]
         pixel_indices = [d for i, d in enumerate(pixel_indices_full) if d in pixel_indices_full_bkg]            
@@ -1115,26 +1143,41 @@ class ScienceData(L1Product):
         """
 
         trigger_to_detector = STIX_INSTRUMENT.subcol_adc_mapping
-        triggers = product.data["triggers"][:, trigger_to_detector].astype(float)[...]
+        shape = product.data['counts'].shape
 
+        if len(shape) < 4:
+            counts = product.data['counts'].reshape(shape[0], 1, 1, shape[-1])
 
-        triggers_error = product.data["triggers_comp_err"][:, trigger_to_detector].astype(float)[...]
+            triggers_reshape = np.repeat(product.data["triggers"][:, np.newaxis], 16, axis=1)
+            triggers = triggers_reshape[:, trigger_to_detector].astype(float)[...]
+
+            triggers_error_reshape = np.repeat(product.data["triggers_comp_err"][:, np.newaxis], 16, axis=1)
+            triggers_error = triggers_error_reshape[:, trigger_to_detector].astype(float)[...]
+
+        else:
+            counts = product.data['counts']
+
+            triggers = product.data["triggers"][:, trigger_to_detector].astype(float)[...]
+            triggers_error = product.data["triggers_comp_err"][:, trigger_to_detector].astype(float)[...]
+
         triggers_lower = triggers - triggers_error
         triggers_upper = triggers + triggers_error
 
         livefrac,_, _ = get_livetime_fraction(triggers / product.data["timedel"].to("s").reshape(-1, 1))
         livefrac_lower,_, _ = get_livetime_fraction(triggers_lower / product.data["timedel"].to("s").reshape(-1, 1))
         livefrac_upper,_, _ = get_livetime_fraction(triggers_upper / product.data["timedel"].to("s").reshape(-1, 1))
-
         
         livefrac = livefrac.reshape(livefrac.shape + (1, 1))
         livefrac_lower = livefrac_lower.reshape(livefrac_lower.shape + (1, 1))
         livefrac_upper = livefrac_upper.reshape(livefrac_upper.shape + (1, 1))
 
-        counts_upper = (product.data["counts"] /  livefrac_upper)
-        counts_lower = (product.data["counts"] /  livefrac_lower)
+        counts_upper = (counts /  livefrac_upper)
+        counts_lower = (counts /  livefrac_lower)
 
         livefrac_error = (counts_lower - counts_upper) / 2        
+
+        print('lvt = ',livefrac.shape)
+        print('lvt_error = ',livefrac_error.shape)
 
         return livefrac, livefrac_error
 
@@ -1863,6 +1906,11 @@ class ScienceData(L1Product):
 
             index = np.concatenate(([0], q + 1))
             state = rcr[index]
+
+            shape = counts.shape
+
+            if len(shape) < 4:
+                counts = counts.reshape(shape[0], 1, 1, shape[-1])
 
             cts_collapse = np.nansum(counts[:,:,:,2], axis=(1,2)).astype(np.int64)
 

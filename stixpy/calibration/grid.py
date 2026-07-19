@@ -15,7 +15,7 @@ __all__ = ["get_grid_transmission", "_calculate_grid_transmission"]
 from stixpy.coordinates.frames import STIXImaging
 
 
-def get_grid_transmission(ph_energy, flare_location: STIXImaging):
+def get_grid_transmission(ph_energy, detectors, flare_location: STIXImaging):
     r"""
     Return the grid transmission for the 32 sub-collimators corrected for internal shadowing.
 
@@ -27,10 +27,20 @@ def get_grid_transmission(ph_energy, flare_location: STIXImaging):
     flare_location :
         Location of the flare
     """
-    column_names = ["sc", "p", "o", "phase", "slit", "grad", "rms", "thick", "bwidth", "bpitch"]
 
     root = Path(__file__).parent.parent
     grid_info = Path(root, *["config", "data", "grid"])
+
+    # if flare_location is None:
+
+    nominal_transmission = Table.read(grid_info / 'nom_grid_transmission.txt', format='ascii.no_header', comment='[;~]')['col1']
+
+    #     return nominal_transmission
+    
+    # else:
+
+    column_names = ["sc", "p", "o", "phase", "slit", "grad", "rms", "thick", "bwidth", "bpitch"]
+
     front = Table.read(grid_info / "grid_param_front.txt", format="ascii", names=column_names)
     rear = Table.read(grid_info / "grid_param_rear.txt", format="ascii", names=column_names)
 
@@ -58,25 +68,21 @@ def get_grid_transmission(ph_energy, flare_location: STIXImaging):
 
     muvals = xraydb.material_mu("W", ph_energy * 1e3, density=19.30, kind="total") / 10  # in units of mm^-1
     L = 1 / muvals
-    # print('L  = ', L)
+
     # trans = np.exp(-0.4 / L)
     subc_transm = L
+      
+    exclude = [8,9,10,11,12,16,17,18]
 
-    det_indices_top24 = np.array(
-        [0, 1, 2, 3, 4, 5, 6, 7, 13, 14, 15, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31]
-    )
-    # det_all = np.arange(0,32,1)
+    # det_indices_top24 = np.array(
+    #     [0, 1, 2, 3, 4, 5, 6, 7, 13, 14, 15, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31]
+    # )
 
-    # det_indices_top24 =  [0, 1, 2, 3, 4, 5, 6, 7, 13, 14, 15, 19,
-    #                                  20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31]
-    # idx_full = det_indices_top24
-    idx = [i for i, x in enumerate(sc - 1) if x in det_indices_top24]
-    # print('idx = ', idx)
-    # print('lenidx = ',len(idx))
-    # idx = det_all
-
-    # # for i,idx in enumerate(idx_full):
-    # print(grid_orient_front_all)
+    detectors = np.atleast_1d(detectors)
+    detectors_idx = [val for val in detectors if val not in exclude]
+    idx = [i for i, x in enumerate(sc - 1) if (x in detectors_idx)]
+    # idx_exclude = [i for i, x in enumerate(sc - 1) if (x in detector_exclude)]
+    detector_exclude =  [val for val in detectors if val in exclude]
 
     grid_orient_front = grid_orient_front_all[idx]
     pitch_front = pitch_front_all[idx]
@@ -89,7 +95,11 @@ def get_grid_transmission(ph_energy, flare_location: STIXImaging):
 
     grid_orient_avg = (grid_orient_front + grid_orient_rear) / 2
 
-    flare_loc_deg = flare_location / 3600  # . ;; Convert coordinates to deg
+    if flare_location is not None:
+        flare_loc_deg = flare_location / 3600  # . ;; Convert coordinates to deg
+    else:
+        flare_loc_deg = [0,0]
+
     theta = flare_loc_deg[0] * np.cos(np.deg2rad(grid_orient_avg)) + flare_loc_deg[1] * np.sin(
         np.deg2rad(grid_orient_avg)
     )
@@ -98,8 +108,8 @@ def get_grid_transmission(ph_energy, flare_location: STIXImaging):
     # ;;------ Subcollimator tranmsission at low energies
     # idx = np.where(subc_n_all eq (subc_n+1))
 
-    intercept = intercept_all[det_indices_top24]
-    slope = slope_all[det_indices_top24]
+    intercept = intercept_all[detectors_idx]
+    slope = slope_all[detectors_idx]
     subc_transm_low_e = intercept + slope * theta
 
     # ;;------ Transmission of front and rear grid
@@ -112,8 +122,12 @@ def get_grid_transmission(ph_energy, flare_location: STIXImaging):
     transm_rear = stx_grid_transmission(pitch_rear, slit_rear, thickness_rear, L)
 
     # subc_transm.append(transm_front * transm_rear)
-
+    subc_trans_exclude = nominal_transmission[detector_exclude]
     subc_transm = transm_front * transm_rear
+
+    subc_trans_exclude = np.tile(subc_trans_exclude, (len(ph_energy), 1))
+    
+    subc_transm = np.concatenate([subc_transm,subc_trans_exclude],axis=1)
 
     # transmission_front = _calculate_grid_transmission(front, flare_location)
     # transmission_rear = _calculate_grid_transmission(rear, flare_location)
@@ -126,7 +140,7 @@ def get_grid_transmission(ph_energy, flare_location: STIXImaging):
     # idx = np.argwhere(np.isin(sc, finest_scs, invert=True)).ravel()
     # final_transmission[sc[idx] - 1] = total_transmission[idx]
 
-    # print('subc = ',subc_transm)
+    print('subc = ',np.shape(subc_transm))
     return subc_transm
 
 

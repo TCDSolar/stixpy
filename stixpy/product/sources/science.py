@@ -1428,6 +1428,7 @@ class ScienceData(L1Product):
                     pixel_indices,
                     sci_data, 
                     flare_location,
+                    flare_angle,
                     systematic,
                     detector_sum=True,
                     rcr=None):
@@ -1477,9 +1478,14 @@ class ScienceData(L1Product):
 
         counts, counts_uncertainity, t_norm, e_norm, livefrac, _, elut_cor_fac, times_full, energies, rcr = sci_data
 
+        if flare_location is not None:
+            flare_location_stx = np.array([flare_location['stx'].Tx.value, flare_location['stx'].Ty.value])
+        else:
+            flare_location_stx = None
 
-        flare_location_stx = np.array([flare_location['stx'].Tx.value, flare_location['stx'].Ty.value])
-        flare_angle = product._flare_angle(product,flare_location)
+        if flare_angle is None:
+            flare_angle = product._flare_angle(product,flare_location)
+
         distance = (product.meta["DSUN_OBS"] * u.m).to(u.AU)
         rcr_unique = np.unique(rcr)
 
@@ -2256,6 +2262,7 @@ class ScienceData(L1Product):
         elut_correction=True,
         sunkit_spex_spectrum=False,
         flare_location=None,
+        flare_angle=None,
         bkg=None,
         sunkit_spex_systematic_error=True,
         sunkit_spex_detector_sum=True
@@ -2442,6 +2449,7 @@ class ScienceData(L1Product):
                                                         pixel_indices,
                                                         sci_data,
                                                         flare_location,
+                                                        flare_angle,
                                                         systematic=sunkit_spex_systematic_error,
                                                         detector_sum=sunkit_spex_detector_sum,
                                                         rcr=rcr)
@@ -2527,6 +2535,13 @@ class ScienceData(L1Product):
         ct_energies = np.array(Table.read(PATH_DRM,hdu=3)['DRM'])
     
         energies = self.energies
+        # energy_masks = self.energy_masks.energy_mask
+        # energy_exclude = [0, 31]
+
+        # energy_final_index_values = [i for i, v in enumerate(energy_masks) if v != 0 and i not in energy_exclude]
+
+        # print(energy_final_index_values)
+
         e_low = np.array(energies["e_low"])
 
         if e_low[0] == 0:
@@ -2612,9 +2627,17 @@ class ScienceData(L1Product):
 
         drm_new = np.array(drm_new)
 
-        grid_transmission = get_grid_transmission(e_mids, flare_location)
+        
+        grid_transmission = get_grid_transmission(e_mids, detector_indices_input, flare_location)
 
+        print('gts = ', np.shape(grid_transmission))
+        # if flare_location is not None:
         grid_transmission = grid_transmission.mean(axis=1)
+        #     print('gts_shape = ',grid_transmission)
+        # else:
+        #     grid_transmission = grid_transmission[energy_final_index_values]
+        
+        print(np.shape(grid_transmission))
 
         srm = (drm_new * grid_transmission[:, None]) / ct_e_diff[None, :]
 

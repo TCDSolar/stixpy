@@ -140,7 +140,6 @@ def get_grid_transmission(ph_energy, detectors, flare_location: STIXImaging):
     # idx = np.argwhere(np.isin(sc, finest_scs, invert=True)).ravel()
     # final_transmission[sc[idx] - 1] = total_transmission[idx]
 
-    print('subc = ',np.shape(subc_transm))
     return subc_transm
 
 

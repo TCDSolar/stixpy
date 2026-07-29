@@ -688,7 +688,7 @@ class ScienceData(L1Product):
         livefrac_error : numpy.ndarray or None
             Uncertainty on the livetime fraction, selected/combined alongside
             `livefrac`.
-        elut_cor_fac : numpy.ndarray or None
+        elut_cor_fac : numpy.ndarray or None_data_select
             ELUT correction factor, selected/averaged along the energy axis.
         sum_all_times : bool
             If True and `time_indices` produced multiple bins, sum all bins into one.
@@ -700,7 +700,6 @@ class ScienceData(L1Product):
             elut_cor_fac, times, energies) after applying the requested selection
             and/or summation.
         """
-
 
         if isinstance(product,ScienceData):
 
@@ -841,6 +840,7 @@ class ScienceData(L1Product):
                 )
                 energies = QTable(energies * u.keV, names=["e_low", "e_high"])
 
+
         if time_indices is not None:
             time_indices = np.asarray(time_indices)
             if time_indices.ndim == 1:
@@ -858,22 +858,23 @@ class ScienceData(L1Product):
                 new_times = []
                 dt = []
                 for tl, th in time_indices:
+
                     ts = times[tl] - t_norm[tl] * 0.5
                     te = times[th] + t_norm[th] * 0.5
                     td = te - ts
                     tc = ts + (td * 0.5)
                     dt.append(td.to("s"))
-                    new_times.append(tc)
+                    new_times.append(tc) 
 
                 dt = np.hstack(dt)
                 times = Time(new_times)
+
                 counts = np.vstack([np.sum(counts[tl : th + 1, ...], axis=0, keepdims=True) for tl, th in time_indices])
                 rcr = np.vstack([np.mean(rcr[tl : th + 1, ...], axis=0, keepdims=True) for tl, th in time_indices])
 
-
                 if livefrac is not None:
                     livefrac = np.vstack([np.mean(livefrac[tl : th + 1, ...], axis=0, keepdims=True) for tl, th in time_indices])
-
+                
                 if livefrac_error is not None:
                     livefrac_error = np.vstack([np.sqrt(np.mean(livefrac[tl : th + 1, ...]**2, axis=0, keepdims=True)) for tl, th in time_indices])
 
@@ -886,6 +887,9 @@ class ScienceData(L1Product):
                     counts = np.sum(counts, axis=0, keepdims=True)
                     counts_var = np.sum(counts_var, axis=0, keepdims=True)
                     t_norm = np.sum(dt)
+        
+                # print('lvf = ',livefrac.shape)
+
     
         return counts, counts_var, t_norm, e_norm, livefrac, livefrac_error, elut_cor_fac, times, energies, rcr
     
@@ -978,9 +982,7 @@ class ScienceData(L1Product):
         if len(shape) < 4:
 
             counts = counts.reshape(shape[0], 1, 1, shape[-1])
-            print('cts_var = ',counts_var.shape)
             counts_var = counts_var.reshape(shape[0], 1, 1, shape[-1])
-            print('cts_var_2 = ',counts_var.shape)
 
             livefrac = np.nanmean(livefrac,axis=1, keepdims=True)
             livefrac_error = np.nanmean(livefrac_error,axis=(1,2), keepdims=True)
@@ -1016,15 +1018,10 @@ class ScienceData(L1Product):
         count_rate_lvtcorr_bkg = counts_lvtcorr_bkg / t_norm_bkg.mean()
         count_lvtcorr_scaled_bkg = t_norm.reshape(len(t_norm), 1,1,1) * count_rate_lvtcorr_bkg
 
-        print('elut_cor_fac =',elut_cor_fac.shape)
-        print('livefrac =',livefrac.shape)
-        print('counts_var =',counts_var.shape)
-
         counts_var_lvtcorr = (counts_var[...,:] * elut_cor_fac) / livefrac
 
         counts_var_lvtcorr_bkg = (counts_var_bkg / livefrac_bkg)[...,:] * elut_cor_fac
         counts_var_lvtcorr_scaled_bkg = (counts_var_lvtcorr_bkg/ t_norm_bkg.mean()) * t_norm.reshape(len(t_norm), 1,1,1)
-
 
         spec_in_corr = counts_lvtcorr - count_lvtcorr_scaled_bkg
         spec_in = counts_uncorr - count_uncorr_scaled_bkg
@@ -1043,7 +1040,6 @@ class ScienceData(L1Product):
             energies = energies[1:]
             e_norm = e_norm[1:]
             elut_cor_fac = elut_cor_fac[1:]
-
 
         if np.isnan(energies["e_high"][-1].value):
             spec_in = spec_in[..., :-1]
@@ -1064,6 +1060,7 @@ class ScienceData(L1Product):
         counts = spec_in_final
         counts_var = spec_in_err_final
         livefrac = eff_livefrac[:, :, :, np.newaxis]
+
 
         return counts, counts_var, t_norm, e_norm, livefrac, elut_cor_fac, times, energies, rcr
                                                                        
@@ -1153,35 +1150,48 @@ class ScienceData(L1Product):
         shape = product.data['counts'].shape
 
         if len(shape) < 4:
+
             counts = product.data['counts'].reshape(shape[0], 1, 1, shape[-1])
 
-            triggers_reshape = np.repeat(product.data["triggers"][:, np.newaxis], 16, axis=1)
-            triggers = triggers_reshape[:, trigger_to_detector].astype(float)[...]
+            # Need to average over the different triggers
+            triggers = product.data["triggers"] / 16
+            triggers_error = product.data["triggers"] / 16
 
-            triggers_error_reshape = np.repeat(product.data["triggers_comp_err"][:, np.newaxis], 16, axis=1)
-            triggers_error = triggers_error_reshape[:, trigger_to_detector].astype(float)[...]
+            triggers_lower = triggers - triggers_error
+            triggers_upper = triggers + triggers_error
+
+            livefrac,_, _ = get_livetime_fraction(triggers / product.data["timedel"].to("s"))
+            livefrac_lower,_, _ = get_livetime_fraction(triggers_lower / product.data["timedel"].to("s"))
+            livefrac_upper,_, _ = get_livetime_fraction(triggers_upper / product.data["timedel"].to("s"))
+            
+            livefrac = livefrac.reshape(livefrac.shape + (1, 1, 1))
+            livefrac_lower = livefrac_lower.reshape(livefrac_lower.shape + (1, 1, 1))
+            livefrac_upper = livefrac_upper.reshape(livefrac_upper.shape + (1, 1, 1))
 
         else:
+
             counts = product.data['counts']
 
             triggers = product.data["triggers"][:, trigger_to_detector].astype(float)[...]
+
             triggers_error = product.data["triggers_comp_err"][:, trigger_to_detector].astype(float)[...]
 
-        triggers_lower = triggers - triggers_error
-        triggers_upper = triggers + triggers_error
+            triggers_lower = triggers - triggers_error
+            triggers_upper = triggers + triggers_error
 
-        livefrac,_, _ = get_livetime_fraction(triggers / product.data["timedel"].to("s").reshape(-1, 1))
-        livefrac_lower,_, _ = get_livetime_fraction(triggers_lower / product.data["timedel"].to("s").reshape(-1, 1))
-        livefrac_upper,_, _ = get_livetime_fraction(triggers_upper / product.data["timedel"].to("s").reshape(-1, 1))
-        
-        livefrac = livefrac.reshape(livefrac.shape + (1, 1))
-        livefrac_lower = livefrac_lower.reshape(livefrac_lower.shape + (1, 1))
-        livefrac_upper = livefrac_upper.reshape(livefrac_upper.shape + (1, 1))
+            livefrac,_, _ = get_livetime_fraction(triggers / product.data["timedel"].to("s").reshape(-1, 1))
+            livefrac_lower,_, _ = get_livetime_fraction(triggers_lower / product.data["timedel"].to("s").reshape(-1, 1))
+            livefrac_upper,_, _ = get_livetime_fraction(triggers_upper / product.data["timedel"].to("s").reshape(-1, 1))
+            
+            livefrac = livefrac.reshape(livefrac.shape + (1, 1))
+            livefrac_lower = livefrac_lower.reshape(livefrac_lower.shape + (1, 1))
+            livefrac_upper = livefrac_upper.reshape(livefrac_upper.shape + (1, 1))
 
         counts_upper = (counts /  livefrac_upper)
         counts_lower = (counts /  livefrac_lower)
 
-        livefrac_error = (counts_lower - counts_upper) / 2        
+        livefrac_error = (counts_lower - counts_upper) / 2 
+
 
         return livefrac, livefrac_error
 
@@ -1213,7 +1223,7 @@ class ScienceData(L1Product):
         sci_data : tuple
             Tuple of (counts, counts_uncertainty, t_norm, e_norm, livefrac, ...,
             times, energies) for the (possibly detector/pixel-indexed) data to
-            convert.
+            convert.print('shape_counts = ',np.shape(counts))
         flare_location : dict
             Flare location information, expected to contain 'stx' and 'hpc' keys.
         detector_indices : list or numpy.ndarray
@@ -1223,7 +1233,7 @@ class ScienceData(L1Product):
             Pixel indices used to build the spectrum.
         flare_angle : astropy.units.Quantity
             Angle between the spacecraft and the flare location.
-        distance : astropy.units.Quantity
+        distance : astropy.units.Quantityif len(shape) < 4:
             Distance from the spacecraft to the Sun.
         srm_dict : dict
             Dictionary containing the spectral response matrix ('srm'), photon axis
@@ -1245,10 +1255,13 @@ class ScienceData(L1Product):
 
         t_norm = t_norm.to(u.s)
 
+
         counts_axis = np.concatenate([energies["e_low"], [energies["e_high"][-1]]])
 
         counts_uncertainity[counts < 0] = 0
         counts[counts < 0] = 0
+
+        shape = counts.shape
 
 
         if case == 'spec_1D_detector_collapse':
@@ -1368,7 +1381,6 @@ class ScienceData(L1Product):
             range-pair input is expanded via `_srm_expand_ranges`.
         """
 
-        print('ind = ',indices)
 
         if indices is None:
             return []
@@ -2354,7 +2366,7 @@ class ScienceData(L1Product):
         detector_indices, pixel_indices = self._indices_check(self,
                                                               detector_indices,
                                                               pixel_indices)
-        print('dt1 =',detector_indices)
+
 
         if bkg:
             livetime_correction = True
@@ -2423,6 +2435,7 @@ class ScienceData(L1Product):
                                     livefraction_bkg_error,
                                     elut_cor_fac,
                                     rcr) 
+
 
             sci_data = self._data_select(sci_data_all,
                                     detector_indices,
@@ -2508,13 +2521,7 @@ class ScienceData(L1Product):
         Parameters
         ----------
         flare_location : array-like
-            Flare location in Helioprojective Tx/Ty coordinates, e.g.
-            [Tx.value, Ty.value].
-        detector_indices_input : list or numpy.ndarray
-            Detector indices to include when computing the mean attenuation and the
-            total collecting area.
-        pixel_indices_input : list or numpy.ndarray
-            Pixel indices to include when computing the total collecting area.
+            Flare location in Helioprojective Tx/Ty coordinates, e.g.sks_spec[0].meta
 
         Returns
         -------
@@ -2540,7 +2547,6 @@ class ScienceData(L1Product):
 
         # energy_final_index_values = [i for i, v in enumerate(energy_masks) if v != 0 and i not in energy_exclude]
 
-        # print(energy_final_index_values)
 
         e_low = np.array(energies["e_low"])
 
@@ -2630,15 +2636,12 @@ class ScienceData(L1Product):
         
         grid_transmission = get_grid_transmission(e_mids, detector_indices_input, flare_location)
 
-        print('gts = ', np.shape(grid_transmission))
         # if flare_location is not None:
         grid_transmission = grid_transmission.mean(axis=1)
         #     print('gts_shape = ',grid_transmission)
         # else:
         #     grid_transmission = grid_transmission[energy_final_index_values]
         
-        print(np.shape(grid_transmission))
-
         srm = (drm_new * grid_transmission[:, None]) / ct_e_diff[None, :]
 
         return {"srm": srm, "ph_axis": ph_energies_clipped, "geo_area": area_scale*rcr_factor}

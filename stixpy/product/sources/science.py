@@ -731,6 +731,7 @@ class ScienceData(L1Product):
 
             counts, counts_var, t_norm, e_norm, livefrac, elut_cor_fac, times, energies, rcr = product
 
+
         if detector_indices is not None:  
 
             if detector_indices.ndim == 1:
@@ -840,7 +841,7 @@ class ScienceData(L1Product):
                 )
                 energies = QTable(energies * u.keV, names=["e_low", "e_high"])
 
-
+        
         if time_indices is not None:
             time_indices = np.asarray(time_indices)
             if time_indices.ndim == 1:
@@ -869,6 +870,8 @@ class ScienceData(L1Product):
                 dt = np.hstack(dt)
                 times = Time(new_times)
 
+                
+
                 counts = np.vstack([np.sum(counts[tl : th + 1, ...], axis=0, keepdims=True) for tl, th in time_indices])
                 rcr = np.vstack([np.mean(rcr[tl : th + 1, ...], axis=0, keepdims=True) for tl, th in time_indices])
 
@@ -896,6 +899,9 @@ class ScienceData(L1Product):
     @staticmethod
     def _bkg_sub(product,
                 bkg,
+                detector_indices,
+                pixel_indices,
+                sunkit_spex_detector_sum,
                 detector_indices_bkg,
                 pixel_indices_bkg,
                 energy_indices_bkg,
@@ -1052,15 +1058,50 @@ class ScienceData(L1Product):
             elut_cor_fac = elut_cor_fac[:-1]
 
 
-        eff_livefrac = np.nansum(spec_in_lvt,axis=(3)) /  np.nansum(spec_in_corr_lvt,axis=(3)) 
+        # eff_livefrac = np.nansum(spec_in_lvt,axis=(3)) /  np.nansum(spec_in_corr_lvt,axis=(3)) 
+        
+        # eff_livefrac_used = np.nansum(spec_in_lvt[:, idx[0], idx[1], :], axis=(1, 2, 3), keepdims=True) / np.nansum(spec_in_corr_lvt[:, idx[0], idx[1], :], axis=(1, 2, 3), keepdims=True)
+        # spec_in_final = spec_in_corr * eff_livefrac_used
+        # spec_in_err_final = spec_in_err * eff_livefrac_used
 
-        spec_in_final = spec_in_corr * eff_livefrac[...,None]
-        spec_in_err_final = spec_in_err * eff_livefrac[...,None]
+        # spec_in_final = spec_in_corr * eff_livefrac[...,None]
+        # spec_in_err_final = spec_in_err * eff_livefrac[...,None]
 
-        counts = spec_in_final
-        counts_var = spec_in_err_final
-        livefrac = eff_livefrac[:, :, :, np.newaxis]
+        if detector_indices.ndim == 2:
+             detector_indices = ScienceData._indices_expand_ranges(detector_indices,nest=False)
+        
+        if pixel_indices.ndim == 2:
+             pixel_indices = ScienceData._indices_expand_ranges(pixel_indices,nest=False)
 
+        # counts = spec_in_final
+
+        if sunkit_spex_detector_sum:
+
+            idx = np.ix_(detector_indices, pixel_indices)
+
+            eff_livefrac= np.nansum(spec_in_lvt[:, idx[0], idx[1], :], axis=(1, 2, 3), keepdims=True) / np.nansum(spec_in_corr_lvt[:, idx[0], idx[1], :], axis=(1, 2, 3), keepdims=True)
+            spec_in_final = spec_in_corr * eff_livefrac
+            spec_in_err_final = spec_in_err * eff_livefrac
+
+            counts = spec_in_final
+
+            counts_check = np.nansum(spec_in_final[:, idx[0], idx[1], :], axis=(1,2), keepdims=True)
+            counts = np.where(counts_check < 0, 0, counts)
+            counts_var = spec_in_err_final
+            livefrac =  np.broadcast_to(eff_livefrac, counts.shape)
+
+        else:
+
+            eff_livefrac = np.nansum(spec_in_lvt,axis=(3)) /  np.nansum(spec_in_corr_lvt,axis=(3))
+            spec_in_final = spec_in_corr * eff_livefrac[...,None]
+            spec_in_err_final = spec_in_err * eff_livefrac[...,None]
+            counts = spec_in_final
+
+            counts = np.where(counts < 0, 0, counts)
+        
+            counts_var = spec_in_err_final
+
+            livefrac = eff_livefrac[:, :, :, np.newaxis]
 
         return counts, counts_var, t_norm, e_norm, livefrac, elut_cor_fac, times, energies, rcr
                                                                        
@@ -1255,18 +1296,23 @@ class ScienceData(L1Product):
 
         t_norm = t_norm.to(u.s)
 
-
         counts_axis = np.concatenate([energies["e_low"], [energies["e_high"][-1]]])
 
-        counts_uncertainity[counts < 0] = 0
-        counts[counts < 0] = 0
+        # counts_uncertainity[counts < 0] = 0
+        # counts[counts < 0] = 0
 
         shape = counts.shape
 
-
         if case == 'spec_1D_detector_collapse':
 
+            # counts[counts  < 0] = 0
+            print('ctsshape =',counts.shape)
             counts_final = np.nansum(counts,axis=(0,1,2))
+            # print('ctsshape =',counts_final.shape)
+            # counts[counts  < 0] = 0
+
+            # counts_final[counts_final  < 0] = 0
+
             counts_uncertainity_final = np.sqrt(np.nansum(counts_uncertainity**2,axis=(0,1,2)))
 
             t_norm = t_norm[:,None,None,None] * livefrac
@@ -1275,6 +1321,7 @@ class ScienceData(L1Product):
         elif case == 'spec_sequence_detector_collapse' or case == 'spec_1D_detector_expand':
 
             counts_final = np.nansum(counts,axis=(0,1))
+            counts_final[counts_final  < 0] = 0
             counts_uncertainity_final = np.sqrt(np.nansum(counts_uncertainity**2,axis=(0,1)))
 
             t_norm = t_norm * livefrac
@@ -1283,6 +1330,7 @@ class ScienceData(L1Product):
         elif case == 'spec_sequence_detector_expand':
 
             counts_final = np.nansum(counts,axis=(0))
+            counts_final[counts_final  < 0] = 0
             counts_uncertainity_final = np.sqrt(np.nansum(counts_uncertainity**2,axis=(0)))
 
             t_norm = t_norm * livefrac
@@ -1340,7 +1388,7 @@ class ScienceData(L1Product):
         return spec_1d
 
     @staticmethod
-    def _srm_expand_ranges(pairs):
+    def _indices_expand_ranges(pairs, nest=True):
         """
         Expand a list of [start, end] pairs into a flat, inclusive list of integers.
 
@@ -1357,7 +1405,10 @@ class ScienceData(L1Product):
         """
         result = []
         for pair in pairs:
-            result.append(np.arange(pair[0], pair[1] + 1,1))
+            if nest:
+                result.append(np.arange(pair[0], pair[1] + 1,1))
+            else:
+                result.extend(np.arange(pair[0], pair[1] + 1,1))
         return result
 
 
@@ -1378,7 +1429,7 @@ class ScienceData(L1Product):
         -------
         list of int
             Flat list of indices. Flat input is returned unchanged (as a list);
-            range-pair input is expanded via `_srm_expand_ranges`.
+            range-pair input is expanded via `_indices_expand_ranges`.
         """
 
 
@@ -1392,7 +1443,7 @@ class ScienceData(L1Product):
         elif isinstance(indices[0], (list, np.ndarray)):
 
             
-            indices = ScienceData._srm_expand_ranges(indices)
+            indices = ScienceData._indices_expand_ranges(indices)
 
             if case in ('spec_1D_detector_collapse', 'spec_sequence_detector_collapse'):
                 return [idx for ls in indices for idx in ls]
@@ -1770,7 +1821,7 @@ class ScienceData(L1Product):
                 warnings.warn(f'Bottom pixel total 5% higher than top row with a ratio of {np.round(rat_bot_top,2)}. Possible pixel shadowing. Recommend using only top pixels for analysis.')
 
     @staticmethod
-    def _time_indices_format(time_indices,times,rcr):
+    def _time_indices_format(time_indices,times,dt,rcr):
 
         """
         Normalize a user-supplied `time_indices` specification into a canonical list
@@ -1822,15 +1873,15 @@ class ScienceData(L1Product):
                 bins = [[time_indices[i], time_indices[i+1]] for i in range(len(time_indices) - 1)]
             else:
                 bins = time_indices
-            result = ScienceData._handle_datetime_strings(bins, times)
+            result = ScienceData._handle_datetime_strings(bins, times, dt)
             ScienceData._handle_nested_pairs(result, rcr)
-
+            print(result )
             return result
 
         if isinstance(first, (list, tuple)):
             if isinstance(first[0], (str, Time)):
 
-                result = ScienceData._handle_datetime_strings(time_indices, times)
+                result = ScienceData._handle_datetime_strings(time_indices, times, dt)
                 ScienceData._handle_nested_pairs(result, rcr)
                 return result
             if len(first) == 2 and all(isinstance(v, int) for v in first):
@@ -2019,7 +2070,8 @@ class ScienceData(L1Product):
     @staticmethod
     def _handle_datetime_strings(
         time_bin: list[list[str | Time]],
-        times: list[str | Time]) -> list[list[int]]:
+        times: list[str | Time],
+        dt) -> list[list[int]]:
 
         """
         Convert a list of [start, end] time bins, given as strings or `Time` objects,
@@ -2045,6 +2097,9 @@ class ScienceData(L1Product):
             If any bin does not contain exactly 2 elements.
         """
 
+        data_bin_start = times -  (0.5 * dt)
+        data_bin_end = times + (0.5 * dt)
+
         results = []
         for n, bin in enumerate(time_bin):
             if len(bin) != 2:
@@ -2058,7 +2113,7 @@ class ScienceData(L1Product):
 
             matched = [
                 i for i, t in enumerate(times)
-                if bin_start <= Time(t) <= bin_end
+                if (bin_start <= data_bin_start[i]) and (data_bin_end[i] <= bin_end)
             ]
 
             results.append([matched[0], matched[-1]])
@@ -2361,12 +2416,11 @@ class ScienceData(L1Product):
             energy_indices = self._energy_indices_format(energy_indices,self.energies)
 
         if time_indices is not None:
-            time_indices = self._time_indices_format(time_indices, self.times, rcr)
+            time_indices = self._time_indices_format(time_indices, self.times, self.durations, rcr)
 
         detector_indices, pixel_indices = self._indices_check(self,
                                                               detector_indices,
                                                               pixel_indices)
-
 
         if bkg:
             livetime_correction = True
@@ -2424,8 +2478,14 @@ class ScienceData(L1Product):
             pixel_indices_bkg, detector_indices_bkg = self._bkg_indices_check(self,
                                                                               bkg)
 
+            print(detector_indices)
+            print(pixel_indices)
+
             sci_data_all = self._bkg_sub(self,
                                     bkg,
+                                    detector_indices,
+                                    pixel_indices,
+                                    sunkit_spex_detector_sum,
                                     detector_indices_bkg,
                                     pixel_indices_bkg,
                                     energy_indices_bkg,

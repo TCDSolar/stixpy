@@ -652,7 +652,8 @@ class ScienceData(L1Product):
                     livefrac_error,
                     elut_cor_fac,
                     rcr,
-                    sum_all_times):
+                    sum_all_times,
+                    systematic):
         
         """
         Select and/or sum counts, variance, livetime fraction, and associated metadata
@@ -730,6 +731,41 @@ class ScienceData(L1Product):
         else:
 
             counts, counts_var, t_norm, e_norm, livefrac, elut_cor_fac, times, energies, rcr = product
+        
+        if systematic:
+
+            e_low = energies["e_low"].value
+
+            energy_conditions = [e_low < 7, (e_low < 10) & (e_low >= 7), e_low >= 10]
+            percentage = [0.07, 0.05, 0.03]
+
+            systematic_err_percentage = np.select(energy_conditions, percentage)
+
+            idx = np.ix_(detector_indices, pixel_indices)
+
+            # Select relevant detectors/pixels, collapse coherently to get the true total
+            counts_selected = counts[:, idx[0], idx[1], :]
+            counts_collapsed_for_sys = counts_selected.sum(axis=(1, 2), keepdims=True)
+
+            # Correct, correlated systematic error on the TOTAL
+            systematic_err_total = systematic_err_percentage * counts_collapsed_for_sys  # shape (1325, 1, 1, 30)
+
+            # Number of elements being collapsed over (detector x pixel)
+            N = len(detector_indices) * len(pixel_indices)
+
+            # Pre-divide by sqrt(N) so that when this gets quadrature-summed
+            # downstream over the same axes, it reconstructs the correct total
+            systematic_err_per_element = systematic_err_total / np.sqrt(N)  # shape (1325, 1, 1, 30)
+
+            # Broadcast back to the FULL original shape (1325, 32, 8, 30) so it
+            # aligns with counts_var before any slicing/compression happens
+            systematic_err_full = np.broadcast_to(
+                systematic_err_per_element.value,
+                counts.shape
+            ) * systematic_err_per_element.unit
+
+            # Now combine BEFORE collapsing, since downstream code expects that shape
+            counts_var = np.sqrt(counts_var.value**2 + systematic_err_full.value**2) * u.ct
 
 
         if detector_indices is not None:  
@@ -751,7 +787,7 @@ class ScienceData(L1Product):
                 )
 
                 counts_var = np.concatenate(
-                    [np.sum(counts_var[:, dl : dh + 1, ...], axis=1, keepdims=True) for dl, dh in detector_indices],
+                    [np.sqrt(np.sum(counts_var[:, dl : dh + 1, ...]**2, axis=1, keepdims=True)) for dl, dh in detector_indices],
                     axis=1,
                     )
 
@@ -788,7 +824,7 @@ class ScienceData(L1Product):
                 )
 
                 counts_var = np.concatenate(
-                    [np.sum(counts_var[..., pl : ph + 1, :], axis=2, keepdims=True) for pl, ph in pixel_indices], axis=2
+                    [np.sqrt(np.sum(counts_var[..., pl : ph + 1, :]**2, axis=2, keepdims=True)) for pl, ph in pixel_indices], axis=2
                 )
 
                 if livefrac is not None:                
@@ -821,7 +857,7 @@ class ScienceData(L1Product):
                 )
 
                 counts_var = np.concatenate(
-                    [np.sum(counts_var[..., el : eh + 1], axis=-1, keepdims=True) for el, eh in energy_indices], axis=-1
+                    [np.sqrt(np.sum(counts_var[..., el : eh + 1]**2, axis=-1, keepdims=True)) for el, eh in energy_indices], axis=-1
                 )
 
         
@@ -831,7 +867,6 @@ class ScienceData(L1Product):
                     elut_cor_fac = np.concatenate(
                     [np.mean(counts_var[..., el : eh + 1]) for el, eh in energy_indices], axis=-1
                 )
-
 
                 energies = np.atleast_2d(
                     [
@@ -870,8 +905,6 @@ class ScienceData(L1Product):
                 dt = np.hstack(dt)
                 times = Time(new_times)
 
-                
-
                 counts = np.vstack([np.sum(counts[tl : th + 1, ...], axis=0, keepdims=True) for tl, th in time_indices])
                 rcr = np.vstack([np.mean(rcr[tl : th + 1, ...], axis=0, keepdims=True) for tl, th in time_indices])
 
@@ -882,7 +915,7 @@ class ScienceData(L1Product):
                     livefrac_error = np.vstack([np.sqrt(np.mean(livefrac[tl : th + 1, ...]**2, axis=0, keepdims=True)) for tl, th in time_indices])
 
                 counts_var = np.vstack(
-                    [np.sum(counts_var[tl : th + 1, ...], axis=0, keepdims=True) for tl, th in time_indices]
+                    [np.sqrt(np.sum(counts_var[tl : th + 1, ...]**2, axis=0, keepdims=True)) for tl, th in time_indices]
                 )
                 t_norm = dt
 
@@ -890,9 +923,6 @@ class ScienceData(L1Product):
                     counts = np.sum(counts, axis=0, keepdims=True)
                     counts_var = np.sum(counts_var, axis=0, keepdims=True)
                     t_norm = np.sum(dt)
-        
-                # print('lvf = ',livefrac.shape)
-
     
         return counts, counts_var, t_norm, e_norm, livefrac, livefrac_error, elut_cor_fac, times, energies, rcr
     
@@ -1027,7 +1057,7 @@ class ScienceData(L1Product):
         counts_var_lvtcorr = (counts_var[...,:] * elut_cor_fac) / livefrac
 
         counts_var_lvtcorr_bkg = (counts_var_bkg / livefrac_bkg)[...,:] * elut_cor_fac
-        counts_var_lvtcorr_scaled_bkg = (counts_var_lvtcorr_bkg/ t_norm_bkg.mean()) * t_norm.reshape(len(t_norm), 1,1,1)
+        counts_var_lvtcorr_scaled_bkg = (counts_var_lvtcorr_bkg / t_norm_bkg.mean()) * t_norm.reshape(len(t_norm), 1,1,1)
 
         spec_in_corr = counts_lvtcorr - count_lvtcorr_scaled_bkg
         spec_in = counts_uncorr - count_uncorr_scaled_bkg
@@ -1087,8 +1117,52 @@ class ScienceData(L1Product):
 
             counts_check = np.nansum(spec_in_final[:, idx[0], idx[1], :], axis=(1,2), keepdims=True)
             counts = np.where(counts_check < 0, 0, counts)
+            # spec_in_err_final = np.where(counts_check < 0, 0, spec_in_err_final)
+
+            # print('err shape = ',spec_in_err_final[:, idx[0], idx[1], :].shape)
+            err_f = spec_in_err_final[:, idx[0], idx[1], :]
+            np.save('err_check.npy',np.array(np.sqrt(np.nansum(err_f[165:174]**2,axis=(0,1,2)))))
+
+            print('1 = ',np.isnan(spec_in_err[:, idx[0], idx[1], :]).sum())
+
+            # Check for NaNs in the components feeding eff_livefrac
+            print('2 = ',np.isnan(spec_in_lvt[:, idx[0], idx[1], :]).sum())
+            print('3 = ',np.isnan(spec_in_corr_lvt[:, idx[0], idx[1], :]).sum())
+
+
             counts_var = spec_in_err_final
             livefrac =  np.broadcast_to(eff_livefrac, counts.shape)
+
+            # idx = np.ix_(detector_indices, pixel_indices)
+
+            # # --- Aggregate eff_livefrac: unchanged, still drives `counts` ---
+            # eff_livefrac = np.nansum(spec_in_lvt[:, idx[0], idx[1], :], axis=(1, 2, 3), keepdims=True) \
+            #             / np.nansum(spec_in_corr_lvt[:, idx[0], idx[1], :], axis=(1, 2, 3), keepdims=True)
+
+            # spec_in_final = spec_in_corr * eff_livefrac
+            # counts = spec_in_final
+
+
+            # counts_check = np.nansum(spec_in_final[:, idx[0], idx[1], :], axis=(1, 2), keepdims=True)
+            # counts = np.where(counts_check < 0, 0, counts)
+
+            # # --- Per-detector/pixel eff_livefrac: used ONLY for the error term ---
+            # eff_livefrac_per_dp = np.nansum(spec_in_lvt, axis=(3)) / np.nansum(spec_in_corr_lvt, axis=(3))
+            # # shape: (time, n_detectors_total, n_pixels_total)
+
+            # spec_in_err_final = spec_in_err * eff_livefrac_per_dp[..., None]
+
+            # err_f = spec_in_err_final[:, idx[0], idx[1], :]
+            # np.save('err_check.npy', np.array(np.sqrt(np.nansum(err_f**2, axis=(0, 1, 2)))))
+
+            # print(np.isnan(spec_in_err[:, idx[0], idx[1], :]).sum())
+
+            # # Check for NaNs in the components feeding eff_livefrac
+            # print(np.isnan(spec_in_lvt[:, idx[0], idx[1], :]).sum())
+            # print(np.isnan(spec_in_corr_lvt[:, idx[0], idx[1], :]).sum())
+
+            # counts_var = spec_in_err_final
+            # livefrac = np.broadcast_to(eff_livefrac, counts.shape)
 
         else:
 
@@ -1312,6 +1386,8 @@ class ScienceData(L1Product):
             # counts[counts  < 0] = 0
 
             # counts_final[counts_final  < 0] = 0
+            print('cts_err_shape = ',counts_uncertainity.shape)
+            np.save('err_check_2.npy',np.array(np.sqrt(np.nansum(counts_uncertainity**2,axis=(0,1,2)))))
 
             counts_uncertainity_final = np.sqrt(np.nansum(counts_uncertainity**2,axis=(0,1,2)))
 
@@ -1338,18 +1414,22 @@ class ScienceData(L1Product):
 
         e_low = energies["e_low"].value
 
-        if systematic:
+        # if systematic:
 
-            energy_conditions = [e_low < 7, (e_low < 10) & (e_low >= 7), e_low >= 10]
-            percentage = [0.07, 0.05, 0.03]
+        #     energy_conditions = [e_low < 7, (e_low < 10) & (e_low >= 7), e_low >= 10]
+        #     percentage = [0.07, 0.05, 0.03]
 
-            systematic_err_percentage = np.select(energy_conditions, percentage)
-            systematic_err = systematic_err_percentage * counts_final
-            counts_uncertainity_pu = PoissonUncertainty(np.sqrt(counts_uncertainity_final.value**2 + systematic_err.value**2) * u.ct)
+        #     systematic_err_percentage = np.select(energy_conditions, percentage)
+        #     systematic_err = systematic_err_percentage * counts_final
 
-        else:
+        #     np.save('stixpy_sys.npy',np.array(systematic_err.value))
+        #     np.save('stixpy_err.npy',np.array(counts_uncertainity_final.value))
 
-            counts_uncertainity_pu = PoissonUncertainty(counts_uncertainity_final)
+        #     counts_uncertainity_pu = PoissonUncertainty(np.sqrt(counts_uncertainity_final.value**2 + systematic_err.value**2) * u.ct)
+
+        # else:
+
+        counts_uncertainity_pu = PoissonUncertainty(counts_uncertainity_final)
         
         counts_spectral_axis = SpectralAxis(counts_axis, bin_specification="edges")
 
@@ -2331,7 +2411,7 @@ class ScienceData(L1Product):
         flare_location=None,
         flare_angle=None,
         bkg=None,
-        sunkit_spex_systematic_error=True,
+        sunkit_spex_systematic_error=False,
         sunkit_spex_detector_sum=True
     ):
     
@@ -2465,7 +2545,8 @@ class ScienceData(L1Product):
                                     livefraction_sci_error,
                                     elut_cor_fac,
                                     rcr,
-                                    sum_all_times)
+                                    sum_all_times,
+                                    sunkit_spex_systematic_error)
 
         else:
 
@@ -2506,7 +2587,8 @@ class ScienceData(L1Product):
                                     None,
                                     elut_cor_fac,
                                     rcr,
-                                    sum_all_times)
+                                    sum_all_times,
+                                    sunkit_spex_systematic_error)
  
         # =====================================================
         # data_sum

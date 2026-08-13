@@ -6,9 +6,16 @@ from pathlib import Path
 
 import numpy as np
 import xraydb
+import xcom
 
 import astropy.units as u
 from astropy.table import Table
+
+
+import astropy.units as u
+from roentgen.absorption import MassAttenuationCoefficient
+
+
 
 __all__ = ["get_grid_transmission", "_calculate_grid_transmission"]
 
@@ -66,8 +73,39 @@ def get_grid_transmission(ph_energy, detectors, flare_location: STIXImaging):
     intercept_all = subcol_transmission["intercept"]
     slope_all = subcol_transmission["slope[1/deg]"]
 
-    muvals = xraydb.material_mu("W", ph_energy * 1e3, density=19.30, kind="total") / 10  # in units of mm^-1
-    L = 1 / muvals
+# xraydb
+    # muvals = xraydb.material_mu("W", ph_energy * 1e3, density=19.30, kind="total") / 10  # in units of mm^-1
+
+# roetgen
+    # w_matten = MassAttenuationCoefficient('W')
+
+    # # ph_energy assumed in keV, matching your existing convention
+    # mass_atten = w_matten.func(ph_energy * u.keV)   # mass attenuation coeff, cm^2/g (check units, see below)
+
+    # density_w = 19.30 * u.g / u.cm**3
+    # mu_linear = mass_atten * density_w              # -> cm^-1
+    # muvals = mu_linear.to(1 / u.mm).value             # -> mm^-1, replaces your manual "/10"
+
+# idl_version xsec nist
+
+    AVOGADRO = 6.02214076e23        # atoms/mol
+    ATOMIC_MASS_W = 183.84          # g/mol, from PeriodicTableofElements.csv
+
+    energy_eV = ph_energy * 1e3
+
+    data = xcom.calculate_cross_section(74, energy_eV)   # Z=74=W
+
+    sigma_barns = data['total']   # photo + incoherent + coherent, barns/atom (confirmed by component sum)
+
+    # barns/atom -> cm^2/g
+    mass_attenuation = sigma_barns * 1e-24 * AVOGADRO / ATOMIC_MASS_W
+
+    density_w = 19.30
+    muvals = (mass_attenuation * density_w) / 10.0
+    L = 1.0 / muvals
+    
+    if len(L) <=3210:
+        np.save('/home/jmitchell/Documents/SOLER/case_studies/240310/data/reduced_data_subc/py_L.npy',L)
 
     # trans = np.exp(-0.4 / L)
     subc_transm = L
@@ -139,6 +177,9 @@ def get_grid_transmission(ph_energy, detectors, flare_location: STIXImaging):
     # finest_scs = [11, 12, 13, 17, 18, 19]  # 1a, 2a, 1b, 2c, 1c, 2b
     # idx = np.argwhere(np.isin(sc, finest_scs, invert=True)).ravel()
     # final_transmission[sc[idx] - 1] = total_transmission[idx]
+
+    print('subc_trans = ',subc_transm)
+    print('subc_trans_shape = ',subc_transm.shape)
 
     return subc_transm
 

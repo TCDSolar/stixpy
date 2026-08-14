@@ -130,7 +130,7 @@ class PixelPlotter:
 
     def _prepare_data(self):
         # Get the necessary data from the product
-        counts, count_err, times, durations, energies = self.prod.get_data(
+        counts, count_err, durations, _, _, _, _, times, energies = self.prod.get_data(
             time_indices=self.time_indices, energy_indices=self.energy_indices
         )
 

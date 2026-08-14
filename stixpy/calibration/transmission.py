@@ -166,6 +166,8 @@ class Transmission:
             else:
                 transmission[name] = base_trans
         transmission["attenuator"] = self.components["attenuator"].transmission(energies)
+
+        print('trans = ', transmission)
         return transmission
 
     def get_transmission_by_component(self):

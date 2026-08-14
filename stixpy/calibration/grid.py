@@ -5,16 +5,24 @@ Grid Calibration
 from pathlib import Path
 
 import numpy as np
+import xraydb
+import xcom
 
 import astropy.units as u
 from astropy.table import Table
+
+
+import astropy.units as u
+from roentgen.absorption import MassAttenuationCoefficient
+
+
 
 __all__ = ["get_grid_transmission", "_calculate_grid_transmission"]
 
 from stixpy.coordinates.frames import STIXImaging
 
 
-def get_grid_transmission(flare_location: STIXImaging):
+def get_grid_transmission(ph_energy, detectors, flare_location: STIXImaging):
     r"""
     Return the grid transmission for the 32 sub-collimators corrected for internal shadowing.
 
@@ -26,25 +34,196 @@ def get_grid_transmission(flare_location: STIXImaging):
     flare_location :
         Location of the flare
     """
-    column_names = ["sc", "p", "o", "phase", "slit", "grad", "rms", "thick", "bwidth", "bpitch"]
 
     root = Path(__file__).parent.parent
     grid_info = Path(root, *["config", "data", "grid"])
+
+    # if flare_location is None:
+
+    nominal_transmission = Table.read(grid_info / 'nom_grid_transmission.txt', format='ascii.no_header', comment='[;~]')['col1']
+
+    #     return nominal_transmission
+    
+    # else:
+
+    column_names = ["sc", "p", "o", "phase", "slit", "grad", "rms", "thick", "bwidth", "bpitch"]
+
     front = Table.read(grid_info / "grid_param_front.txt", format="ascii", names=column_names)
     rear = Table.read(grid_info / "grid_param_rear.txt", format="ascii", names=column_names)
 
-    transmission_front = _calculate_grid_transmission(front, flare_location)
-    transmission_rear = _calculate_grid_transmission(rear, flare_location)
-    total_transmission = transmission_front * transmission_rear
+    # ;; Orientation of the slits of the grid as seen from the detector side
+    grid_orient_front_all = front["o"]
+    grid_orient_rear_all = rear["o"]
+
+    pitch_front_all = front["p"]
+    pitch_rear_all = rear["p"]
+
+    thickness_front_all = front["thick"]
+    thickness_rear_all = rear["thick"]
+
+    sc = front["sc"]
+
+    # fpath = loc_file( 'CFL_subcoll_transmission.txt', path = getenv('STX_GRID') )
+    column_names_cfl = ["subc_n", "subc_label", "intercept", "slope[1/deg]"]
+
+    subcol_transmission = Table.read(grid_info / "CFL_subcoll_transmission.txt", format="ascii", names=column_names_cfl)
+
+    # subc_n_all = subcol_transmission["subc_n"]
+    # subc_label = subcol_transmission["subc_label"]
+    intercept_all = subcol_transmission["intercept"]
+    slope_all = subcol_transmission["slope[1/deg]"]
+
+# xraydb
+    # muvals = xraydb.material_mu("W", ph_energy * 1e3, density=19.30, kind="total") / 10  # in units of mm^-1
+
+# roetgen
+    # w_matten = MassAttenuationCoefficient('W')
+
+    # # ph_energy assumed in keV, matching your existing convention
+    # mass_atten = w_matten.func(ph_energy * u.keV)   # mass attenuation coeff, cm^2/g (check units, see below)
+
+    # density_w = 19.30 * u.g / u.cm**3
+    # mu_linear = mass_atten * density_w              # -> cm^-1
+    # muvals = mu_linear.to(1 / u.mm).value             # -> mm^-1, replaces your manual "/10"
+
+# idl_version xsec nist
+
+    AVOGADRO = 6.02214076e23        # atoms/mol
+    ATOMIC_MASS_W = 183.84          # g/mol, from PeriodicTableofElements.csv
+
+    energy_eV = ph_energy * 1e3
+
+    data = xcom.calculate_cross_section(74, energy_eV)   # Z=74=W
+
+    sigma_barns = data['total']   # photo + incoherent + coherent, barns/atom (confirmed by component sum)
+
+    # barns/atom -> cm^2/g
+    mass_attenuation = sigma_barns * 1e-24 * AVOGADRO / ATOMIC_MASS_W
+
+    density_w = 19.30
+    muvals = (mass_attenuation * density_w) / 10.0
+    L = 1.0 / muvals
+    
+    if len(L) <=3210:
+        np.save('/home/jmitchell/Documents/SOLER/case_studies/240310/data/reduced_data_subc/py_L.npy',L)
+
+    # trans = np.exp(-0.4 / L)
+    subc_transm = L
+      
+    exclude = [8,9,10,11,12,16,17,18]
+
+    # det_indices_top24 = np.array(
+    #     [0, 1, 2, 3, 4, 5, 6, 7, 13, 14, 15, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31]
+    # )
+
+    detectors = np.atleast_1d(detectors)
+    detectors_idx = [val for val in detectors if val not in exclude]
+    idx = [i for i, x in enumerate(sc - 1) if (x in detectors_idx)]
+    # idx_exclude = [i for i, x in enumerate(sc - 1) if (x in detector_exclude)]
+    detector_exclude =  [val for val in detectors if val in exclude]
+
+    grid_orient_front = grid_orient_front_all[idx]
+    pitch_front = pitch_front_all[idx]
+    thickness_front = thickness_front_all[idx]
+
+    # ;;------ Rear grid
+    grid_orient_rear = grid_orient_rear_all[idx]
+    pitch_rear = pitch_rear_all[idx]
+    thickness_rear = thickness_rear_all[idx]
+
+    grid_orient_avg = (grid_orient_front + grid_orient_rear) / 2
+
+    if flare_location is not None:
+        flare_loc_deg = flare_location / 3600  # . ;; Convert coordinates to deg
+    else:
+        flare_loc_deg = [0,0]
+
+    theta = flare_loc_deg[0] * np.cos(np.deg2rad(grid_orient_avg)) + flare_loc_deg[1] * np.sin(
+        np.deg2rad(grid_orient_avg)
+    )
+    # print('THETA = ', theta)
+
+    # ;;------ Subcollimator tranmsission at low energies
+    # idx = np.where(subc_n_all eq (subc_n+1))
+
+    intercept = intercept_all[detectors_idx]
+    slope = slope_all[detectors_idx]
+    subc_transm_low_e = intercept + slope * theta
+
+    # ;;------ Transmission of front and rear grid
+    slit_to_pitch = np.sqrt(subc_transm_low_e)
+
+    slit_front = slit_to_pitch * pitch_front
+    slit_rear = slit_to_pitch * pitch_rear
+
+    transm_front = stx_grid_transmission(pitch_front, slit_front, thickness_front, L)
+    transm_rear = stx_grid_transmission(pitch_rear, slit_rear, thickness_rear, L)
+
+    # subc_transm.append(transm_front * transm_rear)
+    subc_trans_exclude = nominal_transmission[detector_exclude]
+    subc_transm = transm_front * transm_rear
+
+    subc_trans_exclude = np.tile(subc_trans_exclude, (len(ph_energy), 1))
+    
+    subc_transm = np.concatenate([subc_transm,subc_trans_exclude],axis=1)
+
+    # transmission_front = _calculate_grid_transmission(front, flare_location)
+    # transmission_rear = _calculate_grid_transmission(rear, flare_location)
+    # total_transmission = transmission_front * transmission_rear
 
     # The finest grids are made from multiple layers for the moment remove these and set 1
-    final_transmission = np.ones(32)
-    sc = front["sc"]
-    finest_scs = [11, 12, 13, 17, 18, 19]  # 1a, 2a, 1b, 2c, 1c, 2b
-    idx = np.argwhere(np.isin(sc, finest_scs, invert=True)).ravel()
-    final_transmission[sc[idx] - 1] = total_transmission[idx]
+    # final_transmission = np.ones(32)
+    # sc = front["sc"]
+    # finest_scs = [11, 12, 13, 17, 18, 19]  # 1a, 2a, 1b, 2c, 1c, 2b
+    # idx = np.argwhere(np.isin(sc, finest_scs, invert=True)).ravel()
+    # final_transmission[sc[idx] - 1] = total_transmission[idx]
 
-    return final_transmission
+    print('subc_trans = ',subc_transm)
+    print('subc_trans_shape = ',subc_transm.shape)
+
+    return subc_transm
+
+
+def stx_grid_transmission(pitch, slit, thickness, L):
+
+    ds = 5e-3
+    dh = 5e-2
+
+    # n_energies = np.shape(L)[0]
+    # n_subc = np.shape(pitch)
+
+    slit_rep = slit.reshape(1, len(slit))
+    pitch_rep = pitch.reshape(1, len(pitch))
+    H_rep = thickness.reshape(1, len(thickness))
+    L_rep = L.reshape(len(L), 1)
+
+    # print('slit = ',slit[0])
+    # print('pitch = ',pitch[0])
+    # print('h_rep = ',thickness[0])
+
+    # slit_rep = np.tile(slit, (n_energies, 1))
+    # pitch_rep = np.tile(pitch, (n_energies, 1))
+    # H_rep = np.tile(thickness, (n_energies, 1))
+    # L_rep = np.tile(L, (n_subc, 1)).T
+
+    # print(np.shape(slit_rep))
+    # print(np.shape(pitch_rep))
+    # print(np.shape(H_rep))
+    # print(np.shape(L_rep))
+
+    # ;; Transmission for a wedge shape model for grid imperfections
+    g0 = slit_rep / pitch_rep + (pitch_rep - slit_rep) / pitch_rep * np.exp(-H_rep / L_rep)
+    ttt = L_rep / dh * (1.0 - np.exp(-dh / L_rep))
+    g1 = 2.0 * ds / pitch_rep * (ttt - np.exp(-H_rep / L_rep))
+
+    # print('g0 = ',g0[:,0])
+    # print('g1 = ',g1[:,0])
+
+    g_transmission = g0 + g1
+
+    # print('transmission = ',g_transmission)
+
+    return g_transmission
 
 
 def _calculate_grid_transmission(grid_params, flare_location):

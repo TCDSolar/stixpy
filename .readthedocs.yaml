@@ -11,15 +11,15 @@ submodules:
 build:
   os: ubuntu-lts-latest
   tools:
-    python: "mambaforge-latest"
+    python: "miniforge3-latest"
   jobs:
     post_checkout:
       - git fetch --unshallow || true
     pre_install:
-      - git update-index --assume-unchanged .rtd-environment.yml docs/conf.py
+      - git update-index --assume-unchanged .rtd-environment.yaml docs/conf.py
 
 conda:
-  environment: .rtd-environment.yml
+  environment: .rtd-environment.yaml
 
 # Build documentation in the docs/ directory with Sphinx
 sphinx:

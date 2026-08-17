@@ -99,7 +99,7 @@ jobs:
     permissions:
       id-token: write
     with:
-      submodules: false
+      submodules: true
       toxdeps: tox-pypi-filter
       coverage: codecov-oidc
       libraries: |

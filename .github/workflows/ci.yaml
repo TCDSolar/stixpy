@@ -38,7 +38,7 @@ jobs:
       toxdeps: tox-pypi-filter
       posargs: -n auto --color=yes
       envs: |
-        - linux: py313-online
+        - linux: py313
     secrets:
       CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
@@ -91,6 +91,24 @@ jobs:
           - graphviz
       envs: |
         - linux: build_docs
+
+  online:
+    if: "!startsWith(github.event.ref, 'refs/tags/v')"
+    needs: [docs]
+    uses: OpenAstronomy/github-actions-workflows/.github/workflows/tox.yml@8c8bb6c6c962542921f993d47d26df38dccd50b1  # v3.0.2
+    permissions:
+      id-token: write
+    with:
+      submodules: false
+      toxdeps: tox-pypi-filter
+      coverage: codecov-oidc
+      libraries: |
+        apt:
+          - libopenjp2-7
+          - graphviz
+      envs: |
+        - linux: py313-online
+          posargs: -n auto --dist loadgroup --color=yes
 
   build_dists:
     # Build wheels on PRs only when labelled. Releases will only be published if tagged ^v.*

@@ -7,7 +7,7 @@ exclude .gitignore
 exclude .isort.cfg
 exclude .pre-commit-config.yaml
 exclude .readthedocs.yaml
-exclude .rtd-environment.yml
+exclude .rtd-environment.yaml
 exclude .ruff.toml
 
 # Prune folders

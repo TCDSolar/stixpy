@@ -88,6 +88,8 @@ def get_elut_correction(e_ind, pixel_data):
         [0, 1, 2, 3, 4, 5, 6, 7, 13, 14, 15, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31]
     )
 
+    print('EBIN_widths = ', ebin_widths.shape)
+
     det_indices_full = np.where(pixel_data.detector_masks.__dict__["masks"] == 1)[1]
 
     det_indices = [d for i, d in enumerate(det_indices_top24) if d in det_indices_full]

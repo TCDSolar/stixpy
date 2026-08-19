@@ -803,7 +803,7 @@ class ScienceData(L1Product):
                 e_norm = e_norm[energy_mask]
                 energies = energies[energy_mask]
                 if elut_cor_fac is not None:
-                    elut_cor_fac = elut_cor_fac[energy_mask]
+                    elut_cor_fac = elut_cor_fac[...,energy_mask]
 
             if energy_indices.ndim == 2:
                 counts = np.concatenate(
@@ -1126,13 +1126,17 @@ class ScienceData(L1Product):
         t_norm = t_norm.to(u.s)
         t_norm_bkg = t_norm_bkg.to(u.s)
 
-        counts_uncorr = counts[...,:] * elut_cor_fac
-        counts_lvtcorr = (counts[...,:] * elut_cor_fac) / livefrac
+        print('counts sss = ',np.shape(counts[...,:]))
+        print('counts sss = ',np.shape(counts_bkg[...,:]))
+        print('elut sss = ',np.shape(elut_cor_fac))
+
+        counts_uncorr = counts * elut_cor_fac
+        counts_lvtcorr = (counts * elut_cor_fac) / livefrac
 
     
 
-        counts_uncorr_bkg = counts_bkg[...,:] * elut_cor_fac
-        counts_lvtcorr_bkg = (counts_bkg / livefrac_bkg)[...,:] * elut_cor_fac
+        counts_uncorr_bkg = counts_bkg * elut_cor_fac
+        counts_lvtcorr_bkg = (counts_bkg / livefrac_bkg) * elut_cor_fac
 
         count_rate_uncorr_bkg = counts_uncorr_bkg  / t_norm_bkg.mean()
         count_uncorr_scaled_bkg = t_norm.reshape(len(t_norm), 1,1,1) * count_rate_uncorr_bkg
@@ -1141,8 +1145,8 @@ class ScienceData(L1Product):
         count_rate_lvtcorr_bkg = counts_lvtcorr_bkg / t_norm_bkg.mean()
         count_lvtcorr_scaled_bkg = t_norm.reshape(len(t_norm), 1,1,1) * count_rate_lvtcorr_bkg
 
-        counts_var_lvtcorr = (counts_var[...,:] * elut_cor_fac) / livefrac
-        counts_var_lvtcorr_bkg = (counts_var_bkg / livefrac_bkg)[...,:] * elut_cor_fac
+        counts_var_lvtcorr = (counts_var * elut_cor_fac) / livefrac
+        counts_var_lvtcorr_bkg = (counts_var_bkg / livefrac_bkg) * elut_cor_fac
         counts_var_lvtcorr_scaled_bkg = (counts_var_lvtcorr_bkg / t_norm_bkg.mean()) * t_norm.reshape(len(t_norm), 1,1,1)
 
         spec_in_corr = counts_lvtcorr - count_lvtcorr_scaled_bkg
@@ -2545,6 +2549,80 @@ class ScienceData(L1Product):
                 "(flat list of bin edges) or 2D (list of [start, end] pairs)."
             )
 
+    @staticmethod
+    def _normalize_elut_by_group_detector_mean(bins, bins_actual, index_groups):
+        """
+        """
+        bins = np.asarray(bins)
+        bins_actual = np.asarray(bins_actual)
+
+        bins_actual_mod = bins_actual.copy()
+
+        for group in index_groups:
+            idx = np.array(group)
+
+            # mean over just the group's indices along `axis`, keepdims for broadcasting
+            group_mean = bins_actual[:,idx,:,:].mean(axis=1, keepdims=True)
+
+            # shape to broadcast the mean into (same as the group's slice shape)
+            broadcast_shape = list(bins_actual.shape)
+            broadcast_shape[1] = len(idx)
+
+            bins_actual_mod[:,idx,:,:] = np.broadcast_to(group_mean, tuple(broadcast_shape))
+
+        return bins / bins_actual_mod
+
+
+    @staticmethod
+    def _elut_correction_sort(bins, 
+                              bins_actual,
+                              sunkit_spex_detector_sum,
+                              pixel_indices,
+                              detector_indices):
+        """
+        """
+
+        if pixel_indices.ndim ==2:
+            pixel_indices = ScienceData._indices_expand_ranges(pixel_indices, nest=False)
+        
+        bins = np.nanmean(bins[:,:,pixel_indices,:],axis=2,keepdims=True)
+        bins_actual = np.nanmean(bins_actual[:,:,pixel_indices,:],axis=2,keepdims=True)
+
+        if sunkit_spex_detector_sum == True:
+            
+            if detector_indices.ndim ==2:
+                detector_indices = ScienceData._indices_expand_ranges(detector_indices, nest=False)
+
+            bins = np.nanmean(bins[:,detector_indices,:,:],axis=1,keepdims=True)
+            
+            print('ba_s_pre =',bins_actual.shape)
+            print('di_s =',detector_indices.shape)
+
+            sel = bins_actual[:, detector_indices, :, :]
+            all_nan_mask = np.all(np.isnan(sel), axis=1)
+            print('all-NaN positions:', np.argwhere(all_nan_mask))
+
+
+            bins_actual = np.nanmean(bins_actual[:,detector_indices,:,:],axis=1,keepdims=True)
+
+            print('ba_s_post =',bins_actual.shape)
+
+            elut_cor_fac = bins / bins_actual
+
+        elif detector_indices.ndim == 1:
+
+            elut_cor_fac = bins / bins_actual
+        
+        elif detector_indices.ndim == 2:
+            
+            detector_indices = ScienceData._indices_expand_ranges(detector_indices, nest=True)
+
+            elut_cor_fac = ScienceData._normalize_elut_by_group_detector_mean(bins, bins_actual, detector_indices)
+
+
+        return elut_cor_fac
+
+
     def get_data(
         self,
         *,
@@ -2674,8 +2752,24 @@ class ScienceData(L1Product):
 
         if elut_correction:
 
-            _, _, elut_cor_fac = get_elut_correction(np.array(self.energies["channel"]), 
+            _, _, bins, bins_actual = get_elut_correction(np.array(self.energies["channel"]), 
                                                        self)
+            
+            print('b_s = ',np.shape(bins))
+            print('ba_s = ',np.shape(bins_actual))
+            
+            elut_cor_fac = ScienceData._elut_correction_sort(bins, 
+                                                            bins_actual,
+                                                            sunkit_spex_detector_sum,
+                                                            pixel_indices,
+                                                            detector_indices)
+            
+            warnings.warn('ELUT correction factor is always averaged over the used pixels'\
+                          'but can be given detector-wise or detector averaged.')
+            
+            print('elut_cor_fac_shape = ',elut_cor_fac.shape)
+            
+            
         else:
 
             elut_cor_fac = None
@@ -2686,10 +2780,7 @@ class ScienceData(L1Product):
 
         if not bkg:
 
-
             background_boolean = False
-
-            print('ELUUUTTTTTT = ',elut_cor_fac)
 
             sci_data = self._data_select(self,
                                     detector_indices,
@@ -2707,8 +2798,9 @@ class ScienceData(L1Product):
 
         else:
 
+            # sunkit_spex_spectrum = True
             background_boolean = True
-            warnings.warn('For background subtraction elut_correction and livetime_correction set as True.')
+            warnings.warn('For background subtraction elut_correction, livetime_correction set as True.')
 
             energy_indices_bkg = self._energies_bkg_sub(self,
                                                         bkg)
@@ -2789,12 +2881,12 @@ class ScienceData(L1Product):
 
             elif vtype == "dcr":
                 norm = 1 / (e_norm * t_norm)
-                if elut_correction:
-                    norm = elut_cor_fac / (e_norm  * t_norm)
-                elif livetime_correction:
+                # if elut_correction:
+                #     norm = elut_cor_fac / (e_norm  * t_norm)
+                if livetime_correction:
                     norm = 1 / (e_norm  * t_norm * livefrac)
-                elif livetime_correction and elut_correction:
-                    norm = elut_cor_fac / (e_norm  * t_norm * livefrac)
+                # elif livetime_correction and elut_correction:
+                #     norm = elut_cor_fac / (e_norm  * t_norm * livefrac)
 
             else:
                 raise ValueError("vtype must be one of 'c', 'cr', 'dcr'.")

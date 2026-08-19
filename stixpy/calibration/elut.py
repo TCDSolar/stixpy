@@ -80,28 +80,23 @@ def get_elut_correction(e_ind, pixel_data):
     e_cor_low = (ebin_edges_high[..., e_ind[0]] - ebin_sci_edges_low[..., e_ind[0]]) / ebin_widths[..., e_ind[0]]
     e_cor_high = (ebin_sci_edges_high[..., e_ind[-1]] - ebin_edges_low[..., e_ind[-1]]) / ebin_widths[..., e_ind[-1]]
 
-    # numbers = np.array([0, 1, 2, 3, 4, 5, 6, 7, 13, 14, 15, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31])
-
     bins = ebin_sci_edges_high - ebin_sci_edges_low
 
-    det_indices_top24 = np.array(
-        [0, 1, 2, 3, 4, 5, 6, 7, 13, 14, 15, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31]
-    )
-
-    print('EBIN_widths = ', ebin_widths.shape)
-
-    det_indices_full = np.where(pixel_data.detector_masks.__dict__["masks"] == 1)[1]
-
-    det_indices = [d for i, d in enumerate(det_indices_top24) if d in det_indices_full]
-
-    # det_indices = np.where(self.detector_masks.__dict__['masks'] == 1 )[1]
-
+    det_indices = np.where(pixel_data.detector_masks.__dict__["masks"] == 1)[1]
     pix_indices = np.where(pixel_data.pixel_masks.__dict__["masks"] == 1)[1]
 
-    bins_actual_1 = ebin_widths[det_indices, :, :]
-    bins_actual = bins_actual_1[:, pix_indices, :].mean(axis=1).mean(axis=0)
+    bins_reshape = bins.reshape(1, 1, 1, len(bins))
+    bins_expand = np.broadcast_to(bins_reshape,(1,len(det_indices),len(pix_indices),len(bins)))
+    ebin_widths = np.broadcast_to(ebin_widths,(1,ebin_widths.shape[0],ebin_widths.shape[1],ebin_widths.shape[2]))
 
-    cor = bins / bins_actual
+    ebin_widths = ebin_widths[:,:,pix_indices,:]
+    ebin_widths = ebin_widths[:,det_indices,:,:]
+
+    return e_cor_high, e_cor_low, bins_expand, ebin_widths
+
+
+
+    # bins_actual_1 = ebin_widths[det_indices, :, :]
+    # bins_actual = bins_actual_1[:, pix_indices, :].mean(axis=1).mean(axis=0)
+    # cor = bins / bins_actual
     # print('ELUT_COR = ',cor)
-
-    return e_cor_high, e_cor_low, cor

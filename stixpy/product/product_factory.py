@@ -44,32 +44,38 @@ def read_qtable(file, hdu, hdul=None):
     hdu : int or str, optional
         The HDU to read the table from.
     hdul : `astropy.io.fits.HDUList`
+        An already-open HDUList. If provided it will be used directly and not
+        closed by this function; the caller is responsible for closing it.
 
     Returns
     -------
     `astropy.table.QTable`
         The corrected QTable with correct data types
     """
-    if hdul is None:
+    close_hdul = hdul is None
+    if close_hdul:
         hdul = fits.open(file)
+    try:
+        qtable = QTable.read(hdul, hdu=hdu)
 
-    qtable = QTable.read(file, hdu)
+        for col in hdul[hdu].data.columns:
+            if col.unit:
+                logger.debug(f"Unit present dtype correction needed for {col}")
+                dtype = col.dtype
 
-    for col in hdul[hdu].data.columns:
-        if col.unit:
-            logger.debug(f"Unit present dtype correction needed for {col}")
-            dtype = col.dtype
+                if col.bzero:
+                    logger.debug(f"Unit present dtype and bzero correction needed for {col}")
+                    bits = np.log2(col.bzero)
+                    if bits.is_integer():
+                        dtype = BITS_TO_UINT[int(bits + 1)]
 
-            if col.bzero:
-                logger.debug(f"Unit present dtype and bzero correction needed for {col}")
-                bits = np.log2(col.bzero)
-                if bits.is_integer():
-                    dtype = BITS_TO_UINT[int(bits + 1)]
+                if hasattr(dtype, "subdtype"):
+                    dtype = dtype.base
 
-            if hasattr(dtype, "subdtype"):
-                dtype = dtype.base
-
-            qtable[col.name] = qtable[col.name].astype(dtype)
+                qtable[col.name] = qtable[col.name].astype(dtype)
+    finally:
+        if close_hdul:
+            hdul.close()
 
     return qtable
 
@@ -114,18 +120,19 @@ class ProductFactory(BasicRegistrationFactory):
             msg = f"Failed to read {fname}."
             raise OSError(msg) from e
 
-        if hdul[0].header.get("INSTRUME", "") != "STIX":
-            raise FileError(f"File '{fname}' is not a STIX fits file.")
+        with hdul:
+            if hdul[0].header.get("INSTRUME", "") != "STIX":
+                raise FileError(f"File '{fname}' is not a STIX fits file.")
 
-        data = {"meta": hdul[0].header}
-        for name in ["CONTROL", "DATA", "IDB_VERSIONS", "ENERGIES"]:
-            try:
-                data[name.lower()] = read_qtable(fname, hdu=name)
-            except KeyError as e:
-                if name in ("IDB_VERSIONS", "ENERGIES"):
-                    logger.debug(f"Extension '{name}' not in file '{fname}'")
-                else:
-                    raise e
+            data = {"meta": hdul[0].header}
+            for name in ["CONTROL", "DATA", "IDB_VERSIONS", "ENERGIES"]:
+                try:
+                    data[name.lower()] = read_qtable(fname, hdu=name, hdul=hdul)
+                except KeyError as e:
+                    if name in ("IDB_VERSIONS", "ENERGIES"):
+                        logger.debug(f"Extension '{name}' not in file '{fname}'")
+                    else:
+                        raise e
 
         return [data]
 

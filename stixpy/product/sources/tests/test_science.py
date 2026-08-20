@@ -49,7 +49,7 @@ def test_sciencedata_get_data(cpd):
     norm = cpd.data["timedel"].reshape(5, 1, 1, 1).to(u.s) * cpd.dE
     rate = tot / norm
     error = np.sqrt(tot * u.ct + cpd.data["counts_comp_err"] ** 2) / norm
-    r, re, t, dt, e = cpd.get_data(vtype="dcr")
+    r, re, t, dt, e = cpd.get_data(vtype="dcr", livetime_correction=False, elut_correction=False)
     assert_allclose(rate, r)
     assert_allclose(error, re)
 
@@ -58,7 +58,9 @@ def test_sciencedata_get_data(cpd):
     norm = cpd.data["timedel"].reshape(5, 1, 1, 1).to(u.s) * cpd.dE
     rate = tot / norm
     error = np.sqrt(tot * u.ct + cpd.data["counts_comp_err"][:, 0:32, ...].sum(axis=1, keepdims=True) ** 2) / norm
-    r, re, t, dt, e = cpd.get_data(vtype="dcr", detector_indices=[[0, 31]])
+    r, re, t, dt, e = cpd.get_data(
+        vtype="dcr", detector_indices=[[0, 31]], livetime_correction=False, elut_correction=False
+    )
     assert_allclose(rate, r)
     assert_allclose(error, re, atol=1e-3)
 
@@ -67,7 +69,9 @@ def test_sciencedata_get_data(cpd):
     norm = cpd.data["timedel"].reshape(5, 1, 1, 1).to(u.s) * cpd.dE
     rate = tot / norm
     error = np.sqrt(tot * u.ct + cpd.data["counts_comp_err"][..., 0:12, :].sum(axis=2, keepdims=True) ** 2) / norm
-    r, re, t, dt, e = cpd.get_data(vtype="dcr", pixel_indices=[[0, 11]])
+    r, re, t, dt, e = cpd.get_data(
+        vtype="dcr", pixel_indices=[[0, 11]], livetime_correction=False, elut_correction=False
+    )
     assert_allclose(rate, r)
     assert_allclose(error, re)
 
@@ -78,7 +82,13 @@ def test_sciencedata_get_data(cpd):
     error = (
         np.sqrt(tot * u.ct + cpd.data["counts_comp_err"][:, 0:32, 0:12, :].sum(axis=(1, 2), keepdims=True) ** 2) / norm
     )
-    r, re, t, dt, e = cpd.get_data(vtype="dcr", pixel_indices=[[0, 11]], detector_indices=[[0, 31]])
+    r, re, t, dt, e = cpd.get_data(
+        vtype="dcr",
+        pixel_indices=[[0, 11]],
+        detector_indices=[[0, 31]],
+        livetime_correction=False,
+        elut_correction=False,
+    )
     assert_allclose(rate, r)
     assert_allclose(error, re, atol=1e-3)
 
@@ -87,7 +97,9 @@ def test_sciencedata_get_data(cpd):
     norm = cpd.data["timedel"].reshape(5, 1, 1, 1).to(u.s) * (cpd.energies[30]["e_high"] - cpd.energies[1]["e_low"])
     rate = tot / norm
     error = np.sqrt(tot * u.ct + cpd.data["counts_comp_err"][..., 1:31].sum(axis=3, keepdims=True) ** 2) / norm
-    r, re, t, dt, e = cpd.get_data(vtype="dcr", energy_indices=[[1, 30]])
+    r, re, t, dt, e = cpd.get_data(
+        vtype="dcr", energy_indices=[[1, 30]], livetime_correction=False, elut_correction=False
+    )
     assert_allclose(rate, r)
     assert_allclose(error, re, atol=1e-3)
 
@@ -96,7 +108,7 @@ def test_sciencedata_get_data(cpd):
     norm = cpd.data["timedel"].sum().to(u.s) * cpd.dE
     rate = tot / norm
     error = np.sqrt(tot * u.ct + cpd.data["counts_comp_err"][:, ...].sum(axis=0, keepdims=True) ** 2) / norm
-    r, re, t, dt, e = cpd.get_data(vtype="dcr", time_indices=[[0, 4]])
+    r, re, t, dt, e = cpd.get_data(vtype="dcr", time_indices=[[0, 4]], livetime_correction=False, elut_correction=False)
     assert_allclose(rate, r)
     assert_allclose(error, re)
 
@@ -111,6 +123,8 @@ def test_sciencedata_get_data(cpd):
         energy_indices=[[1, 30]],
         pixel_indices=[[0, 11]],
         detector_indices=[[0, 31]],
+        livetime_correction=False,
+        elut_correction=False,
     )
     assert_allclose(rate, r)
     assert_allclose(error, re, atol=1e-3)
@@ -127,10 +141,26 @@ def test_sciencedata_get_data(cpd):
     cpd.energies["e_low"][1:-1] = ((np.arange(31) / 30)[:-1] * u.keV).astype(np.float32)
     cpd.data["time"] = cpd.time_range.start + np.arange(5) / 5 * u.s
     count, count_err, times, timedel, energies = cpd.get_data(
-        vtype="dcr", time_indices=[[0, 4]], energy_indices=[[1, 30]]
+        vtype="dcr", time_indices=[[0, 4]], energy_indices=[[1, 30]], livetime_correction=False, elut_correction=False
     )
     assert_allclose(count, 1 * u.ct / (u.s * u.keV))
     assert_allclose(count_err, np.sqrt(2) * u.ct / (u.s * u.keV))  # 1 + 1
+
+
+@pytest.mark.remote_data
+@pytest.mark.parametrize(
+    "energy_indices",
+    [
+        (None),
+        ([2]),
+        ([2, 3, 4]),
+        ([[2, 3]]),
+        ([[2, 4], [4, 9]]),
+    ],
+)
+def test_cpd_get_data_elut(energy_indices, cpd):
+    cpd.get_data(vtype="dcr", energy_indices=energy_indices, elut_correction=True)
+    assert True
 
 
 @pytest.mark.remote_data
@@ -144,7 +174,7 @@ def test_cpd_get_data_pixel_indices(cpd):
 def test_science_rpd(rpd):
     type_, num_times, num_detectors, num_pixels, num_energies = RawPixelData, 5, 32, 12, 33
     assert isinstance(rpd, type_)
-    assert len(rpd.times) == num_times
+    assert len(rpd.time) == num_times
     assert np.array_equal(rpd.detectors.masks, np.ones((1, num_detectors)))
     assert np.array_equal(rpd.pixels.masks, np.ones((1, num_pixels)))
     assert np.array_equal(rpd.energy_masks.masks, np.ones((1, num_energies)))
@@ -155,7 +185,7 @@ def test_science_rpd(rpd):
 def test_science_l1(cpd):
     type_, num_times, num_detectors, num_pixels, num_energies = CompressedPixelData, 5, 32, 12, 33
     assert isinstance(cpd, type_)
-    assert len(cpd.times) == num_times
+    assert len(cpd.time) == num_times
     assert np.array_equal(cpd.detectors.masks, np.ones((1, num_detectors)))
     assert np.array_equal(cpd.pixels.masks, np.ones(12)[None, ...])
     assert np.array_equal(cpd.energy_masks.masks, np.ones((1, num_energies)))
@@ -167,7 +197,7 @@ def test_science_l1(cpd):
 def test_science_l2(scpd):
     type_, num_times, num_detectors, num_pixels, num_energies = SummedCompressedPixelData, 5, 32, 4, 33
     assert isinstance(scpd, type_)
-    assert len(scpd.times) == num_times
+    assert len(scpd.time) == num_times
     assert np.array_equal(scpd.detectors.masks, np.ones((1, num_detectors)))
     # assert np.array_equal(scpd.pixels.masks.astype(int), np.ones((1, num_pixels)))
     assert np.array_equal(scpd.energy_masks.masks, np.ones((1, num_energies)))
@@ -180,7 +210,7 @@ def test_science_l3():
     type_, num_times, num_detectors, num_pixels, num_energies = Visibility, 5, 32, 12, 32  # noqa: F841
     res = Product(test.STIX_SCI_XRAY_VIS)
     assert isinstance(res, type_)
-    assert len(res.times) == num_times
+    assert len(res.time) == num_times
     assert np.array_equal(res.detectors.masks, np.ones((1, num_detectors)))
     # assert np.array_equal(scpd.pixels.masks, np.ones((1, num_pixels)))
     assert np.array_equal(res.energy_masks.masks, np.ones((1, num_energies)))
@@ -191,7 +221,7 @@ def test_science_l3():
 def test_spectrogram(spec):
     type_, num_times, num_detectors, num_pixels, num_energies = Spectrogram, 5, 32, 12, 33
     assert isinstance(spec, type_)
-    assert len(spec.times) == num_times
+    assert len(spec.time) == num_times
     assert np.array_equal(spec.detectors.masks, np.ones((1, num_detectors)))
     # assert np.array_equal(scpd.pixels.masks, np.ones((1, num_pixels)))
     assert np.array_equal(spec.energy_masks.masks, np.ones((1, num_energies)))

@@ -13,9 +13,7 @@ from astropy.units import Quantity
 from sunpy.coordinates import HeliographicStonyhurst
 from sunpy.time import TimeRange
 
-from stixpy.calibration.energy import get_elut
 from stixpy.calibration.grid import get_grid_transmission
-from stixpy.calibration.livetime import get_livetime_fraction
 from stixpy.config.instrument import STIX_INSTRUMENT, _get_uv_points_data
 from stixpy.coordinates.frames import STIXImaging
 from stixpy.coordinates.transforms import get_hpc_info
@@ -160,8 +158,8 @@ def create_meta_pixels(
     """
 
     # checks if a time bin fully overlaps, is fully within, starts within, or ends within the specified time range.
-    pixel_starts = pixel_data.times - pixel_data.duration / 2
-    pixel_ends = pixel_data.times + pixel_data.duration / 2
+    pixel_starts = pixel_data.time - pixel_data.durations / 2
+    pixel_ends = pixel_data.time + pixel_data.durations / 2
 
     time_range_start = Time(time_range[0])
     time_range_end = Time(time_range[1])
@@ -179,8 +177,8 @@ def create_meta_pixels(
     e_ind = np.argwhere(e_mask).ravel()
 
     time_range = TimeRange(
-        pixel_data.times[t_ind[0]] - pixel_data.duration[t_ind[0]] / 2,
-        pixel_data.times[t_ind[-1]] + pixel_data.duration[t_ind[-1]] / 2,
+        pixel_data.time[t_ind[0]] - pixel_data.durations[t_ind[0]] / 2,
+        pixel_data.time[t_ind[-1]] + pixel_data.durations[t_ind[-1]] / 2,
     )
 
     changed = []
@@ -192,15 +190,6 @@ def create_meta_pixels(
             f"The following: {', '.join(changed)} changed in the selected time interval "
             f"please select a time interval where these are constant."
         )
-
-    trigger_to_detector = STIX_INSTRUMENT.subcol_adc_mapping
-
-    # Map the triggers to all 32 detectors
-    triggers = pixel_data.data["triggers"][:, trigger_to_detector].astype(float)[...]
-
-    livefrac, *_ = get_livetime_fraction(triggers / pixel_data.data["timedel"].to("s").reshape(-1, 1))
-
-    pixel_data.data["livefrac"] = livefrac
 
     e_cor_high, e_cor_low = get_elut_correction(e_ind, pixel_data)
 
@@ -217,7 +206,7 @@ def create_meta_pixels(
     ct_error[..., 0] = ct_error[..., 0] * e_cor_low[..., idx_pix]
     ct_error[..., -1] = ct_error[..., -1] * e_cor_high[..., idx_pix]
 
-    lt = (livefrac * pixel_data.data["timedel"].reshape(-1, 1).to("s"))[t_ind].sum(axis=0)
+    lt = pixel_data.livetime[t_ind].sum(axis=0)
 
     ct_summed = ct.sum(axis=(0, 3))  # .astype(float)
     ct_error_summed = np.sqrt(np.sum(ct_error**2, axis=(0, 3)))
@@ -242,7 +231,9 @@ def create_meta_pixels(
     abcd_rate_kev = abcd_rate / e_bin
     abcd_rate_error_kev = abcd_rate_error / e_bin
 
-    pixel_areas = STIX_INSTRUMENT.pixel_config["Area"].to("cm2")
+    pixel_areas = pixel_data.pixel_area
+    if pixel_areas.ndim == 2:
+        pixel_areas = pixel_areas[t_ind[0]]
     areas = pixel_areas[idx_pix].reshape(-1, 4).sum(axis=0)
 
     meta_pixels = {
@@ -275,22 +266,13 @@ def get_elut_correction(e_ind, pixel_data):
     -------
 
     """
-    energy_mask = pixel_data.energy_masks.energy_mask.astype(bool)
-    elut = get_elut(pixel_data.time_range.center)
-    ebin_edges_low = np.zeros((32, 12, 32), dtype=float)
-    ebin_edges_low[..., 1:] = elut.e_actual
-    ebin_edges_low = ebin_edges_low[..., energy_mask]
-    ebin_edges_high = np.zeros((32, 12, 32), dtype=float)
-    ebin_edges_high[..., 0:-1] = elut.e_actual
-    ebin_edges_high[..., -1] = np.nan
-    ebin_edges_high = ebin_edges_high[..., energy_mask]
-    ebin_widths = ebin_edges_high - ebin_edges_low
-    ebin_sci_edges_low = elut.e[..., 0:-1].value
-    ebin_sci_edges_low = ebin_sci_edges_low[..., energy_mask]
-    ebin_sci_edges_high = elut.e[..., 1:].value
-    ebin_sci_edges_high = ebin_sci_edges_high[..., energy_mask]
-    e_cor_low = (ebin_edges_high[..., e_ind[0]] - ebin_sci_edges_low[..., e_ind[0]]) / ebin_widths[..., e_ind[0]]
-    e_cor_high = (ebin_sci_edges_high[..., e_ind[-1]] - ebin_edges_low[..., e_ind[-1]]) / ebin_widths[..., e_ind[-1]]
+    ec = pixel_data.elut
+    e_cor_low = (ec.ebin_edges_high[..., e_ind[0]] - ec.ebin_sci_edges_low[..., e_ind[0]]) / ec.ebin_widths[
+        ..., e_ind[0]
+    ]
+    e_cor_high = (ec.ebin_sci_edges_high[..., e_ind[-1]] - ec.ebin_edges_low[..., e_ind[-1]]) / ec.ebin_widths[
+        ..., e_ind[-1]
+    ]
     return e_cor_high, e_cor_low
 
 

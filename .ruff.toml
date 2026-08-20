@@ -11,6 +11,16 @@ exclude = [
 select = ["E", "F", "W", "UP", "PT"]
 extend-ignore = [
   # pycodestyle (E, W)
+<<<<<<<
+=======
+  "W",
+  "UP",
+  "PT",
+  "I",
+  "BLE",
+  "A",
+  "C4",
+>>>>>>>
   "E501", # LineTooLong                             # TODO! fix
   # pytest (PT)
   "PT001", # Always use pytest.fixture()
@@ -26,7 +36,15 @@ extend-ignore = [
 "conftest.py" = ["INP001"]
 "docs/conf.py" = ["E402"]
 "docs/*.py" = [
+<<<<<<<
   "INP001",  # Implicit-namespace-package. The examples are not a package.
+=======
+  "INP001", # File is part of an implicit namespace package.
+]
+"docs/conf.py" = [
+  "E402", # Module imports not at top of file
+  "I", # isort
+>>>>>>>
 ]
 "__init__.py" = ["E402", "F401", "F403"]
 "test_*.py" = ["B011", "D", "E402", "PGH001", "S101"]
@@ -38,3 +56,37 @@ convention = "numpy"
 
 [lint.flake8-pytest-style]
 parametrize-names-type = "csv"
+<<<<<<<
+=======
+  "F401", # Unused import
+  "F403", # from {name} import * used; unable to detect undefined names
+  "F405", # {name} may be undefined, or defined from star imports
+  "I", # isort
+]
+"test_*.py" = [
+  "E402", # Module level import not at top of cell
+>>>>>>>
+<<<<<<<
+=======
+
+[lint.pydocstyle]
+convention = "numpy"
+
+[lint.isort]
+default-section = "third-party"
+section-order = [
+  "future",
+  "standard-library",
+  "third-party",
+  "astropy",
+  "sunpy",
+  "first-party",
+  "local-folder",
+]
+known-first-party = ["stixpy"]
+no-lines-before = ["local-folder"]
+
+[lint.isort.sections]
+"astropy" = ["astropy", "asdf", "gwcs", "reproject"]
+"sunpy" = ["sunpy"]
+>>>>>>>

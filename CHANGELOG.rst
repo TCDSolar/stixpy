@@ -72,7 +72,7 @@ Features
 - Add new timeseries source for STIX ANC aspect data `~stixpy.timeseries.anc.ANCAspect`. (`#169 <https://github.com/TCDSolar/stixpy/pull/169>`__)
 - Add a instrument configuration constant `~stixpy.config.instrument.STIX_INSTRUMENT` to bundle instrument constants like grid configurations, pixel sizes .... (`#171 <https://github.com/TCDSolar/stixpy/pull/171>`__)
 - Update imaging demo to use Sun center as location for making initial full disk back projection to determine flare location. (`#173 <https://github.com/TCDSolar/stixpy/pull/173>`__)
-- Add enhanced pixel plot ~`stixpy.product.sources.science.PixelPlotMixin` improved layout now shows detector quadrant and labels. Pixel plots now support three options a normal bar plot an error bar plot and configuration plot. (`#178 <https://github.com/TCDSolar/stixpy/pull/178>`__)
+- Add enhanced pixel plot `~stixpy.product.sources.science.PixelPlotMixin` improved layout now shows detector quadrant and labels. Pixel plots now support three options a normal bar plot an error bar plot and configuration plot. (`#178 <https://github.com/TCDSolar/stixpy/pull/178>`__)
 - Created new `stixpy.visualisation.plotters.PixelPlotter` class to create pixel plots by moving and refactored code from current mixin so current API is maintained. This new approach simplifies the `~stixpy.product.sources.science` module and programmatic access to the plot controls enabling animations. (`#181 <https://github.com/TCDSolar/stixpy/pull/181>`__)
 
 

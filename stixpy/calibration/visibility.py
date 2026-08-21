@@ -1,5 +1,5 @@
-from types import SimpleNamespace
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 from xrayvision.visibility import Visibilities, VisMeta

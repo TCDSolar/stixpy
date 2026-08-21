@@ -8,9 +8,15 @@ exclude = [
 ]
 
 [lint]
-select = ["E", "F", "W", "UP", "PT"]
+select = [
+  "E",
+  "F",
+  "W",
+  "UP",
+  "PT",
+  "I",
+]
 extend-ignore = [
-  # pycodestyle (E, W)
   "E501", # LineTooLong                             # TODO! fix
   # pytest (PT)
   "PT001", # Always use pytest.fixture()
@@ -19,22 +25,56 @@ extend-ignore = [
   "PT023", # Always use () on pytest decorators
 ]
 
-
 [lint.per-file-ignores]
 # Part of configuration, not a package.
-"setup.py" = ["INP001"]
-"conftest.py" = ["INP001"]
-"docs/conf.py" = ["E402"]
-"docs/*.py" = [
-  "INP001",  # Implicit-namespace-package. The examples are not a package.
+"setup.py" = [
+  "INP001",  # File is part of an implicit namespace package.
 ]
-"__init__.py" = ["E402", "F401", "F403"]
-"test_*.py" = ["B011", "D", "E402", "PGH001", "S101"]
-# Need to import clients to register them, but don't use them in file
-#"sunpy/net/__init__.py" = ["F811"]
+"conftest.py" = [
+  "INP001",  # File is part of an implicit namespace package.
+]
+"docs/conf.py" = [
+  "E402",  # Module imports not at top of file
+  "I",  # isort
+]
+"docs/*.py" = [
+  "INP001",  # File is part of an implicit namespace package.
+]
+"examples/**.py" = [
+  "T201", # allow use of print in examples
+  "INP001",  # File is part of an implicit namespace package.
+]
+"__init__.py" = [
+  "E402",  # Module level import not at top of cell
+  "F401",  # Unused import
+  "F403",  # from {name} import * used; unable to detect undefined names
+  "F405",  # {name} may be undefined, or defined from star imports
+  "I", # isort
+]
+"test_*.py" = [
+  "E402", # Module level import not at top of cell
+]
+
+[lint.flake8-pytest-style]
+parametrize-names-type = "csv"
 
 [lint.pydocstyle]
 convention = "numpy"
 
-[lint.flake8-pytest-style]
-parametrize-names-type = "csv"
+[lint.isort]
+default-section = "third-party"
+section-order = [
+  "future",
+  "standard-library",
+  "third-party",
+  "astropy",
+  "sunpy",
+  "first-party",
+  "local-folder",
+]
+known-first-party = ["stixpy"]
+no-lines-before = ["local-folder"]
+
+[lint.isort.sections]
+"astropy" = ["astropy", "asdf", "gwcs", "reproject"]
+"sunpy" = ["sunpy"]

@@ -52,6 +52,20 @@ def clientlocal():
     │                   ├── solo_L1_stix-sci-xray-cpd_20220101T010000-20220101T020000_V01_2201010007-54549.fits
     │                   ├── solo_L1_stix-sci-xray-cpd_20220101T013000-20220101T023000_V04_2201010007-54550.fits
     │                   └── solo_L1_stix-sci-xray-cpd_20220101T020000-20220101T030000_V01_2201010007-54551.fits
+    ├── L3
+    │   └── 2024
+    │       ├── 01
+    │       │   └── 01
+    │       │       └── FLARELIST
+    │       │           └── solo_L3_stix-flarelist-sdcloc_20240101T000000-20240131T232052_V02.fits
+    │       ├── 02
+    │       │   └── 01
+    │       │       └── FLARELIST
+    │       │           └── solo_L3_stix-flarelist-sdcloc_20240201T000000-20240301T003421_V02.fits
+    │       └── 03
+    │           └── 01
+    │               └── FLARELIST
+    │                   └── solo_L3_stix-flarelist-sdcloc_20240301T000000-20240401T001433_V02.fits
     └── test.html
     """
     return STIXClient(source=f"file://{Path(__file__).parent / 'data'}")
@@ -104,6 +118,11 @@ def test_client(urlopen, client, http_response, time_range, nfiles):
         (("2022-01-01T00:00:00", "2022-01-02T03:00:00"), "ANC", a.stix.DataType.asp, 2),
         (("2022-01-01T00:00:00", "2022-01-03T03:00:00"), "ANC", a.stix.DataType.asp, 3),
         (("2022-01-01T00:00:00", "2022-01-05T03:00:00"), "ANC", a.stix.DataType.asp, 3),
+        (("2024-01-15T00:00:00", "2024-01-20T00:00:00"), "L3", a.stix.DataType.flarelist, 1),
+        (("2024-02-15T00:00:00", "2024-02-20T00:00:00"), "L3", a.stix.DataType.flarelist, 1),
+        (("2024-01-31T23:00:00", "2024-02-01T00:30:00"), "L3", a.stix.DataType.flarelist, 2),
+        (("2024-01-01T00:00:00", "2024-04-01T00:00:00"), "L3", a.stix.DataType.flarelist, 3),
+        (("2025-01-01T00:00:00", "2025-02-01T00:00:00"), "L3", a.stix.DataType.flarelist, 0),
     ],
 )
 def test_local_client(clientlocal, time_range, level, dtype, nfiles):
@@ -275,6 +294,40 @@ def test_fido(query, expected_len, is_total):
 def test_fido_file_crosses_date_boundary():
     q = Fido.search(a.Time("2023-06-01T00:00", "2023-06-01T00:30"), a.Instrument.stix, a.stix.DataProduct.sci_xray_spec)
     assert len(q["stix"]) == 2
+
+
+@pytest.mark.skipif(sunpy.__version__ < "7.1.0", reason="Bug fix not backported")
+@pytest.mark.skipif(os.name == "nt", reason="Upstream sunpy bug on windows")
+def test_local_client_flarelist_by_product(clientlocal):
+    res = clientlocal.search(
+        a.Time("2024-02-15T00:00", "2024-02-20T00:00"),
+        a.Instrument.stix,
+        a.stix.DataProduct.flarelist_sdcloc,
+    )
+    assert len(res) == 1
+    assert res["DataProduct"][0] == "flarelist-sdcloc"
+    assert res["Level"][0] == "L3"
+    assert res["DataType"][0] == "FLARELIST"
+
+
+@pytest.mark.remote_data
+def test_search_flarelist_remote():
+    client = STIXClient(source="https://pub099.cs.technik.fhnw.ch/testing/p311_comp_test")
+    res = client.search(
+        a.Time("2024-02-15", "2024-02-20"),
+        a.Instrument.stix,
+        a.stix.DataType.flarelist,
+    )
+    assert len(res) == 1
+    assert res["DataProduct"][0] == "flarelist-sdcloc"
+    assert res["Level"][0] == "L3"
+
+    res = client.search(
+        a.Time("2024-01-01", "2024-12-31"),
+        a.Instrument.stix,
+        a.stix.DataType.flarelist,
+    )
+    assert len(res) == 12
 
 
 def test_version_attributes_import():

@@ -80,11 +80,11 @@ A HMI map
 """
 
 import matplotlib.pyplot as plt
-from reproject import reproject_interp
 
 import astropy.units as u
 from astropy.coordinates import SkyCoord
 from astropy.wcs import WCS
+from reproject import reproject_interp
 
 import sunpy
 

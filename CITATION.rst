@@ -1,0 +1,1 @@
+stixpy/CITATION.rst

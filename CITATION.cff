@@ -1,0 +1,71 @@
+cff-version: 1.2.0
+message: >-
+  If you use this software, please cite it using the
+  metadata from this file.
+
+# Project information
+title: STIXpy
+abstract: >-
+  An open-source Python analysis library for the Spectrometer
+  Telescope for Imaging X-rays (STIX) instrument on Solar Orbiter.
+authors:
+  - family-names: Maloney
+    given-names: Shane
+    orcid: https://orcid.org/0000-0002-4715-1805
+    affiliation: Dublin Institute for Advanced Studies
+  - family-names: Clarke
+    given-names: Brendan
+    affiliation: >-
+      Trinity College Dublin / Dublin Institute for Advanced Studies
+  - family-names: Hayes
+    given-names: Laura
+    orcid: https://orcid.org/0000-0002-6835-2390
+    affiliation: Dublin Institute for Advanced Studies
+  - family-names: Ryan
+    given-names: Daniel F.
+    orcid: https://orcid.org/0000-0001-8661-3825
+    affiliation: >-
+      University College London, Mullard Space Science Laboratory
+      (UCL/MSSL)
+  - family-names: Massa
+    given-names: Paolo
+    orcid: https://orcid.org/0000-0002-0993-1974
+    affiliation: >-
+      University of Applied Sciences and Arts Northwestern Switzerland
+      (FHNW)
+  - family-names: Wilson
+    given-names: Alasdair
+  - family-names: Hochmuth
+    given-names: Nicky
+  - family-names: Christe
+    given-names: Steven
+    orcid: https://orcid.org/0000-0001-6127-795X
+    affiliation: NASA Goddard Space Flight Center
+  - family-names: Collier
+    given-names: Hannah
+    orcid: https://orcid.org/0000-0001-5592-8023
+    affiliation: >-
+      University of Applied Sciences and Arts Northwestern Switzerland
+      (FHNW)
+  - family-names: Long
+    given-names: Thomas
+
+repository-code: https://github.com/TCDSolar/stixpy
+url: https://stixpy.readthedocs.io
+license: BSD-3-Clause
+
+identifiers:
+  - type: doi
+    description: Zenodo concept DOI (all versions)
+    value: "10.5281/zenodo.8086101"
+  - type: url
+    description: PyPI package
+    value: https://pypi.org/project/stixpy/
+
+keywords:
+  - solar physics
+  - x-ray astronomy
+  - Solar Orbiter
+  - STIX
+  - Python
+  - astronomy

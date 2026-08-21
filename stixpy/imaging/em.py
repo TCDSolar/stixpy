@@ -1,5 +1,5 @@
-from pathlib import Path
 from collections.abc import Sequence
+from pathlib import Path
 
 import numpy as np
 from xrayvision.transform import generate_xy

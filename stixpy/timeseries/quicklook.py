@@ -199,8 +199,7 @@ class QLBackground(GenericTimeSeries):
     >>> from stixpy.data import test
     >>> from sunpy.timeseries import TimeSeries
     >>> from stixpy.timeseries.quicklook import QLLightCurve
-    >>> ql_bg = TimeSeries("https://pub099.cs.technik.fhnw.ch/fits/L1/2020/05/06/QL/"
-    ...                    "solo_L1_stix-ql-background_20200506_V02.fits") # doctest: +REMOTE_DATA
+    >>> ql_bg = TimeSeries("https://pub099.cs.technik.fhnw.ch/fits/L1/2020/05/06/QL/solo_L1_stix-ql-background_20200506_V02.fits") # doctest: +REMOTE_DATA
     >>> ql_bg # doctest: +SKIP
     <stixpy.timeseries.quicklook.QLBackground object at ...
     SunPy TimeSeries

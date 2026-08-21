@@ -1,11 +1,7 @@
 repos:
-  - repo: https://github.com/zizmorcore/zizmor-pre-commit
-    rev: v1.23.1
-    hooks:
-      - id: zizmor
     # This should be before any formatting hooks like isort
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: "v0.15.9"
+    rev: "v0.16.1"
     hooks:
       - id: ruff-check
         args: ["--fix"]
@@ -14,12 +10,6 @@ repos:
         exclude: &exclude_dirs ^stixpy/(data|extern)/
       - id: ruff-format
         types: [ python ]
-        exclude: *exclude_dirs
-  - repo: https://github.com/PyCQA/isort
-    rev: 8.0.1
-    hooks:
-      - id: isort
-        types: [python]
         exclude: *exclude_dirs
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
@@ -48,10 +38,16 @@ repos:
       - id: mixed-line-ending
         types_or: [python, rst]
   - repo: https://github.com/codespell-project/codespell
-    rev: v2.4.2
+    rev: v2.4.3
     hooks:
       - id: codespell
         args: [ "--write-changes" ]
+        types_or: [python, rst]
+        exclude: *exclude_dirs
+  - repo: https://github.com/sphinx-contrib/sphinx-lint
+    rev: v1.0.2
+    hooks:
+      - id: sphinx-lint
         types_or: [python, rst]
         exclude: *exclude_dirs
 ci:

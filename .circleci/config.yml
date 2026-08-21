@@ -18,6 +18,10 @@ merge-check: &merge-check
       git checkout -qf pr/$CIRCLE_PR_NUMBER/merge
     fi
 
+submodules: &submodules
+  name: Update submodules
+  command: git submodule update --init --recursive
+
 apt-run: &apt-install
   name: Install apt packages
   command: |
@@ -47,9 +51,13 @@ jobs:
       - run: *no-backports
       - run: *skip-check
       - run: *merge-check
+      - run: *submodules
       - run: *apt-install
       - run: pip install -U tox
-      - run: tox -e build_docs
+      - run:
+          name: Build docs
+          command: tox -e build_docs
+          no_output_timeout: 30m
       - run:
           name: Prepare for upload
           command: |

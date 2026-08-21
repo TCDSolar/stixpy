@@ -15,22 +15,6 @@ select = [
   "UP",
   "PT",
   "I",
-  "BLE",
-  "A",
-  "C4",
-  "INP",
-  "PIE",
-  "T20",
-  "RET",
-  "TID",
-  "PTH",
-  "PD",
-  "PLC",
-  "PLE",
-  "FLY",
-  "NPY",
-  "PERF",
-  "RUF",
 ]
 extend-ignore = [
   "E501", # LineTooLong                             # TODO! fix

@@ -104,6 +104,10 @@ def test_client(urlopen, client, http_response, time_range, nfiles):
         (("2022-01-01T00:00:00", "2022-01-02T03:00:00"), "ANC", a.stix.DataType.asp, 2),
         (("2022-01-01T00:00:00", "2022-01-03T03:00:00"), "ANC", a.stix.DataType.asp, 3),
         (("2022-01-01T00:00:00", "2022-01-05T03:00:00"), "ANC", a.stix.DataType.asp, 3),
+        (("2022-01-01T00:00:00", "2022-01-01T03:00:00"), "CAL", a.stix.DataType.cal, 1),
+        (("2022-01-01T00:00:00", "2022-01-02T03:00:00"), "CAL", a.stix.DataType.cal, 2),
+        (("2022-01-01T00:00:00", "2022-01-03T03:00:00"), "CAL", a.stix.DataType.cal, 3),
+        (("2022-01-01T00:00:00", "2022-01-05T03:00:00"), "CAL", a.stix.DataType.cal, 3),
     ],
 )
 def test_local_client(clientlocal, time_range, level, dtype, nfiles):
@@ -119,7 +123,7 @@ def test_local_client(clientlocal, time_range, level, dtype, nfiles):
 @pytest.mark.remote_data
 def test_search_date(client):
     res = client.search(a.Time("2020-05-01T00:00", "2020-05-01T23:59"), a.Instrument.stix)
-    assert len(res) == 64
+    assert len(res) == 65
     # this might need fixed when we change to ANC to become an level of its own
 
 
@@ -127,35 +131,35 @@ def test_search_date(client):
 @pytest.mark.skipif(os.name == "nt", reason="Upstream sunpy bug on windows")
 def test_search_max_version(clientlocal):
     res = clientlocal.search(a.Time("2022-01-01T00:00", "2022-01-01T23:59"), a.Instrument.stix, a.stix.MaxVersion(3))
-    assert len(res) == 6
+    assert len(res) == 7  # +1 vs old expectation: new CAL fixture for 2022-01-01
 
     res = clientlocal.search(
         a.Time("2022-01-01T00:00", "2022-01-01T23:59"),
         a.Instrument.stix,
         a.stix.MaxVersionU(3),
     )
-    assert len(res) == 8
+    assert len(res) == 9  # +1 vs old: new V02 CAL fixture for 2022-01-01
 
 
 @pytest.mark.skipif(sunpy.__version__ < "7.1.0", reason="Bug fix not backported")
 @pytest.mark.skipif(os.name == "nt", reason="Upstream sunpy bug on windows")
 def test_search_min_version(clientlocal):
     res = clientlocal.search(a.Time("2022-01-01T00:00", "2022-01-01T23:59"), a.Instrument.stix, a.stix.MinVersion(2))
-    assert len(res) == 6
+    assert len(res) == 7  # +1 vs old expectation: new CAL fixture for 2022-01-01
 
     res = clientlocal.search(
         a.Time("2022-01-01T00:00", "2022-01-01T23:59"),
         a.Instrument.stix,
         a.stix.MinVersionU(2),
     )
-    assert len(res) == 8
+    assert len(res) == 9  # +1 vs old: new V02 CAL fixture for 2022-01-01
 
 
 @pytest.mark.skipif(sunpy.__version__ < "7.1.0", reason="Bug fix not backported")
 @pytest.mark.skipif(os.name == "nt", reason="Upstream sunpy bug on windows")
 def test_search_version(clientlocal):
     res = clientlocal.search(a.Time("2022-01-01T00:00", "2022-01-01T23:59"), a.Instrument.stix, a.stix.Version(2))
-    assert len(res) == 4
+    assert len(res) == 5  # +1 vs old expectation: new V02 CAL fixture for 2022-01-01
 
     res = clientlocal.search(
         a.Time("2022-01-01T00:00", "2022-01-01T23:59"),
@@ -171,7 +175,7 @@ def test_search_version_and(clientlocal):
     res = clientlocal.search(
         a.Time("2022-01-01T00:00", "2022-01-01T23:59"), a.Instrument.stix, a.stix.MinVersion(2), a.stix.MaxVersionU(5)
     )
-    assert len(res) == 6
+    assert len(res) == 7  # +1 vs old expectation: new V02 CAL fixture for 2022-01-01
 
 
 @pytest.mark.skipif(sunpy.__version__ < "7.1.0", reason="Bug fix not backported")
@@ -187,14 +191,14 @@ def test_search_latest_version_empty(clientlocal):
 def test_search_latest_version(clientlocal):
     res = clientlocal.search(a.Time("2022-01-01T00:00", "2022-01-01T23:59"), a.Instrument.stix)
     res.filter_for_latest_version(allow_uncompleted=True)
-    assert len(res) == 7
+    assert len(res) == 8  # +1 vs old expectation: new CAL fixture for 2022-01-01
 
     res = clientlocal.search(
         a.Time("2022-01-01T00:00", "2022-01-01T23:59"),
         a.Instrument.stix,
     )
     res.filter_for_latest_version(allow_uncompleted=False)
-    assert len(res) == 7
+    assert len(res) == 8  # +1 vs old expectation: new CAL fixture for 2022-01-01
 
     res = clientlocal.search(a.Time("2022-01-01T00:00", "2022-01-01T23:59"), a.Instrument.stix, a.stix.DataType.ql)
     res.filter_for_latest_version(allow_uncompleted=False)
@@ -256,12 +260,12 @@ def test_search_date_product_sci():
 @pytest.mark.parametrize(
     "query, expected_len, is_total",
     [
-        ([a.Instrument.stix], 67, True),
+        ([a.Instrument.stix], 68, True),
         ([a.Instrument.stix, a.stix.DataType.ql], 6, False),
         ([a.Instrument.stix, a.stix.DataType.sci], 58, False),
         ([a.Instrument.stix, a.stix.DataType.hk], 1, False),
         ([a.Instrument.stix, a.stix.DataType.asp], 1, False),
-        ([a.Instrument.stix, a.stix.DataType.cal], 1, False),
+        ([a.Instrument.stix, a.stix.DataType.cal], 2, False),
     ],
 )
 @pytest.mark.remote_data

@@ -92,7 +92,7 @@ def get_hpc_info(times, end_time=None):
         good_sas = aux[good_solution]
 
         if len(good_sas) == 0:
-            warnings.warn(f"No good SAS solution found for time range: {times} to {end_time}.")
+            warnings.warn(f"No good SAS solution found for time range: {times} to {end_time}.", stacklevel=2)
             sas_x = 0
             sas_y = 0
         else:
@@ -102,7 +102,7 @@ def get_hpc_info(times, end_time=None):
             sigma_y = np.std(good_sas["z_srf"])
             tolerance = 3 * u.arcsec
             if sigma_x > tolerance or sigma_y > tolerance:
-                warnings.warn(f"Pointing unstable: StD(X) = {sigma_x}, StD(Y) = {sigma_y}.")
+                warnings.warn(f"Pointing unstable: StD(X) = {sigma_x}, StD(Y) = {sigma_y}.", stacklevel=2)
     else:
         if end_time is not None and indices.size < 2:
             times = times + (end_time - times) * 0.5
@@ -148,10 +148,11 @@ def get_hpc_info(times, end_time=None):
             stix_pointing = np.where(pointing_diff < 200 * u.arcsec, sas_pointing, spacecraft_pointing)
         else:
             warnings.warn(
-                f"Using spacecraft pointing: {spacecraft_pointing} large difference between SAS and spacecraft."
+                f"Using spacecraft pointing: {spacecraft_pointing} large difference between SAS and spacecraft.",
+                stacklevel=2,
             )
     else:
-        warnings.warn(f"SAS solution not available using spacecraft pointing: {stix_pointing}.")
+        warnings.warn(f"SAS solution not available using spacecraft pointing: {stix_pointing}.", stacklevel=2)
 
     if end_time is not None or times.ndim == 0:
         solo_heeq = solo_heeq.squeeze()

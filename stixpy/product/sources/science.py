@@ -652,7 +652,7 @@ class ScienceData(L1Product):
             The concatenated science products
         """
         others = others if isinstance(others, list) else [others]
-        if all([isinstance(o, type(self)) for o in others]):
+        if all(isinstance(o, type(self)) for o in others):
             control = self.control[:]
             data = self.data[:]
             for other in others:

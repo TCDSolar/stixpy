@@ -23,7 +23,7 @@ def read_energy_channel_index(echan_index_file):
     """
     echans = Table.read(echan_index_file)
     echan_it = IntervalTree()
-    for i, start, end, file in echans.iterrows():
+    for _i, start, end, file in echans.iterrows():
         date_start = parse(start)
         date_end = parse(end) if end != "none" else datetime(2100, 1, 1)
         echan_it.addi(date_start, date_end, echan_index_file.parent / file)
@@ -123,7 +123,7 @@ def read_det_adc_mapping(path=None):
 def read_elut_index(elut_index):
     elut = Table.read(elut_index)
     elut_it = IntervalTree()
-    for i, start, end, file in elut.iterrows():
+    for _i, start, end, file in elut.iterrows():
         date_start = parse(start)
         date_end = parse(end) if end != "none" else datetime(2100, 1, 1)
         elut_it.addi(date_start, date_end, elut_index.parent / file)
@@ -133,7 +133,7 @@ def read_elut_index(elut_index):
 def read_elut(elut_file, sci_channels):
     elut_table = Table.read(elut_file, header_start=2)
 
-    elut = type("ELUT", (object,), dict())
+    elut = type("ELUT", (object,), {})
     elut.file = elut_file.name
     offset_col = [col for col in elut_table.colnames if "offset" in col.casefold()][0]
     gain_col = [col for col in elut_table.colnames if "gain" in col.casefold()][0]

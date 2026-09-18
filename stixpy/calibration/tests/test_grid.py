@@ -10,7 +10,7 @@ from stixpy.coordinates.frames import STIXImaging
 
 # Output values taken from IDL routine
 @pytest.mark.parametrize(
-    "input,out",
+    "coords,transmission",
     [
         (
             SkyCoord(*[0, 0] * u.arcsec, frame=STIXImaging),
@@ -90,6 +90,6 @@ from stixpy.coordinates.frames import STIXImaging
         ),
     ],
 )
-def test_grid_transmission(input, out):
-    grid_transmission = get_grid_transmission(input)
-    assert np.allclose(grid_transmission, np.array(out))
+def test_grid_transmission(coords, transmission):
+    grid_transmission = get_grid_transmission(coords)
+    assert np.allclose(grid_transmission, np.array(transmission))

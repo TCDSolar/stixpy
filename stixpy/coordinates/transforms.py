@@ -1,5 +1,5 @@
 import warnings
-from functools import lru_cache
+from pathlib import Path
 
 import numpy as np
 
@@ -7,25 +7,45 @@ import astropy.coordinates as coord
 import astropy.units as u
 from astropy.coordinates import frame_transform_graph
 from astropy.coordinates.matrix_utilities import matrix_transpose, rotation_matrix
-from astropy.io import fits
-from astropy.table import QTable, vstack
-from astropy.time import Time
 
 from sunpy.coordinates import HeliographicStonyhurst, Helioprojective
-from sunpy.net import Fido
-from sunpy.net import attrs as a
 
+from stixpy.coordinates._ephemeris_fetcher import fetch_ephemeris_for_range
 from stixpy.coordinates.frames import STIXImaging
+from stixpy.product.product_factory import Product
+from stixpy.product.sources.anc import Ephemeris
 from stixpy.utils.logging import get_logger
+from stixpy.utils.table_lru import TableLRUCache
 
 STIX_X_SHIFT = 26.1 * u.arcsec  # fall back to this when non sas solution available
 STIX_Y_SHIFT = 58.2 * u.arcsec  # fall back to this when non sas solution available
 STIX_X_OFFSET = 60.0 * u.arcsec  # remaining offset after SAS solution
 STIX_Y_OFFSET = 8.0 * u.arcsec  # remaining offset after SAS solution
 
+# Bracket pad applied around cache range queries so np.interp doesn't clamp
+# at endpoints. Intentionally not a clean 64 s multiple per the ephemeris doc.
+EDGE_PAD = 80 * u.s
+
 logger = get_logger(__name__)
 
-__all__ = ["get_hpc_info", "stixim_to_hpc", "hpc_to_stixim"]
+__all__ = ["get_hpc_info", "stixim_to_hpc", "hpc_to_stixim", "STIX_EPHEMERIS_CACHE", "load_ephemeris_fits_to_cache"]
+
+# Create a global cache for STIX ephemeris data
+STIX_EPHEMERIS_CACHE = TableLRUCache("STIX_EPHEMERIS_CACHE", maxsize=300000, nominal_bin=64 * u.s)
+
+
+def load_ephemeris_fits_to_cache(anc_file):
+    """
+    Load ephemeris data from a fits file into the ephemeris cache.
+    """
+    logger.info(f"Loading STIX ephemeris data from {anc_file}. into cache")
+    anc_file = Path(anc_file)
+    try:
+        anc = Product(anc_file, data_only=True)
+        if isinstance(anc, Ephemeris):
+            STIX_EPHEMERIS_CACHE.put(anc.data, source=anc_file.name)
+    except (OSError, ValueError) as e:
+        logger.error(f"Error loading STIX ephemeris data from {anc_file}: {e}")
 
 
 def _get_rotation_matrix_and_position(obstime, obstime_end=None):
@@ -57,82 +77,62 @@ def _get_rotation_matrix_and_position(obstime, obstime_end=None):
     return rmatrix, solo_position_heeq
 
 
-def get_hpc_info(times, end_time=None):
+def get_hpc_info(times, end_time=None, *, return_source=False):
     r"""
-    Get STIX pointing and SO location from L2 aspect files.
+    Get STIX pointing and SO location from ANC aspect files.
 
     Parameters
     ----------
     times : `astropy.time.Time`
-        Time/s to get hpc info for at.
+        Time, array of times, or start of a time interval.
+    end_time : `astropy.time.Time`, optional
+        End of a time interval; combined with a scalar ``times`` selects the
+        range-averaging mode.
+    return_source : list, optional
+        If a list is passed, it is extended with the set of ANC FITS
+        filenames that contributed to the result.
 
     Returns
     -------
-
+    roll, solo_heeq, stix_pointing
+        SOLO roll, SOLO HEEQ position, and the STIX pointing (best of the
+        spacecraft and SAS solutions).
     """
-    if end_time is not None:
-        end_time = end_time.max()
-    aux = _get_ephemeris_data(times.min(), end_time if end_time is not None else times.max())
+    # Explicit dispatch: range mode is "scalar start + scalar end_time".
+    # An array of times (with or without end_time) always uses interpolation.
+    is_range = end_time is not None and times.isscalar
 
-    if end_time is not None:
-        indices = np.argwhere((aux["time"] >= times.min()) & (aux["time"] <= end_time.max()))
-    else:
-        indices = np.argwhere((aux["time"] >= times.min()) & (aux["time"] <= times.max()))
+    aux = _get_ephemeris_data(times, end_time=end_time)
 
-    indices = indices.flatten()
+    if is_range:
+        in_window = (aux["time"] >= times) & (aux["time"] <= end_time)
+        window = aux[in_window]
 
-    if end_time is not None and times.size == 1 and indices.size >= 2:
-        # mean
-        aux = aux[indices]
+        if len(window) >= 2:
+            # Average across [times, end_time]
+            roll, pitch, yaw = np.mean(window["roll_angle_rpy"], axis=0)
+            solo_heeq = np.mean(window["solo_loc_heeq_zxy"], axis=0)
 
-        roll, pitch, yaw = np.mean(aux["roll_angle_rpy"], axis=0)
-        solo_heeq = np.mean(aux["solo_loc_heeq_zxy"], axis=0)
-
-        good_solution = np.where(aux["sas_ok"] == 1)
-        good_sas = aux[good_solution]
-
-        if len(good_sas) == 0:
-            warnings.warn(f"No good SAS solution found for time range: {times} to {end_time}.")
-            sas_x = 0
-            sas_y = 0
+            good_sas = window[window["sas_ok"] == 1]
+            if len(good_sas) == 0:
+                warnings.warn(f"No good SAS solution found for time range: {times} to {end_time}.")
+                sas_x = 0
+                sas_y = 0
+            else:
+                sas_x = np.mean(good_sas["y_srf"])
+                sas_y = np.mean(good_sas["z_srf"])
+                sigma_x = np.std(good_sas["y_srf"])
+                sigma_y = np.std(good_sas["z_srf"])
+                tolerance = 3 * u.arcsec
+                if sigma_x > tolerance or sigma_y > tolerance:
+                    warnings.warn(f"Pointing unstable: StD(X) = {sigma_x}, StD(Y) = {sigma_y}.")
         else:
-            sas_x = np.mean(good_sas["y_srf"])
-            sas_y = np.mean(good_sas["z_srf"])
-            sigma_x = np.std(good_sas["y_srf"])
-            sigma_y = np.std(good_sas["z_srf"])
-            tolerance = 3 * u.arcsec
-            if sigma_x > tolerance or sigma_y > tolerance:
-                warnings.warn(f"Pointing unstable: StD(X) = {sigma_x}, StD(Y) = {sigma_y}.")
+            # Fewer than 2 rows in [start, end]: degrade to a midpoint interpolation
+            midpoint = times + (end_time - times) * 0.5
+            roll, pitch, yaw, solo_heeq, sas_x, sas_y, good_sas = _interpolate_aux(midpoint, aux)
     else:
-        if end_time is not None and indices.size < 2:
-            times = times + (end_time - times) * 0.5
-
-        # Interpolate all times
-        x = (times - aux["time"][0]).to_value(u.s)
-        xp = (aux["time"] - aux["time"][0]).to_value(u.s)
-
-        roll = np.interp(x, xp, aux["roll_angle_rpy"][:, 0].value) << aux["roll_angle_rpy"].unit
-        pitch = np.interp(x, xp, aux["roll_angle_rpy"][:, 1].value) << aux["roll_angle_rpy"].unit
-        yaw = np.interp(x, xp, aux["roll_angle_rpy"][:, 2].value) << aux["roll_angle_rpy"].unit
-
-        solo_heeq = (
-            np.vstack(
-                [
-                    np.interp(x, xp, aux["solo_loc_heeq_zxy"][:, 0].value),
-                    np.interp(x, xp, aux["solo_loc_heeq_zxy"][:, 1].value),
-                    np.interp(x, xp, aux["solo_loc_heeq_zxy"][:, 2].value),
-                ]
-            ).T
-            << aux["solo_loc_heeq_zxy"].unit
-        )
-
-        sas_x = np.interp(x, xp, aux["y_srf"])
-        sas_y = np.interp(x, xp, aux["z_srf"])
-        if x.size == 1:
-            good_sas = [True] if np.interp(x, xp, aux["sas_ok"]).astype(bool) else []
-        else:
-            sas_ok = np.interp(x, xp, aux["sas_ok"]).astype(bool)
-            good_sas = sas_ok[sas_ok == True]  # noqa E712
+        # Point / array mode: interpolate each requested time
+        roll, pitch, yaw, solo_heeq, sas_x, sas_y, good_sas = _interpolate_aux(times, aux)
 
     # Convert the spacecraft pointing to STIX frame
     rotated_yaw = -yaw * np.cos(roll) + pitch * np.sin(roll)
@@ -153,63 +153,127 @@ def get_hpc_info(times, end_time=None):
     else:
         warnings.warn(f"SAS solution not available using spacecraft pointing: {stix_pointing}.")
 
-    if end_time is not None or times.ndim == 0:
+    if is_range or times.size == 1:
         solo_heeq = solo_heeq.squeeze()
         stix_pointing = stix_pointing.squeeze()
+
+    if isinstance(return_source, list) and "__source" in aux.colnames:
+        return_source.extend(set(aux["__source"].value))
 
     return roll, solo_heeq, stix_pointing
 
 
-@lru_cache
-def _get_ephemeris_data(start_time, end_time=None):
+def _interpolate_aux(at_times, aux):
+    """
+    Interpolate roll/pitch/yaw, SOLO HEEQ position, and SAS pointing from
+    the cached ANC rows ``aux`` onto the requested ``at_times``.
+
+    Returns ``(roll, pitch, yaw, solo_heeq, sas_x, sas_y, good_sas)``.
+    """
+    x = (at_times - aux["time"][0]).to_value(u.s)
+    xp = (aux["time"] - aux["time"][0]).to_value(u.s)
+
+    roll = np.interp(x, xp, aux["roll_angle_rpy"][:, 0].value) << aux["roll_angle_rpy"].unit
+    pitch = np.interp(x, xp, aux["roll_angle_rpy"][:, 1].value) << aux["roll_angle_rpy"].unit
+    yaw = np.interp(x, xp, aux["roll_angle_rpy"][:, 2].value) << aux["roll_angle_rpy"].unit
+
+    solo_heeq = (
+        np.vstack(
+            [
+                np.interp(x, xp, aux["solo_loc_heeq_zxy"][:, 0].value),
+                np.interp(x, xp, aux["solo_loc_heeq_zxy"][:, 1].value),
+                np.interp(x, xp, aux["solo_loc_heeq_zxy"][:, 2].value),
+            ]
+        ).T
+        << aux["solo_loc_heeq_zxy"].unit
+    )
+
+    sas_x = np.interp(x, xp, aux["y_srf"].value) << aux["y_srf"].unit
+    sas_y = np.interp(x, xp, aux["z_srf"].value) << aux["z_srf"].unit
+
+    if np.ndim(x) == 0 or x.size == 1:
+        good_sas = [True] if np.interp(x, xp, aux["sas_ok"]).astype(bool) else []
+    else:
+        sas_ok = np.interp(x, xp, aux["sas_ok"]).astype(bool)
+        good_sas = sas_ok[sas_ok == True]  # noqa E712
+
+    return roll, pitch, yaw, solo_heeq, sas_x, sas_y, good_sas
+
+
+def _get_ephemeris_data(times, end_time=None, *, interpolate=True):
     r"""
-    Search, download and read L2 pointing data.
+    Return ANC ephemeris rows sufficient to interpolate or average over the
+    requested time(s). Used by :func:`get_hpc_info`.
+
+    Three input shapes are accepted and normalised to a single scalar
+    range ``[qstart, qend]``:
+
+    * scalar ``times`` (no ``end_time``)            → point at ``times``
+    * scalar ``times`` + ``end_time``                → range ``[times, end_time]``
+    * array ``times`` (with or without ``end_time``) → range covering the array
 
     Parameters
     ----------
-    start_time : `astropy.time.Time`
-        Time or start of a time interval.
+    times : `astropy.time.Time`
+        Scalar or array of times.
+    end_time : `astropy.time.Time`, optional
+        End of a time interval.
+    interpolate : bool
+        Legacy parameter, kept for back-compatibility; currently unused.
 
     Returns
     -------
+    QTable
+        Cache slice padded by ``EDGE_PAD`` on each side. Includes the
+        ``__source`` column populated from the ANC filename(s).
 
+    Raises
+    ------
+    ValueError
+        If the requested range cannot be covered after fetching (real data
+        gap larger than ``max_gap``).
     """
-    if end_time is None:
-        end_time = start_time
-    # Find, download, read aux file with pointing, sas and position information
-    logger.debug(f"Searching for AUX data: {start_time} - {end_time}")
-    query = Fido.search(
-        a.Time(start_time, end_time),
-        a.Instrument.stix,
-        a.Level.anc,
-        a.stix.DataType.asp,
-        a.stix.DataProduct.asp_ephemeris,
-    )
-    if len(query["stix"]) == 0:
-        raise ValueError(f"No STIX pointing data found for time range {start_time} to {end_time}.")
+    # Normalise both inputs to scalar Time. `end_time` may itself be an
+    # array (frame transforms with vector obstime default obstime_end to
+    # the same array — see STIXImaging.__init__).
+    qstart = times if times.isscalar else times.min()
+    if end_time is not None:
+        qend = end_time if end_time.isscalar else end_time.max()
+    else:
+        qend = times if times.isscalar else times.max()
 
-    logger.debug(f"Downloading {len(query['stix'])} AUX files")
-    aux_files = Fido.fetch(query["stix"])
-    if len(aux_files.errors) > 0:
-        raise ValueError("There were errors downloading the data.")
-    # Read and extract data
-    logger.debug("Loading and extracting AUX data")
+    logger.info(f"Resolving ANC ephemeris for {qstart} – {qend}")
 
-    aux_data = []
-    for aux_file in aux_files:
-        hdu = fits.getheader(aux_file, ext=0)
-        aux = QTable.read(aux_file, hdu=2)
-        date_beg = Time(hdu.get("DATE-BEG"))
-        aux["time"] = (
-            date_beg + aux["time"] - 32 * u.s
-        )  # Shift AUX data by half a time bin (starting time vs. bin centre)
-        [aux.meta.pop(key) for key in ["CHECKSUM", "DATASUM"]]
-        aux_data.append(aux)
+    table = _query_cache(qstart, qend)
+    if table is not None:
+        return table
 
-    aux = vstack(aux_data)
-    aux.sort(keys=["time"])
+    fetched = fetch_ephemeris_for_range(qstart, qend)
+    STIX_EPHEMERIS_CACHE.put(fetched, source=fetched["__source"].value)
 
-    return aux
+    # _force=True so we still re-read the data we just put even if
+    # bypass_cache_read is set (which only blocks initial reads).
+    table = _query_cache(qstart, qend, _force=True)
+    if table is None:
+        raise ValueError(
+            f"Ephemeris data for {qstart}–{qend} has gaps larger than "
+            f"{STIX_EPHEMERIS_CACHE.max_gap} after fetch (real data gap)."
+        )
+    return table
+
+
+def _query_cache(qstart, qend, *, _force=False):
+    """
+    Translate a normalised (qstart, qend) into a single cache call.
+
+    Point queries (qstart == qend) widen the cache search window by
+    ``EDGE_PAD`` so the cache can find bracketing rows for downstream
+    interpolation. Range queries keep coverage strict on ``[qstart, qend]``
+    and pad only the returned slice.
+    """
+    if qstart == qend:
+        return STIX_EPHEMERIS_CACHE.get_range(qstart - EDGE_PAD, qend + EDGE_PAD, pad=0 * u.s, _force=_force)
+    return STIX_EPHEMERIS_CACHE.get_range(qstart, qend, pad=EDGE_PAD, _force=_force)
 
 
 @frame_transform_graph.transform(coord.FunctionTransform, STIXImaging, Helioprojective)

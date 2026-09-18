@@ -1,0 +1,1 @@
+Add `~stixpy.imaging.flare_location.estimate_flare_location` to estimate a flare location from STIX imaging data, and `~stixpy.visualisation.plotters.plot_flare_location` to visualise the result.

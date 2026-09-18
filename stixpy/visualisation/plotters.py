@@ -11,6 +11,8 @@ from matplotlib.widgets import Slider
 
 import astropy.units as u
 
+from sunpy.coordinates import SphericalScreen
+
 from stixpy.io.readers import read_subc_params
 
 SubCollimatorConfig = read_subc_params(
@@ -18,7 +20,56 @@ SubCollimatorConfig = read_subc_params(
 )
 
 
-__all__ = ["PixelPlotter", "SliderCustomValue"]
+__all__ = ["PixelPlotter", "SliderCustomValue", "plot_flare_location"]
+
+
+def plot_flare_location(bp_map, hp_map, flare_coord, fig=None):
+    r"""
+    Plot back-projection maps in the STIX imaging and Helioprojective frames.
+
+    Marks ``flare_coord`` on both maps, for example the location estimated by
+    `~stixpy.imaging.flare_location.estimate_flare_location`.
+
+    Parameters
+    ----------
+    bp_map : `sunpy.map.Map`
+        Back-projected image map in the STIX imaging frame.
+    hp_map : `sunpy.map.Map`
+        Back-projected image map in the Helioprojective Cartesian frame (STIX observer).
+    flare_coord : `astropy.coordinates.SkyCoord`
+        Flare location to mark on both maps.
+    fig : `matplotlib.figure.Figure`, optional
+        Figure to plot on to. If not given a new figure is created.
+
+    Returns
+    -------
+    fig : `matplotlib.figure.Figure`
+    axes : `tuple` of `matplotlib.axes.Axes`
+        The STIX imaging and Helioprojective axes respectively.
+    """
+    hp_map_rotated = hp_map.rotate()
+
+    if fig is None:
+        fig = plt.figure(figsize=(12, 8))
+
+    ax0 = fig.add_subplot(1, 2, 1, projection=bp_map)
+    ax1 = fig.add_subplot(1, 2, 2, projection=hp_map_rotated)
+
+    bp_map.plot(axes=ax0, cmap="viridis")
+    bp_map.draw_limb()
+    bp_map.draw_grid(annotate=False)
+
+    hp_map_rotated.plot(axes=ax1, cmap="viridis")
+    hp_map_rotated.draw_limb()
+    hp_map_rotated.draw_grid(annotate=False)
+
+    ax0.plot_coord(flare_coord, marker=".", markersize=50, fillstyle="none", color="r", markeredgewidth=2)
+    with SphericalScreen(hp_map.observer_coordinate, only_off_disk=True):
+        ax1.plot_coord(flare_coord, marker=".", markersize=50, fillstyle="none", color="r", markeredgewidth=2)
+
+    fig.tight_layout()
+
+    return fig, (ax0, ax1)
 
 
 class PixelPlotter:

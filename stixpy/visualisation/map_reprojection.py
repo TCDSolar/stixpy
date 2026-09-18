@@ -101,13 +101,13 @@ logger = get_logger(__name__)
 __all__ = ["get_solo_position", "reproject_map", "create_headers", "plot_map_reproj"]
 
 
-def get_solo_position(map):
+def get_solo_position(amap):
     """
     Return the position of SOLO at the time the map was observed
 
     Parameters
     ----------
-    map : `sunpy.map.Map`
+    amap : `sunpy.map.Map`
         Map to reproject to be as seen from SOLO
 
     Returns
@@ -117,21 +117,21 @@ def get_solo_position(map):
     """
     if Spice is not None:
         logger.info("Using Spice")
-        p = Spice.instance.get_position(date=map.date.datetime, frame="SOLO_HEE")
+        p = Spice.instance.get_position(date=amap.date.datetime, frame="SOLO_HEE")
         solo_hee = SkyCoord(
-            *p, frame=frames.HeliocentricEarthEcliptic, representation_type="cartesian", obstime=map.date.datetime
+            *p, frame=frames.HeliocentricEarthEcliptic, representation_type="cartesian", obstime=amap.date.datetime
         )
         # Converting HeliocentricEarthEcliptic coords of SOLAR ORBITER position to
         # HeliographicStonyhurst frame
         solo_hgs = solo_hee.transform_to(frames.HeliographicStonyhurst)
     else:
         logger.info("Spice not configured falling back to JPL ")
-        solo_hgs = get_horizons_coord("solo", time=map.date)
+        solo_hgs = get_horizons_coord("solo", time=amap.date)
 
     return solo_hgs
 
 
-def create_headers(obs_ref_coord, map, out_shape=None, out_scale=None):
+def create_headers(obs_ref_coord, amap, out_shape=None, out_scale=None):
     """
     Generates MetaDict and WCS headers for reprojected map
 
@@ -155,35 +155,35 @@ def create_headers(obs_ref_coord, map, out_shape=None, out_scale=None):
         MetaDict header for reprojected map
     """
     if out_scale is None:
-        out_scale = u.Quantity(map.scale)
+        out_scale = u.Quantity(amap.scale)
 
     if out_shape is None:
-        out_shape = map.data.shape
+        out_shape = amap.data.shape
 
-    if map.wavelength.unit.to_string() == "":
+    if amap.wavelength.unit.to_string() == "":
         obs_metadict_header = sunpy.map.make_fitswcs_header(
-            out_shape, obs_ref_coord, scale=out_scale, rotation_matrix=map.rotation_matrix, instrument=map.detector
+            out_shape, obs_ref_coord, scale=out_scale, rotation_matrix=amap.rotation_matrix, instrument=amap.detector
         )
     else:
         obs_metadict_header = sunpy.map.make_fitswcs_header(
             out_shape,
             obs_ref_coord,
             scale=out_scale,
-            rotation_matrix=map.rotation_matrix,
-            instrument=map.detector,
-            wavelength=map.wavelength,
+            rotation_matrix=amap.rotation_matrix,
+            instrument=amap.detector,
+            wavelength=amap.wavelength,
         )
     obs_wcs_header = WCS(obs_metadict_header)
     return obs_wcs_header, obs_metadict_header
 
 
-def reproject_map(map, observer, out_shape=None):
+def reproject_map(amap, observer, out_shape=None):
     """
     Reproject a map as viewed from a different observer.
 
     Parameters
     ----------
-    map : `sunpy.map.Map`
+    amap : `sunpy.map.Map`
         The input map to be reprojected
     observer : `astropy.coordinates.SkyCoord`
         The coordinates of the observer in HeliographicStonyhurst frame
@@ -196,29 +196,29 @@ def reproject_map(map, observer, out_shape=None):
         Reprojected map
     """
     if out_shape is None:
-        out_shape = map.data.shape
+        out_shape = amap.data.shape
 
     obs_ref_coord = SkyCoord(
-        map.reference_coordinate.Tx,
-        map.reference_coordinate.Ty,
-        obstime=map.reference_coordinate.obstime,
+        amap.reference_coordinate.Tx,
+        amap.reference_coordinate.Ty,
+        obstime=amap.reference_coordinate.obstime,
         observer=observer,
         frame="helioprojective",
     )
-    obs_wcs_header, obs_metadict_header = create_headers(obs_ref_coord, map, out_shape=out_shape)
-    output, footprint = reproject_interp(map, obs_wcs_header, out_shape)
+    obs_wcs_header, obs_metadict_header = create_headers(obs_ref_coord, amap, out_shape=out_shape)
+    output, footprint = reproject_interp(amap, obs_wcs_header, out_shape)
     outmap = sunpy.map.Map(output, obs_metadict_header)
-    outmap.plot_settings = map.plot_settings
+    outmap.plot_settings = amap.plot_settings
     return outmap
 
 
-def plot_map_reproj(map, reprojected_map):
+def plot_map_reproj(amap, reprojected_map):
     """
     Plot the original map, reprojected map and observer locations
 
     Parameters
     ----------
-    map : `sunpy.map.Map`
+    amap : `sunpy.map.Map`
         The input map to be reprojected
     reprojected_map :  `sunpy.map.Map`
         The reprojected map
@@ -229,18 +229,18 @@ def plot_map_reproj(map, reprojected_map):
         Figure showing the original map, reprojected map, and the observer locations
     """
     fig = plt.figure(figsize=(16, 4))
-    ax1 = fig.add_subplot(1, 3, 1, projection=map)
-    map.plot(axes=ax1, title=f"Input {map.detector} map {map.date}")
+    ax1 = fig.add_subplot(1, 3, 1, projection=amap)
+    amap.plot(axes=ax1, title=f"Input {amap.detector} map {amap.date}")
     reprojected_map.draw_grid(annotate=False, color="w")
     ax2 = fig.add_subplot(1, 3, 2, projection=reprojected_map)
-    reprojected_map.plot(axes=ax2, title=f"Map as seen by observer {map.date}")
+    reprojected_map.plot(axes=ax2, title=f"Map as seen by observer {amap.date}")
     reprojected_map.draw_grid(annotate=False, color="k")
     ax2.axes.get_yaxis().set_visible(False)
 
     new_observer = reprojected_map.observer_coordinate
-    original_observer = map.observer_coordinate
+    original_observer = amap.observer_coordinate
     # Plotting position of the Sun
-    sun_coords = get_body_heliographic_stonyhurst("sun", map.date)
+    sun_coords = get_body_heliographic_stonyhurst("sun", amap.date)
 
     # Plotting polar positions
     ax3 = fig.add_subplot(1, 3, 3, projection="polar")

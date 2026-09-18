@@ -435,8 +435,8 @@ class PixelPlotter:
             xy=(0, 0),
             xytext=(-60, 20),
             textcoords="offset points",
-            bbox=dict(boxstyle="round", fc="w"),
-            arrowprops=dict(arrowstyle="-"),
+            bbox={"boxstyle": "round", "fc": "w"},
+            arrowprops={"arrowstyle": "-"},
             zorder=33,
         )
         annot.set_visible(False)

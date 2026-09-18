@@ -32,7 +32,7 @@ class StixQueryResponse(QueryResponse):
                 ["Start Time", "End Time", "Instrument", "Level", "DataType", "DataProduct", "Request ID"]
             )
             keep = np.zeros(len(self), dtype=bool)
-            for key, group in zip(grouped_res.groups.keys, grouped_res.groups):
+            for group in grouped_res.groups:
                 group.sort("Ver")
                 if not allow_uncompleted:
                     incomplete = np.char.endswith(group["Ver"].data, "U")
@@ -104,8 +104,8 @@ class STIXClient(GenericClient):
         matchdict = self._get_match_dict(*args, **kwargs)
 
         # Try to minimise requests by update possible type and product using the given attributes
-        types_from_product = set([prod.split("_")[0].casefold() for prod in matchdict["DataProduct"]])
-        datatypes = list(types_from_product.intersection([t.casefold() for t in matchdict["DataType"]]))
+        types_from_product = {prod.split("_")[0].casefold() for prod in matchdict["DataProduct"]}
+        datatypes = list(types_from_product.intersection({t.casefold() for t in matchdict["DataType"]}))
         products = [prod for prod in matchdict["DataProduct"] if prod.split("_")[0].casefold() in datatypes]
         matchdict.update({"DataType": datatypes, "DataProduct": products})
         levels = matchdict["Level"]
@@ -184,7 +184,7 @@ class STIXClient(GenericClient):
         class uses to dispatch queries to this Client.
         """
         regattrs_dict = cls.register_values()
-        optional = {k for k in regattrs_dict.keys()} - cls.required
+        optional = set(regattrs_dict.keys()) - cls.required
         if not cls.check_attr_types_in_query(query, cls.required, optional):
             return False
         for key in regattrs_dict:

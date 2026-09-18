@@ -145,7 +145,9 @@ def estimate_flare_location(cpd_sci, time_range, energy_range=None, plot=False):
     sidelobes_ratio = calculate_sidelobes_ratio(fd_bp_map)
 
     if sidelobes_ratio >= 0.9:
-        warnings.warn(f"Flare location may be unreliable. Sidelobes ratio = {np.round(sidelobes_ratio, 3)}.")
+        warnings.warn(
+            f"Flare location may be unreliable. Sidelobes ratio = {np.round(sidelobes_ratio, 3)}.", stacklevel=2
+        )
 
     # Make a sunpy map from the bp_image, in HPC from STIX observer
     hpc_ref = center_coord.transform_to(frames.Helioprojective(observer=solo, obstime=vis_tr.center))

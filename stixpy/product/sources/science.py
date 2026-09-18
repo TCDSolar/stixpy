@@ -497,7 +497,7 @@ class ScienceData(L1Product):
 
 
     @staticmethod
-    def _indices_check(product, detector_indices, pixel_indices):
+    def _indices_check(product, detector_indices, pixel_indices, energy_indices):
         """
         Validate and normalize the requested detector and pixel indices against what is
         actually available in the product's masks.
@@ -605,7 +605,28 @@ class ScienceData(L1Product):
                 pixel_indices = np.where(product.pixel_masks.__dict__["masks"] == 1)[1]
 
 
-        return np.array(detector_indices), np.array(pixel_indices)
+        # --- Energy indices ---
+        if energy_indices is not None:
+
+            energy_indices_full = np.where(product.energy_masks.__dict__["masks"] == 1)[1]
+            e_min = product.energies["e_low"][energy_indices_full[0]].value
+            e_max = product.energies["e_high"][energy_indices_full[-1]-1].value
+            
+            energy_range = (f"The energy mask covers indices {energy_indices_full[0]}-{energy_indices_full[-1]} "
+                            f"({e_min} - {e_max} keV).")
+ 
+            if np.ndim(energy_indices) == 2:
+                for start, end in energy_indices:
+                    requested = np.arange(start, end + 1)
+                    missing = np.setdiff1d(requested, energy_indices_full)
+                    if missing.size > 0:
+                        raise ValueError(f"Energy indices {missing.tolist()} in range [{start}, {end}] are not included in the product's energy mask. {energy_range}")
+            else:
+                missing = np.setdiff1d(energy_indices, energy_indices_full)
+                if missing.size > 0:
+                    raise ValueError(f"The following energy indices are not included in the product's energy mask: {missing.tolist()}. {energy_range}")
+
+        return np.array(detector_indices), np.array(pixel_indices), energy_indices
 
     @staticmethod
     def _livetime_uncertainty(counts_var, livefrac_error, livefrac):
@@ -753,32 +774,55 @@ class ScienceData(L1Product):
 
             counts, counts_var, t_norm, e_norm, livefrac, livefrac_error, elut_cor_fac, times, energies, rcr = product
 
-        
-        if energies["e_low"][0].value == 0:
-            counts = counts[..., 1:]
-            counts_var = counts_var[..., 1:]
-            energies = energies[1:]
-            if elut_cor_fac is not None:
-                elut_cor_fac = elut_cor_fac[...,1:]
-            if livefrac is not None:
-                livefrac_error = livefrac_error[...,1:]
+        if elut_cor_fac is not None:
+            print('elc b = ',elut_cor_fac.shape)
 
-        if np.isnan(energies["e_high"][-1].value):
-            counts = counts[...,:-1]
-            counts_var = counts_var[...,:-1]
-            energies = energies[:-1]
-            if elut_cor_fac is not None:
-                elut_cor_fac = elut_cor_fac[...,:-1]
-            if livefrac is not None:
-                livefrac_error = livefrac_error[...,:-1]
-
-
+        if bkg:
+ 
+            if energies["e_low"][0].value == 0:
+                energies = energies[1:]
+                print(energy_indices)
+                if energy_indices is not None:                             
+                    energy_indices = np.asarray(energy_indices) - 1         
+ 
+            if np.isnan(energies["e_high"][-1].value):
+                energies = energies[:-1]
+ 
         if not bkg:
-
+ 
+            if energies["e_low"][0].value == 0:
+                counts = counts[..., 1:]
+                counts_var = counts_var[..., 1:]
+                energies = energies[1:]
+                e_norm = e_norm[1:]
+                if energy_indices is not None:                             
+                    energy_indices = np.asarray(energy_indices) - 1         
+                if elut_cor_fac is not None:
+                    elut_cor_fac = elut_cor_fac[...,1:]
+                if livefrac is not None:
+                    livefrac_error = livefrac_error[...,1:]
+ 
+            if np.isnan(energies["e_high"][-1].value):
+                counts = counts[...,:-1]
+                counts_var = counts_var[...,:-1]
+                energies = energies[:-1]
+                e_norm = e_norm[:-1]
+                if elut_cor_fac is not None:
+                    elut_cor_fac = elut_cor_fac[...,:-1]
+                if livefrac is not None:
+                    livefrac_error = livefrac_error[...,:-1]
+ 
+ 
             if elut_cor_fac is not None:
+                
+                print('elc a = ',elut_cor_fac.shape)
 
                 counts = counts * elut_cor_fac
                 counts_var = counts_var * elut_cor_fac
+                    
+        if energy_indices is not None:                                      
+            energy_indices = np.clip(energy_indices, 0, len(energies) - 1) 
+ 
 
         if pixel_indices is not None:
 
@@ -819,12 +863,17 @@ class ScienceData(L1Product):
         if energy_indices is not None:
             energy_indices = np.asarray(energy_indices)
             if energy_indices.ndim == 1:
-                energy_mask = np.full(shape[-1], False)
+                energy_mask = np.full(counts.shape[-1], False)
+                print(energy_mask)
+                print(energy_indices)
                 energy_mask[energy_indices] = True
+                print(energy_mask)
+                print(counts.shape)
                 counts = counts[..., energy_mask]
                 counts_var = counts_var[..., energy_mask]
                 e_norm = e_norm[energy_mask]
                 energies = energies[energy_mask]
+                print(elut_cor_fac.shape)
                 if elut_cor_fac is not None:
                     elut_cor_fac = elut_cor_fac[...,energy_mask]
 
@@ -836,6 +885,7 @@ class ScienceData(L1Product):
                 counts_var = np.concatenate(
                     [np.sqrt(np.sum(counts_var[..., el : eh + 1]**2, axis=-1, keepdims=True)) for el, eh in energy_indices], axis=-1
                 )
+
 
                 e_norm = np.hstack([(energies["e_high"][eh] - energies["e_low"][el]) for el, eh in energy_indices])
 
@@ -1200,17 +1250,17 @@ class ScienceData(L1Product):
         spec_in_corr_lvt = counts_lvtcorr
         spec_in_lvt = counts_uncorr
 
+
         if energies["e_low"][0].value == 0:
             spec_in = spec_in[..., 1:]
             spec_in_lvt = spec_in_lvt[..., 1:]
             spec_in_corr_lvt = spec_in_corr_lvt[..., 1:]
             spec_in_corr = spec_in_corr[..., 1:]
             spec_in_err = spec_in_err[..., 1:]
-            energies = energies[1:]
             e_norm = e_norm[1:]
             livefrac_error = livefrac_error[...,1:]
             if elut_cor_fac is not None:
-                elut_cor_fac = elut_cor_fac[1:]
+                elut_cor_fac = elut_cor_fac[...,1:]
 
 
         if np.isnan(energies["e_high"][-1].value):
@@ -1218,12 +1268,11 @@ class ScienceData(L1Product):
             spec_in_corr = spec_in_corr[..., :-1]
             spec_in_lvt = spec_in_lvt[..., :-1]
             spec_in_corr_lvt = spec_in_corr_lvt[..., :-1]
-            spec_in_err = spec_in_err[..., :-1]
-            energies = energies[:-1]            
+            spec_in_err = spec_in_err[..., :-1]      
             e_norm = e_norm[:-1]
             livefrac_error = livefrac_error[...,:-1]
             if elut_cor_fac is not None:
-                elut_cor_fac = elut_cor_fac[:-1]
+                elut_cor_fac = elut_cor_fac[...,:-1]
 
 
         if len(shape) < 4:
@@ -1304,7 +1353,7 @@ class ScienceData(L1Product):
                     counts_var = spec_in_err_final
                     livefrac = eff_livefrac_full
 
-        return counts, counts_var, t_norm, e_norm, livefrac,livefrac_error, elut_cor_fac, times, energies, rcr
+        return counts, counts_var, t_norm, e_norm, livefrac, livefrac_error, elut_cor_fac, times, energies, rcr
                                                                        
     @staticmethod
     def _energies_bkg_sub(product,bkg):
@@ -2438,57 +2487,66 @@ class ScienceData(L1Product):
     @staticmethod
     def _find_bin_index(start, end, e_low, e_high):
         """
-        Find the index of the energy bin whose [e_low, e_high] range contains
-        the given value.
-
+        Find the indices of the energy bins whose centres fall within the given
+        energy range.
+ 
+        A bin is selected when its centre, (e_low + e_high) / 2, lies within
+        [start, end] inclusive, so a bin is taken as belonging to the range it is
+        centred in rather than having to be wholly contained by it. The open top bin
+        of a full energy table has a NaN upper edge and therefore a NaN centre, so it
+        is never selected.
+ 
         Parameters
         ----------
         start : float
-            Lower energy bin edge.
+            Lower edge of the requested energy range, in keV.
         end   : float
-            upper energy bin edge.
+            Upper edge of the requested energy range, in keV.
         e_low : numpy.ndarray
             Lower bin edges in keV.
         e_high : numpy.ndarray
             Upper bin edges in keV.
-
+ 
         Returns
         -------
         list
             List of indices to sum over.
-
+ 
         Raises
         ------
         ValueError
-            If no bin contains the given value.
+            If no bin centre falls within the given range.
         """
-
-        matches = np.where((e_low >= start) & (e_high <= end))[0]
-
+ 
+        e_centre = (e_low + e_high) / 2
+ 
+        matches = np.where((e_centre >= start) & (e_centre <= end))[0]
+ 
         if matches.size == 0:
             raise ValueError(
-                f"Energy range [{start} - {end}] keV does not fall within any product energy bin."
+                f"Energy range [{start} - {end}] keV does not contain the centre of any product energy bin."
             )
-        
+ 
         return [np.min(matches),np.max(matches)]
-
-
+ 
+ 
     @staticmethod
     def _energy_indices_from_flat_edges(values, e_low, e_high):
         """
         Convert a flat array of N energy values, treated as N-1 consecutive bin
         edges, into a list of [start_idx, end_idx] integer bin-index pairs.
-
+ 
         Parameters
         ----------
         values : numpy.ndarray
             Flat array of energy values in keV, e.g. [5, 10, 15, 25], treated
-            as consecutive edges producing ranges (5-10), (10-15), (15-25).
+            as consecutive edges producing ranges (5-10), (10-15), (15-25). Each
+            range takes the bins whose centres fall within it.
         e_low : numpy.ndarray
             Lower bin edges of the product's energy bins, in keV.
         e_high : numpy.ndarray
             Upper bin edges of the product's energy bins, in keV.
-
+ 
         Returns
         -------
         list of list of int
@@ -2500,24 +2558,25 @@ class ScienceData(L1Product):
             idx = ScienceData._find_bin_index(values[i],values[i+1], e_low, e_high)
             pairs.append(idx)
         return pairs
-
-
+ 
+ 
     @staticmethod
     def _energy_indices_from_range_pairs(values, e_low, e_high):
         """
         Convert a 2D array of explicit [start, end] energy ranges into a list of
         [start_idx, end_idx] integer bin-index pairs.
-
+ 
         Parameters
         ----------
         values : numpy.ndarray
             2D array of [start, end] energy values in keV, e.g.
-            [[5, 10], [15, 25]].
+            [[5, 10], [15, 25]]. Each range takes the bins whose centres fall
+            within it.
         e_low : numpy.ndarray
             Lower bin edges of the product's energy bins, in keV.
         e_high : numpy.ndarray
             Upper bin edges of the product's energy bins, in keV.
-
+ 
         Returns
         -------
         list of list of int
@@ -2529,17 +2588,17 @@ class ScienceData(L1Product):
             idx = ScienceData._find_bin_index(start_val, end_val, e_low, e_high)
             pairs.append(idx)
         return pairs
-
-
+ 
+ 
     @staticmethod
     def _energy_indices_format(energy_indices, energies):
         """
         Convert an astropy Quantity energy selection into integer [start, end]
         bin-index pairs, matched against the product's energy bin edges.
-
+ 
         If `energy_indices` is not an astropy Quantity, it is returned unchanged
         (assumed to already be integer indices or index pairs).
-
+ 
         Two Quantity input formats are supported:
             - A flat 1D Quantity array of N energy values, treated as N-1
             consecutive bin edges, e.g. [5, 10, 15, 25]*u.keV produces ranges
@@ -2547,54 +2606,70 @@ class ScienceData(L1Product):
             - A 2D Quantity array (or list of pairs) giving explicit
             [start, end] energy ranges directly, e.g.
             [[5, 10], [15, 25]]*u.keV.
-
-        In both cases, values are converted to keV and matched to the product
-        energy bin whose [e_low, e_high] range contains them.
-
+ 
+        In both cases, values are converted to keV and each range takes the product
+        energy bins whose centres, (e_low + e_high) / 2, fall within it.
+ 
         Parameters
         ----------
         energy_indices : astropy.units.Quantity, list, numpy.ndarray, or None
             The user-supplied energy selection.
         energies : astropy.table.QTable
             The product's energy table, with "e_low" and "e_high" columns.
-
+ 
         Returns
         -------
         list of list of int or None
             Energy indices as a list of [start_idx, end_idx] integer pairs,
             suitable for use in `_data_select`. Returns None if `energy_indices`
             is None, or the original input unchanged if it is not a Quantity.
-
+ 
         Raises
         ------
         ValueError
-            If a requested energy value does not fall within any product energy
-            bin, or if the Quantity input is neither 1D nor 2D.
+            If the requested energies fall outside the energy range covered by the
+            file, if a requested range contains no energy bin centre, or if the
+            Quantity input is neither 1D nor 2D.
         """
-
+ 
         if not isinstance(energy_indices, u.Quantity):
             return energy_indices
-
+ 
         energy_indices = energy_indices.to(u.keV)
-
+ 
         e_low = energies["e_low"].value
         e_high = energies["e_high"].value
-
+ 
+        # The requested energies must lie within the range covered by the file. nanmin/nanmax
+        # skip the NaN upper edge of the open top bin present in a full energy table.
+        e_file_min = np.nanmin(e_low)
+        e_file_max = np.nanmax(e_high)
+ 
+        e_requested_min = np.nanmin(energy_indices.value)
+        e_requested_max = np.nanmax(energy_indices.value)
+ 
+        if e_requested_min < e_file_min or e_requested_max > e_file_max:
+            raise ValueError(
+                f"Requested energies [{e_requested_min} - {e_requested_max}] keV fall outside the "
+                f"energy range of the file [{e_file_min} - {e_file_max}] keV."
+            )
+ 
         if energy_indices.ndim == 1:
             return ScienceData._energy_indices_from_flat_edges(
                 energy_indices.value, e_low, e_high
             )
-
+ 
         elif energy_indices.ndim == 2:
             return ScienceData._energy_indices_from_range_pairs(
                 energy_indices.value, e_low, e_high
             )
-
+ 
         else:
             raise ValueError(
                 "energy_indices given as a Quantity must be either 1D "
                 "(flat list of bin edges) or 2D (list of [start, end] pairs)."
             )
+
 
     @staticmethod
     def _normalize_elut_by_group_detector_mean(bins, bins_actual, index_groups):
@@ -2783,22 +2858,26 @@ class ScienceData(L1Product):
 
 
         if energy_indices is not None:
-            energy_indices = self._energy_indices_format(energy_indices,self.energies)
+            if sunkit_spex_spectrum:
+                energy_indices = None
+                warnings.warn('sunkit_spex_spectrum == True and so energy_indices set to None')
+            else:
+                energy_indices = self._energy_indices_format(energy_indices,self.energies)
+
 
         if time_indices is not None:
             time_indices = self._time_indices_format(time_indices, self.times, self.durations, rcr)
 
-        detector_indices, pixel_indices = self._indices_check(self,
+        detector_indices, pixel_indices, energy_indices = self._indices_check(self,
                                                               detector_indices,
-                                                              pixel_indices)
+                                                              pixel_indices,
+                                                              energy_indices)
 
         if elut_correction:
 
             _, _, bins, bins_actual = get_elut_correction(np.array(self.energies["channel"]), 
                                                        self)
             
-            print('bas = ',  bins_actual.shape)
-            print('bs = ',  bins.shape)
 
             if len(self.data["counts"].shape) < 4:
                 detector_indices_elut = np.where(self.detector_masks.__dict__["masks"] == 1)[1]
@@ -2849,27 +2928,6 @@ class ScienceData(L1Product):
         else:
             livefraction_sci = None
             livefraction_sci_error = None
-
-        # # =====================================================
-        # # elut
-        # # =====================================================
-
-        # if elut_correction:
-
-        #     _, _, bins, bins_actual = get_elut_correction(np.array(self.energies["channel"]), 
-        #                                                self)
-            
-
-        #     elut_cor_fac = ScienceData._elut_correction_sort(bins, 
-        #                                                     bins_actual,
-        #                                                     sunkit_spex_detector_sum,
-        #                                                     pixel_indices,
-        #                                                     detector_indices)
-            
-        #     warnings.warn('ELUT correction factor is always averaged over the used pixels'\
-        #                   'but can be given detector-wise or detector averaged.')
-
-            
             
 
         # =====================================================
@@ -2979,6 +3037,9 @@ class ScienceData(L1Product):
             else:
                 raise ValueError("vtype must be one of 'c', 'cr', 'dcr'.")
             
+            print('n = ',norm.shape)
+            print('c = ',counts.shape)
+
             counts = counts * norm            
             counts_var = counts_var * norm
 

@@ -71,6 +71,7 @@ class STIXClient(GenericClient):
     base_pattern = r"/{Level}/{{year:4d}}/{{month:2d}}/{{day:2d}}/{DataType}/"
     ql_pattern = r"solo_{Level}_{{descriptor}}_{{time}}_{{Ver}}.fits"
     sci_pattern = r"solo_{Level}_{{descriptor}}_{{start}}-{{end}}_{{Ver}}_{{Request}}-{{tc}}.fits"
+    flarelist_pattern = r"solo_{Level}_{{descriptor}}_{{start}}-{{end}}_{{Ver}}.fits"
 
     required = {a.Time, a.Instrument}
 
@@ -120,9 +121,13 @@ class STIXClient(GenericClient):
 
         # Because of the way the data is organised on the server products which start on one day but end on the next
         # will only be present in the "path" for the start date the longest request we practically make are ~6 hours
-        # so need to extend the paths we search by ~6 hours but not alter the actual request search range
+        # so need to extend the paths we search by ~6 hours but not alter the actual request search range.
+        # Flare list files span up to ~1 month, so extend by 32 days when flarelist is requested.
         path_tr = TimeRange(matchdict["Start Time"], matchdict["End Time"])
-        if "sci" in (t.casefold() for t in matchdict["DataType"]):
+        datatypes_lower = [t.casefold() for t in matchdict["DataType"]]
+        if "flarelist" in datatypes_lower:
+            path_tr = TimeRange(Time(matchdict["Start Time"]) - 32 * u.day, matchdict["End Time"])
+        elif "sci" in datatypes_lower:
             path_tr = TimeRange(Time(matchdict["Start Time"]) - 6.5 * u.h, matchdict["End Time"])
 
         metalist = []
@@ -132,6 +137,8 @@ class STIXClient(GenericClient):
             for datatype in matchdict["DataType"]:
                 if datatype.lower() == "sci":
                     pattern = self.pattern + self.sci_pattern
+                elif datatype.lower() == "flarelist":
+                    pattern = self.pattern + self.flarelist_pattern
                 else:
                     pattern = self.pattern + self.ql_pattern
 
@@ -209,6 +216,14 @@ class STIXClient(GenericClient):
             rowdict["End Time"] = tr.end
             rowdict.pop("tc")
             rowdict.pop("Request")
+        elif rowdict.get("DataType") == "FLARELIST":
+            rowdict["Request ID"] = "-"
+            ts = rowdict.pop("start")
+            te = rowdict.pop("end")
+            tr = TimeRange(ts, te)
+            rowdict["tr"] = tr
+            rowdict["Start Time"] = tr.start
+            rowdict["End Time"] = tr.end
         else:
             rowdict["Request ID"] = "-"
             rowdict.pop("time")
@@ -229,6 +244,7 @@ class STIXClient(GenericClient):
                 ("L0", "STIX: commutated, uncompressed, uncalibrated data."),
                 ("L1", "STIX: Engineering and UTC time conversion ."),
                 ("L2", "STIX: Calibrated data."),
+                ("L3", "STIX: Higher level data products."),
                 ("ANC", "STIX: Ancillary data."),
             ],
             attrs.stix.DataType: [
@@ -237,6 +253,7 @@ class STIXClient(GenericClient):
                 ("CAL", "Calibration"),
                 ("ASP", "Aspect"),
                 ("HK", "House Keeping"),
+                ("FLARELIST", "Flare List"),
             ],
             attrs.stix.DataProduct: [
                 ("hk_maxi", "House Keeping Maxi Report"),
@@ -254,6 +271,7 @@ class STIXClient(GenericClient):
                 ("sci_xray_vis", "Visibilities"),
                 ("sci_xray_spec", "Spectrogram"),
                 ("asp_ephemeris", "Aspect Solution and Ephemeris data"),
+                ("flarelist_sdcloc", "L3 Flare list with reconstructed source locations"),
             ],
         }
         return adict

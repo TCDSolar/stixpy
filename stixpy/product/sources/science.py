@@ -606,9 +606,9 @@ class ScienceData(L1Product):
 
         # --- Energy indices ---
         if energy_indices is not None:
-            energy_indices_full = np.where(product.energy_masks.__dict__["masks"] == 1)[1]
+            energy_indices_full = np.where(product.energy_masks.energy_mask == 1)[1]
             e_min = product.energies["e_low"][energy_indices_full[0]].value
-            e_max = product.energies["e_high"][energy_indices_full[-1] - 1].value
+            e_max = product.energies["e_high"][energy_indices_full[-1]].value
 
             energy_range = (
                 f"The energy mask covers indices {energy_indices_full[0]}-{energy_indices_full[-1]} "
@@ -671,14 +671,14 @@ class ScienceData(L1Product):
     @staticmethod
     def _apply_livetime(counts, counts_var, livefrac, groups):
         counts_corr = counts / livefrac
-        counts_var_corr = counts_var
         counts_out = counts.astype(float).copy()
+        counts_var_out = counts_var.astype(float).copy()
         new_livefrac = livefrac.astype(float).copy()
         for g in groups:
             g = np.atleast_1d(np.asarray(g))
             eff_lt = np.nanmean(livefrac[:, g, :, :], axis=1, keepdims=True)  # scalar per time bin
             counts_out[:, g, :, :] = counts_corr[:, g, :, :] * eff_lt
-            counts_var_out = counts_var_corr[:, g, :, :] * eff_lt
+            counts_var_out[:, g, :, :] = counts_var[:, g, :, :] * eff_lt
             new_livefrac[:, g, :, :] = np.broadcast_to(eff_lt, new_livefrac[:, g, :, :].shape)
         return counts_out, counts_var_out, new_livefrac
 
@@ -922,8 +922,7 @@ class ScienceData(L1Product):
                 detector_mask = np.full(32, False)
                 detector_mask[detector_indices] = True
                 counts = counts[:, detector_mask, ...]
-                if bkg:
-                    counts_var = counts_var[:, detector_mask, ...]
+                counts_var = counts_var[:, detector_mask, ...]
                 if livefrac is not None:
                     livefrac = livefrac[:, detector_mask, :, :]
                 if livefrac_error is not None:

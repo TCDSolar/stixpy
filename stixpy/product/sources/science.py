@@ -673,7 +673,6 @@ class ScienceData(L1Product):
         counts_corr = counts / livefrac
         counts_var_corr = counts_var
         counts_out = counts.astype(float).copy()
-        # counts_var_out = counts_var.astype(float).copy()
         new_livefrac = livefrac.astype(float).copy()
         for g in groups:
             g = np.atleast_1d(np.asarray(g))
@@ -1283,20 +1282,13 @@ class ScienceData(L1Product):
             if pixel_indices.ndim == 2:
                 pixel_indices = ScienceData._indices_expand_ranges(pixel_indices, nest=False)
 
-            # counts = spec_in_final
-
             if sunkit_spex_detector_sum:
-                # idx = np.ix_(detector_indices, pixel_indices)
-
                 eff_livefrac = np.nanmean(livefrac[:, detector_indices, :, :], axis=1, keepdims=True)
 
                 spec_in_final = spec_in_corr * eff_livefrac
                 spec_in_err_final = spec_in_err * eff_livefrac
 
                 counts = spec_in_final
-
-                # counts_check = np.nansum(spec_in_final[:, idx[0], idx[1], :], axis=(1, 2), keepdims=True)
-                # counts = np.where(counts_check < 0, 0, counts)
 
                 counts_var = spec_in_err_final
 
@@ -1429,26 +1421,6 @@ class ScienceData(L1Product):
         if len(shape) < 4:
             counts = product.data["counts"].reshape(shape[0], 1, 1, shape[-1])
 
-            # Need to average over the different triggers
-            # triggers = product.data["triggers"] / 16
-            # triggers_error = product.data["triggers"] / 16
-
-            # triggers = product.data["triggers"] / 16
-            # triggers_error = np.sqrt(
-            #     product.data["triggers_comp_err"] ** 2 + product.data["triggers"]
-            # ) / 16
-
-            # triggers_lower = np.floor(np.maximum(triggers - triggers_error, 0)) # This brings in line with IDL precision, if removed then the ratio at livefrac of ~0.5 goes to 0.0002, rather than ~1e-7.
-            # triggers_upper = np.floor(triggers + triggers_error)  # This brings in line with IDL precision, if removed then the ratio at livefrac of ~0.5 goes to 0.0002, rather than ~1e-7.
-
-            # livefrac,_, _ = get_livetime_fraction(triggers / product.data["timedel"].to("s"))
-            # livefrac_lower,_, _ = get_livetime_fraction(triggers_lower / product.data["timedel"].to("s"))
-            # livefrac_upper,_, _ = get_livetime_fraction(triggers_upper / product.data["timedel"].to("s"))
-
-            # livefrac = livefrac.reshape(livefrac.shape + (1, 1, 1))
-            # livefrac_lower = livefrac_lower.reshape(livefrac_lower.shape + (1, 1, 1))
-            # livefrac_upper = livefrac_upper.reshape(livefrac_upper.shape + (1, 1, 1))
-
             trig_raw = product.data["triggers"] / 16
             trig_err = np.sqrt(product.data["triggers_comp_err"] ** 2 + product.data["triggers"]) / 16
 
@@ -1495,19 +1467,6 @@ class ScienceData(L1Product):
             livefrac = livefrac.reshape(livefrac.shape + (1, 1))
             livefrac_lower = livefrac_lower.reshape(livefrac_lower.shape + (1, 1))
             livefrac_upper = livefrac_upper.reshape(livefrac_upper.shape + (1, 1))
-
-        # if elut_cor_fac is not None:
-
-        #     counts = counts*elut_cor_fac
-
-        # cts_av = np.nansum(counts[:,:,pixel_indices,:],axis=2,keepdims=True)
-
-        # counts_upper = (cts_av / livefrac_upper)
-        # counts_lower = (cts_av /  livefrac_lower)
-
-        # livefrac_error = (counts_lower - counts_upper) / 2
-
-        # return livefrac, livefrac_error
 
         if elut_cor_fac is not None:
             if energy_indices is not None:
@@ -1610,20 +1569,6 @@ class ScienceData(L1Product):
         counts, counts_uncertainity, t_norm, _, livefrac, _, elut_cor_fac, times_full, energies, _ = sci_data
 
         t_norm = t_norm.to(u.s)
-
-        # if energies["e_low"][0].value == 0:
-        #     counts = counts[..., 1:]
-        #     counts_uncertainity = counts_uncertainity[..., 1:]
-        #     energies = energies[1:]
-        #     if elut_cor_fac is not None:
-        #         elut_cor_fac = elut_cor_fac[1:]
-
-        # if np.isnan(energies["e_high"][-1].value):
-        #     counts = counts[...,:-1]
-        #     counts_uncertainity = counts_uncertainity[...,:-1]
-        #     energies = energies[:-1]
-        #     if elut_cor_fac is not None:
-        #         elut_cor_fac = elut_cor_fac[:-1]
 
         counts_axis = np.concatenate([energies["e_low"], [energies["e_high"][-1]]])
 
@@ -1834,9 +1779,6 @@ class ScienceData(L1Product):
         else:
             flare_location_stx = None
             flare_angle = None
-
-        # if flare_angle is None:
-        #     flare_angle = product._flare_angle(product,flare_location)
 
         distance = (product.meta["DSUN_OBS"] * u.m).to(u.AU)
         rcr_unique = np.unique(rcr)
@@ -2776,14 +2718,7 @@ class ScienceData(L1Product):
             keyed by detector index if `sunkit_spex_detector_sum=False`.
         """
 
-        # =====================================================
-        # livetime
-        # =====================================================
         rcr = self.rcr_shifted
-
-        # =====================================================
-        # elut
-        # =====================================================
 
         if isinstance(srm_e_min, bool):
             srm_e_min = 3.5 * u.keV if srm_e_min else None
@@ -2853,10 +2788,6 @@ class ScienceData(L1Product):
             livefraction_sci = None
             livefraction_sci_error = None
 
-        # =====================================================
-        # data selection and background subtraction
-        # =====================================================
-
         if not bkg:
             background_boolean = False
 
@@ -2912,10 +2843,6 @@ class ScienceData(L1Product):
                 sunkit_spex_detector_sum,
                 bkg=background_boolean,
             )
-
-        # =====================================================
-        # data_sum
-        # =====================================================
 
         if sunkit_spex_spectrum:
             warnings.warn(

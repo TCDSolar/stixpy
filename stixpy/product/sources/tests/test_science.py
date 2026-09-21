@@ -231,4 +231,3 @@ def test_spec_plot_timeseries(spec):
 @pytest.mark.remote_data
 def test_spec_plot_spectrogram(spec):
     spec.plot_spectrogram()
- 

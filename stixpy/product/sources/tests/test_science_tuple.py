@@ -38,7 +38,7 @@ EXPECTED_SHAPE = (1325, 30)
 # i.e. already summed over detectors and pixels, so no SRM/GEOAREA/EXPTIME is
 # stored and none is checked here.
 DATA_DIR = Path(__file__).parent / "data"
-EXPECTED_VALUES_PATH = DATA_DIR / "expected_values_top24_tuple.fits"
+EXPECTED_VALUES_PATH = DATA_DIR / "expected_values_top24_tuple.fits.gz"
 
 # The reference arrays contain exact zeros (670 of 39750 in the top24
 # no-bkgsub counts, and the zeros are not co-located across variations). The
@@ -170,7 +170,9 @@ def _get_summed_counts(cpd, *, detector_indices, elut_correction, bkg, pixel_ind
 def counts_top24_bkgsub_elut(cpd_2024_03_10, bkg_2024_03_10):
     return _get_summed_counts(
         cpd_2024_03_10,
-        detector_indices="top24", elut_correction=True, bkg=bkg_2024_03_10,
+        detector_indices="top24",
+        elut_correction=True,
+        bkg=bkg_2024_03_10,
     )
 
 
@@ -178,7 +180,9 @@ def counts_top24_bkgsub_elut(cpd_2024_03_10, bkg_2024_03_10):
 def counts_top24_bkgsub_noelut(cpd_2024_03_10, bkg_2024_03_10):
     return _get_summed_counts(
         cpd_2024_03_10,
-        detector_indices="top24", elut_correction=False, bkg=bkg_2024_03_10,
+        detector_indices="top24",
+        elut_correction=False,
+        bkg=bkg_2024_03_10,
     )
 
 
@@ -186,7 +190,9 @@ def counts_top24_bkgsub_noelut(cpd_2024_03_10, bkg_2024_03_10):
 def counts_top24_nobkgsub_elut(cpd_2024_03_10):
     return _get_summed_counts(
         cpd_2024_03_10,
-        detector_indices="top24", elut_correction=True, bkg=None,
+        detector_indices="top24",
+        elut_correction=True,
+        bkg=None,
     )
 
 
@@ -194,7 +200,9 @@ def counts_top24_nobkgsub_elut(cpd_2024_03_10):
 def counts_top24_nobkgsub_noelut(cpd_2024_03_10):
     return _get_summed_counts(
         cpd_2024_03_10,
-        detector_indices="top24", elut_correction=False, bkg=None,
+        detector_indices="top24",
+        elut_correction=False,
+        bkg=None,
     )
 
 
@@ -207,8 +215,10 @@ def counts_top24_nobkgsub_noelut(cpd_2024_03_10):
 def counts_bkgdet_bkgsub_elut(cpd_2024_03_10, bkg_2024_03_10):
     return _get_summed_counts(
         cpd_2024_03_10,
-        detector_indices=[9], pixel_indices=[2, 5],
-        elut_correction=True, bkg=bkg_2024_03_10,
+        detector_indices=[9],
+        pixel_indices=[2, 5],
+        elut_correction=True,
+        bkg=bkg_2024_03_10,
     )
 
 
@@ -216,8 +226,10 @@ def counts_bkgdet_bkgsub_elut(cpd_2024_03_10, bkg_2024_03_10):
 def counts_bkgdet_bkgsub_noelut(cpd_2024_03_10, bkg_2024_03_10):
     return _get_summed_counts(
         cpd_2024_03_10,
-        detector_indices=[9], pixel_indices=[2, 5],
-        elut_correction=False, bkg=bkg_2024_03_10,
+        detector_indices=[9],
+        pixel_indices=[2, 5],
+        elut_correction=False,
+        bkg=bkg_2024_03_10,
     )
 
 
@@ -225,8 +237,10 @@ def counts_bkgdet_bkgsub_noelut(cpd_2024_03_10, bkg_2024_03_10):
 def counts_bkgdet_nobkgsub_elut(cpd_2024_03_10):
     return _get_summed_counts(
         cpd_2024_03_10,
-        detector_indices=[9], pixel_indices=[2, 5],
-        elut_correction=True, bkg=None,
+        detector_indices=[9],
+        pixel_indices=[2, 5],
+        elut_correction=True,
+        bkg=None,
     )
 
 
@@ -234,8 +248,10 @@ def counts_bkgdet_nobkgsub_elut(cpd_2024_03_10):
 def counts_bkgdet_nobkgsub_noelut(cpd_2024_03_10):
     return _get_summed_counts(
         cpd_2024_03_10,
-        detector_indices=[9], pixel_indices=[2, 5],
-        elut_correction=False, bkg=None,
+        detector_indices=[9],
+        pixel_indices=[2, 5],
+        elut_correction=False,
+        bkg=None,
     )
 
 

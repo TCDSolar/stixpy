@@ -4,13 +4,12 @@ from pathlib import Path
 import numpy as np
 import pytest
 from numpy.testing import assert_allclose
+from sunkit_spex.spectrum.spectrum import Spectrum
 
 import astropy.units as u
 from astropy.io import fits
 
 from stixpy.product import Product
-
-from sunkit_spex.spectrum.spectrum import Spectrum
 
 # Integration window for the spectrum selection. The reference file stores
 # EXPTIME ~4.05 s, consistent with a ~5 s window.
@@ -43,7 +42,7 @@ BKG_URL = "https://pub099.cs.technik.fhnw.ch/fits/L1/2024/03/08/SCI/solo_L1_stix
 # No flare_location is passed: the calls under test leave it out, so the SRM is
 # built without a flare-location correction.
 DATA_DIR = Path(__file__).parent / "data"
-EXPECTED_VALUES_PATH = DATA_DIR / "expected_values_spec_sum.fits"
+EXPECTED_VALUES_PATH = DATA_DIR / "expected_values_spec_sum.fits.gz"
 
 # See the note in test_science_sunkit-spex-1dspec.py: GEOAREA is stored rounded
 # to ~6 significant figures, so rtol=1e-6 fails on geo area alone.
@@ -126,7 +125,8 @@ def _get_spectrum(spec_prod, *, time_indices, elut_correction, bkg):
     )
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=DeprecationWarning)
-        with pytest.warns(UserWarning):
+        warnings.filterwarnings("ignore", category=UserWarning)
+        with pytest.warns(UserWarning, match="sunkit_spex_spectrum = True"):
             return spec_prod.get_data(**kwargs)
 
 
@@ -140,7 +140,9 @@ def _get_spectrum(spec_prod, *, time_indices, elut_correction, bkg):
 def spec_bkgsub_elut(spec_2024_03_10, bkg_2024_03_10):
     return _get_spectrum(
         spec_2024_03_10,
-        time_indices=T_RANGE, elut_correction=True, bkg=bkg_2024_03_10,
+        time_indices=T_RANGE,
+        elut_correction=True,
+        bkg=bkg_2024_03_10,
     )
 
 
@@ -148,7 +150,9 @@ def spec_bkgsub_elut(spec_2024_03_10, bkg_2024_03_10):
 def spec_bkgsub_noelut(spec_2024_03_10, bkg_2024_03_10):
     return _get_spectrum(
         spec_2024_03_10,
-        time_indices=T_RANGE, elut_correction=False, bkg=bkg_2024_03_10,
+        time_indices=T_RANGE,
+        elut_correction=False,
+        bkg=bkg_2024_03_10,
     )
 
 
@@ -156,7 +160,9 @@ def spec_bkgsub_noelut(spec_2024_03_10, bkg_2024_03_10):
 def spec_nobkgsub_elut(spec_2024_03_10):
     return _get_spectrum(
         spec_2024_03_10,
-        time_indices=T_RANGE, elut_correction=True, bkg=None,
+        time_indices=T_RANGE,
+        elut_correction=True,
+        bkg=None,
     )
 
 
@@ -164,7 +170,9 @@ def spec_nobkgsub_elut(spec_2024_03_10):
 def spec_nobkgsub_noelut(spec_2024_03_10):
     return _get_spectrum(
         spec_2024_03_10,
-        time_indices=T_RANGE, elut_correction=False, bkg=None,
+        time_indices=T_RANGE,
+        elut_correction=False,
+        bkg=None,
     )
 
 
@@ -217,7 +225,9 @@ def _assert_counts(spec, expected, variant):
     assert np.all(np.isfinite(counts))
     assert np.all(counts_err >= 0)
     if expected is not None:
-        assert_allclose(counts, expected[variant]["counts"], rtol=3e-6)#set slightly higher due to precision compression artefacts of bkg_data wrt IDL
+        assert_allclose(
+            counts, expected[variant]["counts"], rtol=3e-6
+        )  # set slightly higher due to precision compression artefacts of bkg_data wrt IDL
         assert_allclose(counts_err, expected[variant]["counts_err"], rtol=3e-7)
 
 

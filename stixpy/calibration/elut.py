@@ -24,8 +24,6 @@ def get_elut(date):
 
     """
 
-    # date = datetime.datetime(2023,11,15,0,0,0)
-
     root = Path(__file__).parent.parent
     elut_index_file = Path(root, *["config", "data", "elut", "elut_index.csv"])
 
@@ -37,8 +35,6 @@ def get_elut(date):
         raise ValueError(f"Multiple ELUTs for for date {date}")
     start_date, end_date, elut_file = list(elut_info)[0]
     sci_channels = get_sci_channels(date)
-
-    print('ELUT_FILENAME = ' , elut_file)
 
     elut_table = read_elut(elut_file, sci_channels)
 
@@ -62,7 +58,6 @@ def get_elut_correction(e_ind, pixel_data):
     -------
 
     """
-
     energy_mask = pixel_data.energy_masks.energy_mask.astype(bool)
     elut = get_elut(pixel_data.time_range.center)
     ebin_edges_low = np.zeros((32, 12, 32), dtype=float)
@@ -82,16 +77,6 @@ def get_elut_correction(e_ind, pixel_data):
 
     bins = ebin_sci_edges_high - ebin_sci_edges_low
 
-    # det_indices = np.where(pixel_data.detector_masks.__dict__["masks"] == 1)[1]
-    # pix_indices = np.where(pixel_data.pixel_masks.__dict__["masks"] == 1)[1]
-
-    # bins_reshape = bins.reshape(1, 1, 1, len(bins))
-    # bins_expand = np.broadcast_to(bins_reshape,(1,len(det_indices),len(pix_indices),len(bins)))
-    # ebin_widths = np.broadcast_to(ebin_widths,(1,ebin_widths.shape[0],ebin_widths.shape[1],ebin_widths.shape[2]))
-
-    # ebin_widths = ebin_widths[:,:,pix_indices,:]
-    # ebin_widths = ebin_widths[:,det_indices,:,:]
-
     bins = ebin_sci_edges_high - ebin_sci_edges_low
 
     n_energy = bins.shape[-1]
@@ -99,10 +84,3 @@ def get_elut_correction(e_ind, pixel_data):
     bins_actual = ebin_widths[np.newaxis, ...]
 
     return e_cor_high, e_cor_low, bins_expand, bins_actual
-
-
-
-    # bins_actual_1 = ebin_widths[det_indices, :, :]
-    # bins_actual = bins_actual_1[:, pix_indices, :].mean(axis=1).mean(axis=0)
-    # cor = bins / bins_actual
-    # print('ELUT_COR = ',cor)

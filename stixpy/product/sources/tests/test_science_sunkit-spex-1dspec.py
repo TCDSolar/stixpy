@@ -4,17 +4,13 @@ from pathlib import Path
 import numpy as np
 import pytest
 from numpy.testing import assert_allclose
+from sunkit_spex.spectrum.spectrum import Spectrum
 
 import astropy.units as u
-from astropy.coordinates import SkyCoord
 from astropy.io import fits
-from astropy.time import Time
-from sunpy.coordinates import Helioprojective
 
-from stixpy.product import Product
 from stixpy.coordinates.flare_location import stx_estimate_flare_location
-
-from sunkit_spex.spectrum.spectrum import SpectralAxis, Spectrum
+from stixpy.product import Product
 
 # Each selection uses its own integration window. The reference files bear this
 # out: the top24 file stores EXPTIME ~4.00 s (the 5 s window below) while the
@@ -46,8 +42,8 @@ BKG_URL = "https://pub099.cs.technik.fhnw.ch/fits/L1/2024/03/08/SCI/solo_L1_stix
 # background subtraction. Flare location isn't stored here - it's estimated
 # fresh from the CPD product every run, via the `flare_location` fixture below.
 DATA_DIR = Path(__file__).parent / "data"
-EXPECTED_VALUES_TOP24_PATH = DATA_DIR / "expected_values_top24_detector_sum_new.fits"
-EXPECTED_VALUES_BKGDET_PATH = DATA_DIR / "expected_values_bkg_detector_sum_new.fits"
+EXPECTED_VALUES_TOP24_PATH = DATA_DIR / "expected_values_top24_detector_sum_new.fits.gz"
+EXPECTED_VALUES_BKGDET_PATH = DATA_DIR / "expected_values_bkg_detector_sum_new.fits.gz"
 
 # The GEOAREA card in the top24 reference file (18.4695) appears to have been
 # written rounded to 6 significant figures: the bkgdet file stores exactly
@@ -144,7 +140,8 @@ def _get_spectrum(cpd, flare_location, *, time_indices, detector_indices, elut_c
     # config - it's an upstream bug worth fixing in stixpy, not a test problem.
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=DeprecationWarning)
-        with pytest.warns(UserWarning):
+        warnings.filterwarnings("ignore", category=UserWarning)
+        with pytest.warns(UserWarning, match="sunkit_spex_spectrum = True"):
             return cpd.get_data(**kwargs)
 
 
@@ -157,36 +154,48 @@ def _get_spectrum(cpd, flare_location, *, time_indices, detector_indices, elut_c
 @pytest.fixture(scope="module")
 def spec_top24_bkgsub_elut(cpd_2024_03_10, bkg_2024_03_10, flare_location):
     return _get_spectrum(
-        cpd_2024_03_10, flare_location,
+        cpd_2024_03_10,
+        flare_location,
         time_indices=T_RANGE_TOP24,
-        detector_indices="top24", elut_correction=True, bkg=bkg_2024_03_10,
+        detector_indices="top24",
+        elut_correction=True,
+        bkg=bkg_2024_03_10,
     )
 
 
 @pytest.fixture(scope="module")
 def spec_top24_bkgsub_noelut(cpd_2024_03_10, bkg_2024_03_10, flare_location):
     return _get_spectrum(
-        cpd_2024_03_10, flare_location,
+        cpd_2024_03_10,
+        flare_location,
         time_indices=T_RANGE_TOP24,
-        detector_indices="top24", elut_correction=False, bkg=bkg_2024_03_10,
+        detector_indices="top24",
+        elut_correction=False,
+        bkg=bkg_2024_03_10,
     )
 
 
 @pytest.fixture(scope="module")
 def spec_top24_nobkgsub_elut(cpd_2024_03_10, flare_location):
     return _get_spectrum(
-        cpd_2024_03_10, flare_location,
+        cpd_2024_03_10,
+        flare_location,
         time_indices=T_RANGE_TOP24,
-        detector_indices="top24", elut_correction=True, bkg=None,
+        detector_indices="top24",
+        elut_correction=True,
+        bkg=None,
     )
 
 
 @pytest.fixture(scope="module")
 def spec_top24_nobkgsub_noelut(cpd_2024_03_10, flare_location):
     return _get_spectrum(
-        cpd_2024_03_10, flare_location,
+        cpd_2024_03_10,
+        flare_location,
         time_indices=T_RANGE_TOP24,
-        detector_indices="top24", elut_correction=False, bkg=None,
+        detector_indices="top24",
+        elut_correction=False,
+        bkg=None,
     )
 
 
@@ -199,40 +208,52 @@ def spec_top24_nobkgsub_noelut(cpd_2024_03_10, flare_location):
 @pytest.fixture(scope="module")
 def spec_bkgdet_bkgsub_elut(cpd_2024_03_10, bkg_2024_03_10, flare_location):
     return _get_spectrum(
-        cpd_2024_03_10, flare_location,
+        cpd_2024_03_10,
+        flare_location,
         time_indices=T_RANGE_BKGDET,
-        detector_indices=[9], pixel_indices=[2, 5],
-        elut_correction=True, bkg=bkg_2024_03_10,
+        detector_indices=[9],
+        pixel_indices=[2, 5],
+        elut_correction=True,
+        bkg=bkg_2024_03_10,
     )
 
 
 @pytest.fixture(scope="module")
 def spec_bkgdet_bkgsub_noelut(cpd_2024_03_10, bkg_2024_03_10, flare_location):
     return _get_spectrum(
-        cpd_2024_03_10, flare_location,
+        cpd_2024_03_10,
+        flare_location,
         time_indices=T_RANGE_BKGDET,
-        detector_indices=[9], pixel_indices=[2, 5],
-        elut_correction=False, bkg=bkg_2024_03_10,
+        detector_indices=[9],
+        pixel_indices=[2, 5],
+        elut_correction=False,
+        bkg=bkg_2024_03_10,
     )
 
 
 @pytest.fixture(scope="module")
 def spec_bkgdet_nobkgsub_elut(cpd_2024_03_10, flare_location):
     return _get_spectrum(
-        cpd_2024_03_10, flare_location,
+        cpd_2024_03_10,
+        flare_location,
         time_indices=T_RANGE_BKGDET,
-        detector_indices=[9], pixel_indices=[2, 5],
-        elut_correction=True, bkg=None,
+        detector_indices=[9],
+        pixel_indices=[2, 5],
+        elut_correction=True,
+        bkg=None,
     )
 
 
 @pytest.fixture(scope="module")
 def spec_bkgdet_nobkgsub_noelut(cpd_2024_03_10, flare_location):
     return _get_spectrum(
-        cpd_2024_03_10, flare_location,
+        cpd_2024_03_10,
+        flare_location,
         time_indices=T_RANGE_BKGDET,
-        detector_indices=[9], pixel_indices=[2, 5],
-        elut_correction=False, bkg=None,
+        detector_indices=[9],
+        pixel_indices=[2, 5],
+        elut_correction=False,
+        bkg=None,
     )
 
 

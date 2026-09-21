@@ -13,7 +13,7 @@ from stixpy.product import Product
 SPEC_URL = "https://pub099.cs.technik.fhnw.ch/fits/L1/2024/03/10/SCI/solo_L1_stix-sci-xray-spec_20240310T073505-20240310T134008_V02_2403103995-60712.fits"
 BKG_URL = "https://pub099.cs.technik.fhnw.ch/fits/L1/2024/03/08/SCI/solo_L1_stix-sci-xray-cpd_20240308T193915-20240308T203235_V02_2403087339-57240.fits"
 
-EXPECTED_VALUES_PATH = Path(__file__).parent / "data" / "expected_values_spec_tuple.fits"
+EXPECTED_VALUES_PATH = Path(__file__).parent / "data" / "expected_values_spec_tuple.fits.gz"
 
 # Peak rate is ~2e5 ct/s, so one float32 ULP of the IDL output is ~0.02. atol has
 # to sit above that: near-zero background-subtracted bins inherit the absolute

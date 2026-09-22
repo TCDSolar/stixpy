@@ -956,9 +956,10 @@ class ScienceData(L1Product):
                 if elut_cor_fac is not None:
                     elut_cor_fac = elut_cor_fac[..., energy_mask]
                 
-                if livefrac is not None:
-                    livefrac = livefrac[..., energy_mask]
-                
+                if bkg:
+                    if livefrac is not None:
+                        livefrac = livefrac[..., energy_mask]
+                    
                 if livefrac_error is not None:
                     livefrac_error = livefrac_error[..., energy_mask]
 
@@ -982,11 +983,12 @@ class ScienceData(L1Product):
                         [np.mean(elut_cor_fac[..., el : eh + 1]) for el, eh in energy_indices], axis=-1
                     )
 
-                if livefrac is not None:
-                    livefrac = np.concatenate(
-                        [np.mean(livefrac[..., el : eh + 1], axis=2, keepdims=True) for el, eh in pixel_indices],
-                        axis=2,
-                    )
+                if bkg:
+                    if livefrac is not None:
+                        livefrac = np.concatenate(
+                            [np.mean(livefrac[..., el : eh + 1], axis=2, keepdims=True) for el, eh in pixel_indices],
+                            axis=2,
+                        )
 
                 if livefrac_error is not None:
                     livefrac_error = np.concatenate(
@@ -3281,10 +3283,10 @@ class ScienceData(L1Product):
             np.isclose(ph_energies[:, None], values_to_remove[None, :], atol=epsilon).any(axis=1)
         )[0]
 
-        drm_clipped = np.delete(drm, indices_to_remove, axis=0)
-        drm_clipped = np.delete(drm_clipped, indices_to_remove, axis=1)
+        drm_clipped, ph_energies_clipped = self._merge_removed_edges(drm, ph_energies, indices_to_remove)
+        ph_e_diff = np.diff(ph_energies_clipped)
 
-        ph_energies_clipped = np.delete(ph_energies, indices_to_remove)
+        # ph_energies_clipped = np.delete(ph_energies, indices_to_remove)
 
         ph_e_diff = np.diff(ph_energies_clipped)
 
@@ -3321,7 +3323,8 @@ class ScienceData(L1Product):
 
         attenuation = attenuation / np.size(detector_indices_input)
 
-        drm_clipped = drm_clipped * ph_e_diff[None, :] * attenuation[:, None]
+        # drm_clipped = drm_clipped * ph_e_diff[None, :] * attenuation[:, None]
+        drm_clipped = drm_clipped * attenuation[:, None]
 
         drm_new = []
 
@@ -3364,6 +3367,30 @@ class ScienceData(L1Product):
             ph_energies_clipped = ph_energies_clipped[i0:]
 
         return {"srm": srm, "ph_axis": ph_energies_clipped, "geo_area": area_scale * rcr_factor}
+
+    @staticmethod
+    def _merge_removed_edges(drm, ph_energies, indices_to_remove):
+        """Remove grid edges by merging the bins either side, instead of dropping a row/column."""
+        widths = np.diff(ph_energies)
+        keep = np.ones(ph_energies.size, bool)
+        keep[indices_to_remove] = False
+        keep[[0, -1]] = True                      # never drop the outer grid edges
+        new_edges = ph_energies[keep]
+        n = new_edges.size - 1
+
+        group = np.searchsorted(new_edges, ph_energies[:-1], side="right") - 1
+
+        # columns (count energy): per-keV -> counts, then add fine bins together
+        cols = np.zeros((drm.shape[0], n))
+        np.add.at(cols.T, group, (drm * widths[None, :]).T)
+
+        # rows (photon energy): width-weighted average of fine bins
+        rows = np.zeros((n, n))
+        np.add.at(rows, group, cols * widths[:, None])
+        wsum = np.zeros(n)
+        np.add.at(wsum, group, widths)
+
+        return rows / wsum[:, None], new_edges
 
     def concatenate(self, others):
         """

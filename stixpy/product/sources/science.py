@@ -2080,69 +2080,63 @@ class ScienceData(L1Product):
     @staticmethod
     def _time_indices_format(time_indices, times, dt, rcr):
         """
-        Normalize a user-supplied `time_indices` specification into a canonical list
-        of integer indices or [start, end] integer pairs, and apply RCR-state
-        consistency checks.
-
-        Supports four input formats:
-            - A flat list of integer indices (RCR state is checked with a warning).
-            - A flat list of strings/`Time` objects, treated as bin edges and
-            converted to [start, end] integer pairs via `_handle_datetime_strings`.
-            - A list of [start, end] string/`Time` pairs, similarly converted.
-            - A list of [start, end] integer pairs (RCR state is checked within each
-            pair, raising an error on a within-pair change and warning on a
-            between-pair difference).
-
-        Parameters
-        ----------
-        time_indices : list
-            The user-supplied time selection, in any of the supported formats.
-        times : list or astropy.time.Time
-            The full array of times associated with the data, used to resolve
-            string/`Time` bin edges to integer indices.
-        rcr : list
-            Full RCR (rate control regime) state array, indexed the same as `times`.
-
-        Returns
-        -------
-        list
-            The time indices normalized to either a flat list of ints or a list of
-            [start, end] integer pairs.
-
-        Raises
-        ------
-        ValueError
-            If the format of `time_indices` cannot be determined, or if nested
-            pairs are not valid [start, end] integer or time pairs.
+        ...docstring unchanged...
         """
 
         first = time_indices[0]
 
-        if isinstance(first, int):
+        # file limits: start of the first bin to the end of the last bin
+        file_start = times[0] - 0.5 * dt[0]
+        file_end = times[-1] + 0.5 * dt[-1]
+
+        if isinstance(first, (int, np.integer)):
+            ScienceData._check_index_limits(time_indices, len(times))
             ScienceData._rcr_warning(time_indices, rcr)
             return time_indices
 
         if isinstance(first, (str, Time)):
-            if isinstance(first, (str, Time)) and not isinstance(time_indices[0], (list, tuple)):
-                bins = [[time_indices[i], time_indices[i + 1]] for i in range(len(time_indices) - 1)]
-            else:
-                bins = time_indices
+            bins = [[time_indices[i], time_indices[i + 1]] for i in range(len(time_indices) - 1)]
+            ScienceData._check_time_limits(bins, file_start, file_end)
             result = ScienceData._handle_datetime_strings(bins, times, dt)
             ScienceData._handle_nested_pairs(result, rcr)
 
             return result
 
-        if isinstance(first, (list, tuple)):
+        if isinstance(first, (list, tuple, np.ndarray)):
             if isinstance(first[0], (str, Time)):
+                ScienceData._check_time_limits(time_indices, file_start, file_end)
                 result = ScienceData._handle_datetime_strings(time_indices, times, dt)
                 ScienceData._handle_nested_pairs(result, rcr)
                 return result
-            if len(first) == 2 and all(isinstance(v, int) for v in first):
+            if len(first) == 2 and all(isinstance(v, (int, np.integer)) for v in first):
+                ScienceData._check_index_limits(time_indices, len(times))
                 ScienceData._handle_nested_pairs(time_indices, rcr)
                 return time_indices
             raise ValueError(f"Nested lists must be [start, end] integer or time pairs, got: {first}")
 
         raise ValueError(f"Cannot determine format from first element: {first!r}")
+
+    @staticmethod
+    def _check_time_limits(bins, file_start, file_end):
+        """Raise if any requested [start, end] time falls outside the file."""
+        tol = 1 * u.ms  # absorbs floating-point error in file_start / file_end
+        for start, end in bins:
+            if Time(start) < file_start - tol or Time(end) > file_end + tol:
+                raise ValueError(
+                    f"Requested times [{Time(start).isot} - {Time(end).isot}] fall outside the "
+                    f"file time range [{file_start.isot} - {file_end.isot}]."
+                )
+
+    @staticmethod
+    def _check_index_limits(indices, n_times):
+        """Raise if any requested time index is outside the file. Works for flat lists and pairs."""
+        indices = np.asarray(indices)
+        bad = indices[(indices < 0) | (indices >= n_times)]
+        if bad.size > 0:
+            raise ValueError(
+                f"Time indices {np.unique(bad).tolist()} are outside the file, "
+                f"which has time indices 0-{n_times - 1}."
+            )
 
     @staticmethod
     def _rcr_warning(time_indices, rcr):

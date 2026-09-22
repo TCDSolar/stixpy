@@ -493,36 +493,57 @@ class ScienceData(L1Product):
     @staticmethod
     def _indices_check(product, detector_indices, pixel_indices, energy_indices):
         """
-        Validate and normalize the requested detector and pixel indices against what is
-        actually available in the product's masks.
+        Check the requested detector, pixel and energy indices against what the
+        product contains, and fill in defaults.
 
-        If `detector_indices` is None, all detectors available in `product.detector_masks`
-        are used. The special string "top24" selects a fixed set of 24 detector indices
-        excluding the background/CFL detectors. Otherwise, indices may be given as either
-        a flat 1D list of individual indices or a 2D list of [start, end] range pairs; in
-        both cases a warning is raised if any requested index/range is not present in the
-        product. The same logic applies independently to `pixel_indices` using
-        `product.pixel_masks`. If `sunkit_spex_spectrum=True`, both `detector_indices` and
-        `pixel_indices` (if not None) must be 1D, otherwise a ValueError is raised.
+        Detectors and pixels are checked against `product.detector_masks` and
+        `product.pixel_masks`. They may be a flat list of indices or a list of
+        [start, end] pairs; any that are not in the product raise a warning and the
+        selection is kept as given. None selects every detector or pixel in the
+        product. The string "top24" selects a fixed set of 24 detectors and is not
+        checked against the mask.
+
+        For spectrogram products (counts with fewer than 4 dimensions) detector and
+        pixel selections do not apply, and any that were given are dropped with a
+        warning.
+
+        Energy indices are checked against the bins in
+        `product.energy_masks.energy_mask`, in full energy table numbering. A bin
+        outside the mask raises a ValueError, since it holds no data.
 
         Parameters
         ----------
         product : ScienceData
-            The data product whose `detector_masks` and `pixel_masks` are used to
-            determine which indices are actually available.
-        detector_indices : list, numpy.ndarray, str, or None
-            Requested detector indices (flat list, [start, end] pairs, "top24", or None
-            to use all available detectors).
-        pixel_indices : list, numpy.ndarray, or None
-            Requested pixel indices (flat list, [start, end] pairs, or None to use all
-            available pixels).
-        sunkit_spex_spectrum : bool
-            If True, enforces that `detector_indices` and `pixel_indices` are 1D.
+            Product whose masks and energy table define what is available.
+        detector_indices : list, numpy.ndarray, str or None
+            Flat detector indices, [start, end] pairs, "top24", or None for all
+            detectors in the product.
+        pixel_indices : list, numpy.ndarray or None
+            Flat pixel indices, [start, end] pairs, or None for all pixels in the
+            product.
+        energy_indices : list, numpy.ndarray or None
+            Flat energy bin indices or [start, end] pairs, in full energy table
+            numbering. None skips the energy check.
 
         Returns
         -------
-        tuple of numpy.ndarray
-            The validated `detector_indices` and `pixel_indices` as numpy arrays.
+        detector_indices : numpy.ndarray
+            The detector selection. ``np.array(None)`` for spectrogram products.
+        pixel_indices : numpy.ndarray
+            The pixel selection. ``np.array(None)`` for spectrogram products.
+        energy_indices : list, numpy.ndarray or None
+            `energy_indices`, unchanged.
+
+        Raises
+        ------
+        ValueError
+            If a requested energy bin is outside the product's energy mask.
+
+        Warns
+        -----
+        UserWarning
+            If a requested detector or pixel is not in the product, or if detector
+            or pixel indices are given for a spectrogram product.
         """
 
         # --- Detector indices ---
@@ -546,7 +567,7 @@ class ScienceData(L1Product):
                     )
                     detector_indices = detector_indices_working
                 else:
-                    detector_indices_full = np.where(product.detector_masks.__dict__["masks"] == 1)[1]
+                    detector_indices_full = np.where(product.detector_masks.masks == 1)[1]
 
                     if np.ndim(detector_indices_working) == 2:
                         # [[start, end], ...] range format
@@ -568,11 +589,11 @@ class ScienceData(L1Product):
             if len(product.data["counts"].shape) < 4:
                 detector_indices = None
             else:
-                detector_indices = np.where(product.detector_masks.__dict__["masks"] == 1)[1]
+                detector_indices = np.where(product.detector_masks.masks == 1)[1]
 
         # --- Pixel indices ---
         if pixel_indices is not None:
-            pixel_indices_full = np.where(product.pixel_masks.__dict__["masks"] == 1)[1]
+            pixel_indices_full = np.where(product.pixel_masks.masks == 1)[1]
 
             if len(product.data["counts"].shape) < 4:
                 warnings.warn(
@@ -602,7 +623,7 @@ class ScienceData(L1Product):
             if len(product.data["counts"].shape) < 4:
                 pixel_indices = None
             else:
-                pixel_indices = np.where(product.pixel_masks.__dict__["masks"] == 1)[1]
+                pixel_indices = np.where(product.pixel_masks.masks == 1)[1]
 
         # --- Energy indices ---
         if energy_indices is not None:

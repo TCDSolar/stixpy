@@ -606,7 +606,7 @@ class ScienceData(L1Product):
 
         # --- Energy indices ---
         if energy_indices is not None:
-            energy_indices_full = np.where(product.energy_masks.energy_mask == 1)[1]
+            energy_indices_full = np.where(product.energy_masks.energy_mask == 1)[0]
             e_min = product.energies["e_low"][energy_indices_full[0]].value
             e_max = product.energies["e_high"][energy_indices_full[-1]].value
 

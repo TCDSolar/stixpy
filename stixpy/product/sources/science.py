@@ -955,6 +955,12 @@ class ScienceData(L1Product):
 
                 if elut_cor_fac is not None:
                     elut_cor_fac = elut_cor_fac[..., energy_mask]
+                
+                if livefrac is not None:
+                    livefrac = livefrac[..., energy_mask]
+                
+                if livefrac_error is not None:
+                    livefrac_error = livefrac_error[..., energy_mask]
 
             if energy_indices.ndim == 2:
                 counts = np.concatenate(
@@ -976,10 +982,26 @@ class ScienceData(L1Product):
                         [np.mean(elut_cor_fac[..., el : eh + 1]) for el, eh in energy_indices], axis=-1
                     )
 
+                if livefrac is not None:
+                    livefrac = np.concatenate(
+                        [np.mean(livefrac[..., el : eh + 1], axis=2, keepdims=True) for el, eh in pixel_indices],
+                        axis=2,
+                    )
+
+                if livefrac_error is not None:
+                    livefrac_error = np.concatenate(
+                        [
+                            np.sqrt(np.mean(livefrac_error[..., el : eh + 1] ** 2, axis=2, keepdims=True))
+                            for el, eh in pixel_indices
+                        ],
+                        axis=2,
+                    )
+
                 energies = np.atleast_2d(
                     [(energies["e_low"][el].value, energies["e_high"][eh].value) for el, eh in energy_indices]
                 )
                 energies = QTable(energies * u.keV, names=["e_low", "e_high"])
+
 
         if not bkg and livefrac is not None and detector_indices is None:
             # if not bkg and livefrac is not None and detector_indices is None and sunkit_spex_detector_sum:
@@ -1133,10 +1155,31 @@ class ScienceData(L1Product):
                 )
                 t_norm = dt
 
-                if sum_all_times and len(new_times) > 1:
-                    counts = np.sum(counts, axis=0, keepdims=True)
-                    counts_var = np.sum(counts_var, axis=0, keepdims=True)
-                    t_norm = np.sum(dt)
+        if sum_all_times and np.shape(counts)[0] > 1:
+            rcr_unique = np.unique(rcr)
+            if rcr_unique.size != 1:
+                raise ValueError(
+                    "Cannot sum all times as the RCR state changes between the selected time ranges "
+                    f"(RCR states {rcr_unique.astype(int).tolist()}). "
+                    "Select time ranges in a single RCR state."
+                )
+            
+            rcr = rcr_unique
+            # one bin from the start of the first selected bin to the end of the last
+            start = times[0] - 0.5 * t_norm[0]
+            end = times[-1] + 0.5 * t_norm[-1]
+            times = Time([start + 0.5 * (end - start)])
+
+            # weight by each bin's duration, so counts / (t_norm * livefrac) divides by the total live time
+            if livefrac is not None:
+                w = (t_norm / np.sum(t_norm)).to_value(u.one).reshape((-1,) + (1,) * (livefrac.ndim - 1))
+                livefrac = np.sum(livefrac * w, axis=0, keepdims=True)
+            if livefrac_error is not None:
+                livefrac_error = np.sqrt(np.mean(livefrac_error**2, axis=0, keepdims=True))
+
+            counts = np.sum(counts, axis=0, keepdims=True)
+            counts_var = np.sqrt(np.sum(counts_var**2, axis=0, keepdims=True))
+            t_norm = np.sum(t_norm, keepdims=True)
 
         return counts, counts_var, t_norm, e_norm, livefrac, livefrac_error, elut_cor_fac, times, energies, rcr
 

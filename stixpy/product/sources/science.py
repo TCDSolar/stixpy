@@ -2462,7 +2462,7 @@ class ScienceData(L1Product):
             jumps are found than there are RCR changes.
         """
 
-        if np.max(rcr) > 0:
+        if np.unique(rcr).size > 1:
             rcr = np.asarray(rcr)
 
             diffs = rcr[1:] - rcr[:-1]

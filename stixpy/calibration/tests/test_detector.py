@@ -6,13 +6,7 @@ from numpy.testing import assert_equal
 import astropy.units as u
 from astropy.table import QTable
 
-from stixpy.calibration.detector import get_sci_channels, get_srm
-
-
-@pytest.mark.skip(reason="File only locally available.")
-def test_get_srm():
-    srm = get_srm()
-    assert srm is True
+from stixpy.calibration.detector import get_sci_channels
 
 
 def test_get_sci_channels():

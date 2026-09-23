@@ -1,9 +1,10 @@
 from pathlib import Path
+import numpy as np
 
 from stixpy.io.readers import read_energy_channel_index, read_sci_energy_channels
 
 # __all__ = ["get_srm", "get_pixel_srm", "get_sci_channels"]
-__all__ = ["get_sci_channels"]
+__all__ = ["get_sci_channels","tailing_matrix"]
 
 SCI_INDEX = None
 SCI_CHANNELS = {}
@@ -89,3 +90,75 @@ def get_sci_channels(date):
         SCI_CHANNELS[sci_echan_file.name] = sci_echan_table
 
     return sci_echan_table
+
+
+def tailing_matrix(
+    ph_edges,
+    xsec_energy,
+    xsec,
+    depth=0.1,
+    trap_length_h=0.36e4,
+    trap_length_e=24e4,
+    damage_layer_depth=4.4e-5,
+    r0=0.8,
+    n_layers=1000,
+):
+    """
+    Hole-tailing matrix, a port of STIX-GSW ``stx_tailing_matrix.pro`` as ``stx_build_drm`` calls it.
+
+    IDL builds it on the photon bin means and applies it along the photon axis
+    (``eloss_mat # tailing_matrix``), so it depends on the photon grid and is rebuilt here for
+    each product's grid.
+
+    Parameters
+    ----------
+    ph_edges : numpy.ndarray
+        Photon bin edges in keV (the product's grid).
+    xsec_energy, xsec : numpy.ndarray
+        CdTe photoelectric + incoherent cross section in 1/cm (``det_xsec`` 'PE' + 'SI') and its
+        energies in keV, interpolated log-log.
+
+    Returns
+    -------
+    numpy.ndarray
+        ``T[dest, src]`` over photon bins; apply to a (photon, count) matrix as ``T.T @ drm``.
+    """
+    energy = 0.5 * (ph_edges[1:] + ph_edges[:-1])  # IDL passes the photon bin means
+    nen = energy.size
+    tm = np.zeros((nen, nen))  # tm[src, dest], as in IDL
+
+    # detector layers, with the finer damage layer at the front
+    d = depth * 1e4
+    dl = damage_layer_depth * 1e4
+    x = d * np.arange(n_layers) / n_layers
+    t = 10 * dl * np.arange(2 * n_layers) / (2 * n_layers)
+    x = np.concatenate([t, x[x >= 10 * dl]])
+    h = (
+        trap_length_h * (1 - np.exp(-x / trap_length_h)) + trap_length_e * (1 - np.exp(-(d - x) / trap_length_e))
+    ) / d
+    h = h * (1 - r0 * np.exp(-x / dl))  # charge collection efficiency per layer
+
+    emin = 0.5 * (energy[1:] + energy[:-1])
+    stot = np.exp(np.interp(np.log(emin), np.log(xsec_energy), np.log(xsec))) / 1e4  # 1/um
+    mx, dx = 0.5 * (x[1:] + x[:-1]), np.diff(x)
+
+    j = np.arange(nen - 1)
+    for i in range(x.size - 1):
+        f = energy * h[i]
+        pslice = np.exp(-stot * mx[i]) * (1 - np.exp(-stot * dx[i])) / (1 - np.exp(-stot * d))
+        g0 = np.searchsorted(energy, f[:-1], side="right") - 1  # IDL value_locate
+        g1 = np.searchsorted(energy, f[1:], side="right") - 1
+        width = f[1:] - f[:-1]
+
+        same = (g0 == g1) & (g0 >= 0)
+        tm[j[same], g0[same]] += pslice[same]
+
+        low = (g0 != g1) & (g0 < 0)
+        tm[j[low], g1[low]] += np.abs((f[1:][low] - energy[g1[low]]) / width[low]) * pslice[low]
+
+        split = (g0 != g1) & (g0 >= 0)
+        tm[j[split], g0[split]] += np.abs((f[:-1][split] - energy[g1[split]]) / width[split]) * pslice[split]
+        tm[j[split], g1[split]] += np.abs((f[1:][split] - energy[g1[split]]) / width[split]) * pslice[split]
+
+    return tm.T
+

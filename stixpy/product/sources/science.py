@@ -627,12 +627,12 @@ class ScienceData(L1Product):
 
         # --- Energy indices ---
         if energy_indices is not None:
-            energy_indices_full = np.where(product.energy_masks.energy_mask == 1)[0]
-            e_min = product.energies["e_low"][energy_indices_full[0]].value
-            e_max = product.energies["e_high"][energy_indices_full[-1]].value
+            energy_indices_full = np.arange(len(product.energies))
+            e_min = np.nanmin(product.energies["e_low"].value)
+            e_max = np.nanmax(product.energies["e_high"].value)
 
             energy_range = (
-                f"The energy mask covers indices {energy_indices_full[0]}-{energy_indices_full[-1]} "
+                f"The product has energy indices {energy_indices_full[0]}-{energy_indices_full[-1]} "
                 f"({e_min} - {e_max} keV)."
             )
 
@@ -955,11 +955,11 @@ class ScienceData(L1Product):
 
                 if elut_cor_fac is not None:
                     elut_cor_fac = elut_cor_fac[..., energy_mask]
-                
+
                 if bkg:
                     if livefrac is not None:
                         livefrac = livefrac[..., energy_mask]
-                    
+
                 if livefrac_error is not None:
                     livefrac_error = livefrac_error[..., energy_mask]
 
@@ -1003,7 +1003,6 @@ class ScienceData(L1Product):
                     [(energies["e_low"][el].value, energies["e_high"][eh].value) for el, eh in energy_indices]
                 )
                 energies = QTable(energies * u.keV, names=["e_low", "e_high"])
-
 
         if not bkg and livefrac is not None and detector_indices is None:
             # if not bkg and livefrac is not None and detector_indices is None and sunkit_spex_detector_sum:
@@ -1165,7 +1164,7 @@ class ScienceData(L1Product):
                     f"(RCR states {rcr_unique.astype(int).tolist()}). "
                     "Select time ranges in a single RCR state."
                 )
-            
+
             rcr = rcr_unique
             # one bin from the start of the first selected bin to the end of the last
             start = times[0] - 0.5 * t_norm[0]
@@ -2396,8 +2395,7 @@ class ScienceData(L1Product):
         bad = indices[(indices < 0) | (indices >= n_times)]
         if bad.size > 0:
             raise ValueError(
-                f"Time indices {np.unique(bad).tolist()} are outside the file, "
-                f"which has time indices 0-{n_times - 1}."
+                f"Time indices {np.unique(bad).tolist()} are outside the file, which has time indices 0-{n_times - 1}."
             )
 
     @staticmethod
@@ -2892,7 +2890,6 @@ class ScienceData(L1Product):
             elut_cor_fac = bins / bins_actual
 
         else:
-
             if pixel_indices.ndim == 2:
                 pixel_indices = ScienceData._indices_expand_ranges(pixel_indices, nest=False)
 
@@ -3196,6 +3193,122 @@ class ScienceData(L1Product):
 
             return counts, counts_var, t_norm, e_norm, livefrac, livefrac_error, elut_cor_fac, times, energies, rcr
 
+    @staticmethod
+    def _match_idl_grid(drm, ph_full, ct_full, e_edges, epsilon=1e-4):
+        """
+        Put the saved DRM on the photon grid IDL builds for this product.
+
+        IDL's grid is ``get_uniq([transmission_grid, ct_edges], epsilon=1e-4)``. The saved grid is the
+        transmission grid plus all STIX count edges (``ct_full``), so dropping the ones this product
+        doesn't have gives IDL's grid exactly, and each new bin is a run of whole saved bins.
+
+        Parameters
+        ----------
+        drm : numpy.ndarray
+            Saved DRM, (photon, count), counts / keV / photon.
+        ph_full : numpy.ndarray
+            Bin edges of the saved DRM in keV (same for both axes).
+        ct_full : numpy.ndarray
+            STIX count edges the saved grid contains, in keV.
+        e_edges : numpy.ndarray
+            This product's count edges, in keV.
+
+        Returns
+        -------
+        drm_new : numpy.ndarray
+            DRM on IDL's grid in counts per count bin per photon: count bins summed, photon bins
+            averaged (weighted by width).
+        ph_edges : numpy.ndarray
+            IDL's photon grid for this product.
+        """
+        missing = ~np.isclose(e_edges[:, None], ph_full[None, :], atol=epsilon).any(axis=1)
+        if missing.any():
+            raise ValueError(f"Energy edges {e_edges[missing]} are not on the saved DRM grid.")
+
+        is_count_edge = np.isclose(ph_full[:, None], ct_full[None, :], atol=epsilon).any(axis=1)
+        in_product = np.isclose(ph_full[:, None], e_edges[None, :], atol=epsilon).any(axis=1)
+
+        keep = ~is_count_edge | in_product  # = IDL's get_uniq([transmission_grid, e_edges])
+        ph_edges = ph_full[keep]
+        starts = np.flatnonzero(keep)[:-1]  # first saved bin in each new bin
+
+        widths = np.diff(ph_full)
+        summed = np.add.reduceat(drm * widths[:, None] * widths[None, :], starts, axis=0)
+        summed = np.add.reduceat(summed, starts, axis=1)
+
+        return summed / np.diff(ph_edges)[:, None], ph_edges
+
+    @staticmethod
+    def _tailing_matrix(
+        ph_edges,
+        xsec_energy,
+        xsec,
+        depth=0.1,
+        trap_length_h=0.36e4,
+        trap_length_e=24e4,
+        damage_layer_depth=4.4e-5,
+        r0=0.8,
+        n_layers=1000,
+    ):
+        """
+        Hole-tailing matrix, a port of STIX-GSW ``stx_tailing_matrix.pro`` as ``stx_build_drm`` calls it.
+
+        IDL builds it on the photon bin means and applies it along the photon axis
+        (``eloss_mat # tailing_matrix``), so it depends on the photon grid and is rebuilt here for
+        each product's grid.
+
+        Parameters
+        ----------
+        ph_edges : numpy.ndarray
+            Photon bin edges in keV (the product's grid).
+        xsec_energy, xsec : numpy.ndarray
+            CdTe photoelectric + incoherent cross section in 1/cm (``det_xsec`` 'PE' + 'SI') and its
+            energies in keV, interpolated log-log.
+
+        Returns
+        -------
+        numpy.ndarray
+            ``T[dest, src]`` over photon bins; apply to a (photon, count) matrix as ``T.T @ drm``.
+        """
+        energy = 0.5 * (ph_edges[1:] + ph_edges[:-1])  # IDL passes the photon bin means
+        nen = energy.size
+        tm = np.zeros((nen, nen))  # tm[src, dest], as in IDL
+
+        # detector layers, with the finer damage layer at the front
+        d = depth * 1e4
+        dl = damage_layer_depth * 1e4
+        x = d * np.arange(n_layers) / n_layers
+        t = 10 * dl * np.arange(2 * n_layers) / (2 * n_layers)
+        x = np.concatenate([t, x[x >= 10 * dl]])
+        h = (
+            trap_length_h * (1 - np.exp(-x / trap_length_h)) + trap_length_e * (1 - np.exp(-(d - x) / trap_length_e))
+        ) / d
+        h = h * (1 - r0 * np.exp(-x / dl))  # charge collection efficiency per layer
+
+        emin = 0.5 * (energy[1:] + energy[:-1])
+        stot = np.exp(np.interp(np.log(emin), np.log(xsec_energy), np.log(xsec))) / 1e4  # 1/um
+        mx, dx = 0.5 * (x[1:] + x[:-1]), np.diff(x)
+
+        j = np.arange(nen - 1)
+        for i in range(x.size - 1):
+            f = energy * h[i]
+            pslice = np.exp(-stot * mx[i]) * (1 - np.exp(-stot * dx[i])) / (1 - np.exp(-stot * d))
+            g0 = np.searchsorted(energy, f[:-1], side="right") - 1  # IDL value_locate
+            g1 = np.searchsorted(energy, f[1:], side="right") - 1
+            width = f[1:] - f[:-1]
+
+            same = (g0 == g1) & (g0 >= 0)
+            tm[j[same], g0[same]] += pslice[same]
+
+            low = (g0 != g1) & (g0 < 0)
+            tm[j[low], g1[low]] += np.abs((f[1:][low] - energy[g1[low]]) / width[low]) * pslice[low]
+
+            split = (g0 != g1) & (g0 >= 0)
+            tm[j[split], g0[split]] += np.abs((f[:-1][split] - energy[g1[split]]) / width[split]) * pslice[split]
+            tm[j[split], g1[split]] += np.abs((f[1:][split] - energy[g1[split]]) / width[split]) * pslice[split]
+
+        return tm.T
+
     def get_masked_srm(self, flare_location, detector_indices_input, pixel_indices_input, rcr, srm_e_min=3.5 * u.keV):
         """
         Build the spectral response matrix (SRM) for a set of detectors and pixels.
@@ -3253,6 +3366,7 @@ class ScienceData(L1Product):
         drm = np.array(Table.read(PATH_DRM, hdu=1)["DRM"])
         ph_energies = np.array(Table.read(PATH_DRM, hdu=2)["DRM"])
         ct_energies = np.array(Table.read(PATH_DRM, hdu=3)["DRM"])
+        xsec = Table.read(PATH_DRM, hdu=4)
 
         detector_indices_input = np.atleast_1d(detector_indices_input)
         pixel_indices_input = np.atleast_1d(pixel_indices_input)
@@ -3273,22 +3387,24 @@ class ScienceData(L1Product):
             e_edges = np.concatenate([e_low, [e_high[-1]]])
             ct_e_diff = np.diff(e_edges)
 
-        epsilon = 1e-4
+        # epsilon = 1e-4
 
-        mask_not_in_e = ~np.isclose(ct_energies[:, None], e_edges[None, :], atol=epsilon).any(axis=1)
+        # mask_not_in_e = ~np.isclose(ct_energies[:, None], e_edges[None, :], atol=epsilon).any(axis=1)
 
-        values_to_remove = ct_energies[mask_not_in_e]
+        # values_to_remove = ct_energies[mask_not_in_e]
 
-        indices_to_remove = np.where(
-            np.isclose(ph_energies[:, None], values_to_remove[None, :], atol=epsilon).any(axis=1)
-        )[0]
+        # indices_to_remove = np.where(
+        #     np.isclose(ph_energies[:, None], values_to_remove[None, :], atol=epsilon).any(axis=1)
+        # )[0]
 
-        drm_clipped, ph_energies_clipped = self._merge_removed_edges(drm, ph_energies, indices_to_remove)
-        ph_e_diff = np.diff(ph_energies_clipped)
+        # drm_clipped, ph_energies_clipped = self._merge_removed_edges(drm, ph_energies, indices_to_remove)
+        # ph_e_diff = np.diff(ph_energies_clipped)
+
+        drm_clipped, ph_energies_clipped = self._match_idl_grid(drm, ph_energies, ct_energies, e_edges)
 
         # ph_energies_clipped = np.delete(ph_energies, indices_to_remove)
 
-        ph_e_diff = np.diff(ph_energies_clipped)
+        # ph_e_diff = np.diff(ph_energies_clipped)
 
         pixel_areas_full = STIX_INSTRUMENT.pixel_config["Area"].to("cm2")
 
@@ -3324,7 +3440,7 @@ class ScienceData(L1Product):
         attenuation = attenuation / np.size(detector_indices_input)
 
         # drm_clipped = drm_clipped * ph_e_diff[None, :] * attenuation[:, None]
-        drm_clipped = drm_clipped * attenuation[:, None]
+        # drm_clipped = drm_clipped * attenuation[:, None]
 
         drm_new = []
 
@@ -3341,6 +3457,9 @@ class ScienceData(L1Product):
             drm_new.append(working)
 
         drm_new = np.array(drm_new)
+
+        tailing = self._tailing_matrix(ph_energies_clipped, np.array(xsec["ENERGY"]), np.array(xsec["XSEC"]))
+        drm_new = (tailing.T @ drm_new) * attenuation[:, None]
 
         grid_transmission = get_grid_transmission(e_mids, detector_indices_input, flare_location)
 
@@ -3374,7 +3493,7 @@ class ScienceData(L1Product):
         widths = np.diff(ph_energies)
         keep = np.ones(ph_energies.size, bool)
         keep[indices_to_remove] = False
-        keep[[0, -1]] = True                      # never drop the outer grid edges
+        keep[[0, -1]] = True  # never drop the outer grid edges
         new_edges = ph_energies[keep]
         n = new_edges.size - 1
 

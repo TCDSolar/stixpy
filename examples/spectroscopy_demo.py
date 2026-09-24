@@ -140,16 +140,106 @@ spec_seq = cpd_sci.get_data(
     sunkit_spex_spectrum=True,
 )
 
+spec_seq_bkg = cpd_sci.get_data(
+    time_indices=time_ranges,
+    detector_indices="bkg",
+    bkg=cpd_bkg,
+    flare_location=flare_location,
+    sunkit_spex_spectrum=True,
+)
+
+n = len(time_ranges)
+blues = plt.colormaps["Blues"](np.linspace(0.45, 0.9, n))
+oranges = plt.colormaps["Oranges"](np.linspace(0.45, 0.9, n))
+
 fig, ax = plt.subplots()
-for s, (start, end) in zip(spec_seq.data, time_ranges):
-    edges = s.spectral_axis.bin_edges
-    s_rate = s.data / s.meta["exposure_time"] / np.diff(edges)
-    ax.stairs(s_rate.value, edges.value, label=f"{start[11:19]} - {end[11:19]}")
+for seq, name, colours, ls in [
+    (spec_seq, "Top 24", blues, "-"),
+    (spec_seq_bkg, "BKG", oranges, "--"),
+]:
+    for s, (start, end), c in zip(seq.data, time_ranges, colours):
+        edges = s.spectral_axis.bin_edges
+        s_rate = s.data / s.meta["exposure_time"] / np.diff(edges)
+        ax.stairs(
+            s_rate.value,
+            edges.value,
+            baseline=None,
+            color=c,
+            linestyle=ls,
+            label=f"{name} {start[11:19]} - {end[11:19]}",
+        )
 ax.set_xscale("log")
 ax.set_yscale("log")
 ax.set_xlabel("Energy [keV]")
 ax.set_ylabel("Count rate [ct / (keV s)]")
+ax.legend(fontsize="small", ncol=2)
+
+
+
+time_range = ["2021-09-23T15:20:30", "2021-09-23T15:23:30"]
+
+spec_sub = cpd_sci.get_data(
+    time_indices=time_range,
+    detector_indices="top24",
+    bkg=cpd_bkg,
+    flare_location=flare_location,
+    sunkit_spex_spectrum=True,
+)
+
+spec_nosub = cpd_sci.get_data(
+    time_indices=time_range,
+    detector_indices="top24",
+    flare_location=flare_location,
+    sunkit_spex_spectrum=True,
+)
+
+edges = spec_sub.spectral_axis.bin_edges
+ct_width = np.diff(edges)
+ct_mid = edges[:-1] + ct_width / 2
+
+rate_sub = spec_sub.data * spec_sub.unit / spec_sub.meta["exposure_time"] / ct_width
+err_sub = spec_sub.uncertainty.array * spec_sub.unit / spec_sub.meta["exposure_time"] / ct_width
+rate_nosub = spec_nosub.data * spec_nosub.unit / spec_nosub.meta["exposure_time"] / ct_width
+err_nosub = spec_nosub.uncertainty.array * spec_nosub.unit / spec_nosub.meta["exposure_time"] / ct_width
+
+with np.errstate(divide="ignore", invalid="ignore"):
+    ratio = np.where(rate_nosub > 0, rate_sub / rate_nosub, np.nan).to(u.one)
+    ratio_err = np.where(rate_nosub > 0, np.sqrt(err_sub**2 + (ratio * err_nosub) ** 2) / rate_nosub, np.nan).to(u.one)
+
+rate_unit = rate_sub.unit
+
+fig, (ax, ax_ratio) = plt.subplots(
+    2, 1, sharex=True, figsize=(7, 6), gridspec_kw={"height_ratios": [3, 1], "hspace": 0.05}
+)
+
+ax.stairs(rate_sub.to_value(rate_unit), edges.to_value(u.keV), baseline=None, color="C0", label="BKG subtracted")
+ax.errorbar(
+    ct_mid.to_value(u.keV), rate_sub.to_value(rate_unit), yerr=err_sub.to_value(rate_unit), fmt="none", color="C0"
+)
+ax.stairs(
+    rate_nosub.to_value(rate_unit),
+    edges.to_value(u.keV),
+    baseline=None,
+    color="C1",
+    linestyle="--",
+    label="No BKG subtraction",
+)
+ax.errorbar(
+    ct_mid.to_value(u.keV), rate_nosub.to_value(rate_unit), yerr=err_nosub.to_value(rate_unit), fmt="none", color="C1"
+)
+ax.set_xscale("log")
+ax.set_yscale("log")
+ax.set_xlim(edges[0].to_value(u.keV), edges[-1].to_value(u.keV))
+ax.set_ylabel(f"Count rate [{rate_unit}]")
+ax.set_title(f"Top 24 detectors, {time_range[0][11:19]} - {time_range[1][11:19]}")
 ax.legend()
+
+ax_ratio.stairs(ratio.value, edges.to_value(u.keV), baseline=None, color="C0")
+ax_ratio.errorbar(ct_mid.to_value(u.keV), ratio.value, yerr=ratio_err.value, fmt="none", color="C0")
+ax_ratio.axhline(1, color="0.5", linewidth=0.8, linestyle=":")
+ax_ratio.set_ylim(0, 1.1)
+ax_ratio.set_xlabel("Energy [keV]")
+ax_ratio.set_ylabel("Sub / no sub")
 
 #############################################################################
 # With ``sunkit_spex_detector_sum=False`` each detector gets its own spectrum and SRM,

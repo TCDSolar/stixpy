@@ -1,6 +1,6 @@
 import warnings
-from pathlib import Path
 from itertools import product
+from pathlib import Path
 
 import numpy as np
 from matplotlib import pyplot as plt
@@ -3438,7 +3438,7 @@ class ScienceData(L1Product):
             The concatenated science products
         """
         others = others if isinstance(others, list) else [others]
-        if all([isinstance(o, type(self)) for o in others]):
+        if all(isinstance(o, type(self)) for o in others):
             control = self.control[:]
             data = self.data[:]
             for other in others:

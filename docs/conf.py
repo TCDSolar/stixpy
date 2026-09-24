@@ -41,6 +41,7 @@ if "mpltype" not in roles._roles:
 # Optional: Add specific anchors or URLs to ignore if they remain flaky
 linkcheck_ignore = [
     r"https://anaconda.org",
+    r"https://doi.org/10.1051/0004-6361/201937154",
     # r"https://github.com/.*#.*", # GitHub anchors are notoriously broken in linkcheck
 ]
 

@@ -1,0 +1,1 @@
+.. include:: ../stixpy/CITATION.rst

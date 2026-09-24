@@ -1,5 +1,5 @@
-from pathlib import Path
 from collections import OrderedDict
+from pathlib import Path
 
 import numpy as np
 from roentgen.absorption.material import Material, Stack
@@ -104,8 +104,7 @@ class Transmission:
 
         self.solarblack = solarblack
         self.materials = MATERIALS
-        self.components = COMPONENTS
-        self.components = dict()
+        self.components = {}
         self.energies = ENERGY_CHANNELS[1:32]["Elower"]
 
         for name, layers in COMPONENTS.items():
@@ -191,8 +190,8 @@ class Transmission:
         `dict`
             Entries are materials with the total thickness for that material.
         """
-        material_thickness = dict()
-        for name, layers in COMPONENTS.items():
+        material_thickness = {}
+        for layers in COMPONENTS.values():
             for material_name, thickness in layers:
                 if material_name == "solarblack":
                     material_name = self.solarblack
@@ -226,12 +225,10 @@ def generate_transmission_tables():
 
     comps = trans.get_transmission_by_component()
 
-    comps_sci_energies = Table(
-        [c.transmission(trans.energies) for c in comps.values()], names=[k for k in comps.keys()]
-    )
+    comps_sci_energies = Table([c.transmission(trans.energies) for c in comps.values()], names=list(comps.keys()))
     comps_sci_energies["energy"] = trans.energies
     comps_sci_energies.write(f"stix_transmission_by_component_sci_energies_{cur_date}.csv")
 
-    comps_highres = Table([c.transmission(energies) for c in comps.values()], names=[k for k in comps.keys()])
+    comps_highres = Table([c.transmission(energies) for c in comps.values()], names=list(comps.keys()))
     comps_highres["energy"] = energies
     comps_highres.write(f"stix_transmission_by_component_highres_{cur_date}.csv")

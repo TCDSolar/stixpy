@@ -1,4 +1,4 @@
-name: stixpy
+name: STIXpy
 channels:
   - conda-forge
 dependencies:

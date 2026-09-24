@@ -246,7 +246,7 @@ class ProductFactory(BasicRegistrationFactory):
         as `memmap` for FITS files.
         """
         meta_control_data_dicts = self._parse_args(*args, silence_errors=silence_errors, **kwargs)
-        new_products = list()
+        new_products = []
 
         # Loop over each registered type and check to see if WidgetType
         # matches the arguments.  If it does, use that type.
@@ -272,7 +272,7 @@ class ProductFactory(BasicRegistrationFactory):
         return new_products
 
     def _check_registered_widgets(self, *, meta, control, data, **kwargs):
-        candidate_widget_types = list()
+        candidate_widget_types = []
 
         for key in self.registry:
             # Call the registered validation function for each registered class

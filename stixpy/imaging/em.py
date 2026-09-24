@@ -1,5 +1,5 @@
-from pathlib import Path
 from collections.abc import Sequence
+from pathlib import Path
 
 import numpy as np
 from xrayvision.transform import generate_xy
@@ -18,6 +18,8 @@ from stixpy.coordinates.transforms import get_hpc_info
 from stixpy.utils.logging import get_logger
 
 logger = get_logger(__name__, level="DEBUG")
+
+__all__ = ["get_transmission_matrix", "em"]
 
 
 def get_transmission_matrix(u, v, shape=[64, 64] * apu.pix, pixel_size=[4.0, 4.0] * apu.arcsec, *, center, pixel_sum):

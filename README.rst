@@ -1,7 +1,7 @@
 ``STIXpy``
 ==========
 
-|Powered By| |Build Status| |Doc Status| |Python Versions|
+|Powered By| |Build Status| |Doc Status| |Python Versions| |Zenodo|
 
 .. |Powered By| image:: https://img.shields.io/badge/powered%20by-SunPy-orange.svg?style=flat
     :target: http://www.sunpy.org
@@ -18,6 +18,10 @@
 .. |Python Versions| image:: https://img.shields.io/pypi/pyversions/stixpy
     :target: https://pypi.python.org/pypi/stixpy
     :alt: Python Versions
+
+.. |Zenodo| image:: https://zenodo.org/badge/DOI/10.5281/zenodo.8086101.svg
+    :target: https://doi.org/10.5281/zenodo.8086101
+    :alt: DOI:10.5281/zenodo.8086101
 
 An open-source Python analysis library for the Spectrometer Telescope for Imaging X-rays (STIX) instrument on Solar Obriter.
 
@@ -40,6 +44,12 @@ We expect authentic engagement in our community.
 **Do not post the output from Large Language Models or similar generative AI as code, issues or comments on GitHub or any other platform.**
 If you use generative AI tools as an aid in developing code or documentation changes, ensure that you fully understand the proposed changes and can explain why they are the correct approach and an improvement to the current state.
 For more information see our documentation on fair and appropriate `AI usage <https://docs.sunpy.org/en/latest/dev_guide/contents/ai_usage.html>`__.
+
+Acknowledging or Citing ``STIXpy``
+----------------------------------
+
+If you use ``STIXpy`` in your scientific work, we would appreciate your `citing it in your publications <https://stixpy.readthedocs.io/en/stable/citing.html>`__.
+The continued growth and development of ``STIXPy`` is dependent on the community being aware of ``STIXpy``.
 
 Contributing
 ------------

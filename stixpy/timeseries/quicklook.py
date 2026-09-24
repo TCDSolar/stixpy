@@ -95,7 +95,7 @@ class QLLightCurve(GenericTimeSeries):
 
         axes = self._data[columns].plot(ax=axes, **plot_args)
 
-        units = set([self.units[col] for col in columns])
+        units = [self.units[col] for col in columns]
         if len(units) == 1 and list(units)[0] is not None:
             # If units of all columns being plotted are the same, add a unit
             # label to the y-axis.
@@ -199,8 +199,7 @@ class QLBackground(GenericTimeSeries):
     >>> from stixpy.data import test
     >>> from sunpy.timeseries import TimeSeries
     >>> from stixpy.timeseries.quicklook import QLLightCurve
-    >>> ql_bg = TimeSeries("https://pub099.cs.technik.fhnw.ch/fits/L1/2020/05/06/QL/"
-    ...                    "solo_L1_stix-ql-background_20200506_V02.fits") # doctest: +REMOTE_DATA
+    >>> ql_bg = TimeSeries("https://pub099.cs.technik.fhnw.ch/fits/L1/2020/05/06/QL/solo_L1_stix-ql-background_20200506_V02.fits") # doctest: +REMOTE_DATA
     >>> ql_bg # doctest: +SKIP
     <stixpy.timeseries.quicklook.QLBackground object at ...
     SunPy TimeSeries
@@ -261,7 +260,7 @@ class QLBackground(GenericTimeSeries):
 
         axes = self._data[columns].plot(ax=axes, **plot_args)
 
-        units = set([self.units[col] for col in columns])
+        units = [self.units[col] for col in columns]
         if len(units) == 1 and list(units)[0] is not None:
             # If units of all columns being plotted are the same, add a unit
             # label to the y-axis.
@@ -424,7 +423,7 @@ class QLVariance(GenericTimeSeries):
         axes, columns = self._setup_axes_columns(axes, columns)
         axes = self._data[columns].plot(ax=axes, **plot_args)
 
-        units = set([self.units[col] for col in columns])
+        units = [self.units[col] for col in columns]
         if len(units) == 1 and list(units)[0] is not None:
             # If units of all columns being plotted are the same, add a unit
             # label to the y-axis.

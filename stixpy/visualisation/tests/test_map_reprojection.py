@@ -23,14 +23,14 @@ def test_get_solo_position(mock_map):
 
 @pytest.mark.remote_data
 def test_map_reproject():
-    # Testing to check if reprojection is correct by doing reprojecting map onto itself.
+    # Testing to check if reprojection is correct by doing reprojecting amap onto itself.
     from sunpy.data import sample
     from sunpy.map import Map
 
-    map = Map(sample.AIA_094_IMAGE)
-    observer = map.observer_coordinate
-    reprojected_map = reproject_map(map, observer)
-    assert np.allclose(map.observer_coordinate.lat, reprojected_map.observer_coordinate.lat)
-    assert np.allclose(map.observer_coordinate.lon, reprojected_map.observer_coordinate.lon)
-    assert np.allclose(map.observer_coordinate.radius, reprojected_map.observer_coordinate.radius)
-    assert np.allclose(map.data, reprojected_map.data, atol=1e-7)
+    amap = Map(sample.AIA_094_IMAGE)
+    observer = amap.observer_coordinate
+    reprojected_map = reproject_map(amap, observer)
+    assert np.allclose(amap.observer_coordinate.lat, reprojected_map.observer_coordinate.lat)
+    assert np.allclose(amap.observer_coordinate.lon, reprojected_map.observer_coordinate.lon)
+    assert np.allclose(amap.observer_coordinate.radius, reprojected_map.observer_coordinate.radius)
+    assert np.allclose(amap.data, reprojected_map.data, atol=1e-7)

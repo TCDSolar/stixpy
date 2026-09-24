@@ -138,7 +138,7 @@ class ANCAspect(GenericTimeSeries):
             axes, columns = self._setup_axes_columns(axes, columns)
             axes = self.data[columns].plot(ax=axes, **plot_args)
 
-        units = set([self.units[col] for col in columns])
+        units = [self.units[col] for col in columns]
         if len(units) == 1 and list(units)[0] is not None:
             # If units of all columns being plotted are the same, add a unit
             # label to the y-axis.

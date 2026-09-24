@@ -1,5 +1,5 @@
-from types import SimpleNamespace
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 from xrayvision.visibility import Visibilities, VisMeta
@@ -380,9 +380,7 @@ def create_visibility(meta_pixels):
     return vis
 
 
-def calibrate_visibility(
-    vis: Visibilities, flare_location: SkyCoord = SkyCoord(0 * u.arcsec, 0 * u.arcsec, frame=STIXImaging)
-):
+def calibrate_visibility(vis: Visibilities, flare_location: SkyCoord | None = None):
     """
     Calibrate visibility phase and amplitudes.
 
@@ -399,6 +397,9 @@ def calibrate_visibility(
 
     """
     modulation_efficiency = np.pi**3 / (8 * np.sqrt(2))
+
+    if flare_location is None:
+        flare_location = SkyCoord(0 * u.arcsec, 0 * u.arcsec, frame=STIXImaging)
 
     # Grid correction factors
     grid_cal_file = Path(__file__).parent.parent / "config" / "data" / "grid" / "GridCorrection.csv"

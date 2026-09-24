@@ -9,7 +9,7 @@ from sunkit_spex.spectrum.spectrum import Spectrum
 import astropy.units as u
 from astropy.io import fits
 
-from stixpy.coordinates.flare_location import stx_estimate_flare_location
+from stixpy.imaging.flare_location import estimate_flare_location
 from stixpy.product import Product
 
 # Each selection uses its own integration window. The reference files bear this
@@ -100,7 +100,7 @@ def bkg_2024_03_10():
 @pytest.fixture(scope="module")
 def flare_location():
     t_range = ["2024-03-10T12:05:50", "2024-03-10T12:06:00"]
-    return stx_estimate_flare_location(CPD_URL, t_range, plot=False)
+    return estimate_flare_location(CPD_URL, t_range, plot=False)
 
 
 @pytest.fixture(scope="module")

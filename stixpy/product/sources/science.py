@@ -20,11 +20,11 @@ from sunpy.coordinates import HeliographicStonyhurst
 from sunpy.time.timerange import TimeRange
 from sunpy.util import deprecated
 
+from stixpy.calibration.detector import tailing_matrix
 from stixpy.calibration.elut import get_elut_correction
 from stixpy.calibration.grid import get_grid_transmission
 from stixpy.calibration.livetime import get_livetime_fraction
 from stixpy.calibration.transmission import Transmission
-from stixpy.calibration.detector import tailing_matrix
 from stixpy.config.instrument import STIX_INSTRUMENT
 from stixpy.coordinates.flare_angle import flare_spacecraft_angle
 from stixpy.coordinates.transforms import get_hpc_info
@@ -3239,8 +3239,6 @@ class ScienceData(L1Product):
 
         return summed / np.diff(ph_edges)[:, None], ph_edges
 
-
-
     def get_masked_srm(self, flare_location, detector_indices_input, pixel_indices_input, rcr, srm_e_min=3.5 * u.keV):
         """
         Build the spectral response matrix (SRM) for a set of detectors and pixels.
@@ -3313,7 +3311,6 @@ class ScienceData(L1Product):
                 "The BKG detector (index 9) can not be selected together with imaging detectors for spectral fitting."
             )
 
-
         energies = self.energies
 
         e_low = np.array(energies["e_low"])
@@ -3330,9 +3327,7 @@ class ScienceData(L1Product):
             e_edges = np.concatenate([e_low, [e_high[-1]]])
             ct_e_diff = np.diff(e_edges)
 
-
         drm_clipped, ph_energies_clipped = self._match_idl_grid(drm, ph_energies, ct_energies, e_edges)
-
 
         pixel_areas_full = STIX_INSTRUMENT.pixel_config["Area"].to("cm2")
 
@@ -3356,16 +3351,6 @@ class ScienceData(L1Product):
 
         rcr_state = rcr_state_all[int(rcr)]
         rcr_factor = rcr_state / np.sum(pixel_areas_full[pixel_indices_input_rcr].value)
-
-        # attenuation = np.zeros(len(tot_trans["det-1"]))
-
-        # if np.size(detector_indices_input) != 1:
-        #     for i, det in enumerate(detector_indices_input):
-        #         attenuation += tot_trans[f"det-{det}"]
-        # else:
-        #     attenuation += tot_trans[f"det-{int(detector_indices_input)}"]
-
-        # attenuation = attenuation / np.size(detector_indices_input)
 
         attenuation = np.mean([np.asarray(tot_trans[f"det-{det}"]) for det in detector_indices_input], axis=0)
 

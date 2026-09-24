@@ -1,10 +1,11 @@
 from pathlib import Path
+
 import numpy as np
 
 from stixpy.io.readers import read_energy_channel_index, read_sci_energy_channels
 
 # __all__ = ["get_srm", "get_pixel_srm", "get_sci_channels"]
-__all__ = ["get_sci_channels","tailing_matrix"]
+__all__ = ["get_sci_channels", "tailing_matrix"]
 
 SCI_INDEX = None
 SCI_CHANNELS = {}
@@ -133,9 +134,7 @@ def tailing_matrix(
     x = d * np.arange(n_layers) / n_layers
     t = 10 * dl * np.arange(2 * n_layers) / (2 * n_layers)
     x = np.concatenate([t, x[x >= 10 * dl]])
-    h = (
-        trap_length_h * (1 - np.exp(-x / trap_length_h)) + trap_length_e * (1 - np.exp(-(d - x) / trap_length_e))
-    ) / d
+    h = (trap_length_h * (1 - np.exp(-x / trap_length_h)) + trap_length_e * (1 - np.exp(-(d - x) / trap_length_e))) / d
     h = h * (1 - r0 * np.exp(-x / dl))  # charge collection efficiency per layer
 
     emin = 0.5 * (energy[1:] + energy[:-1])
@@ -161,4 +160,3 @@ def tailing_matrix(
         tm[j[split], g1[split]] += np.abs((f[1:][split] - energy[g1[split]]) / width[split]) * pslice[split]
 
     return tm.T
-

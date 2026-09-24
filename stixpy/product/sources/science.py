@@ -3239,76 +3239,7 @@ class ScienceData(L1Product):
 
         return summed / np.diff(ph_edges)[:, None], ph_edges
 
-    # @staticmethod
-    # def _tailing_matrix(
-    #     ph_edges,
-    #     xsec_energy,
-    #     xsec,
-    #     depth=0.1,
-    #     trap_length_h=0.36e4,
-    #     trap_length_e=24e4,
-    #     damage_layer_depth=4.4e-5,
-    #     r0=0.8,
-    #     n_layers=1000,
-    # ):
-    #     """
-    #     Hole-tailing matrix, a port of STIX-GSW ``stx_tailing_matrix.pro`` as ``stx_build_drm`` calls it.
 
-    #     IDL builds it on the photon bin means and applies it along the photon axis
-    #     (``eloss_mat # tailing_matrix``), so it depends on the photon grid and is rebuilt here for
-    #     each product's grid.
-
-    #     Parameters
-    #     ----------
-    #     ph_edges : numpy.ndarray
-    #         Photon bin edges in keV (the product's grid).
-    #     xsec_energy, xsec : numpy.ndarray
-    #         CdTe photoelectric + incoherent cross section in 1/cm (``det_xsec`` 'PE' + 'SI') and its
-    #         energies in keV, interpolated log-log.
-
-    #     Returns
-    #     -------
-    #     numpy.ndarray
-    #         ``T[dest, src]`` over photon bins; apply to a (photon, count) matrix as ``T.T @ drm``.
-    #     """
-    #     energy = 0.5 * (ph_edges[1:] + ph_edges[:-1])  # IDL passes the photon bin means
-    #     nen = energy.size
-    #     tm = np.zeros((nen, nen))  # tm[src, dest], as in IDL
-
-    #     # detector layers, with the finer damage layer at the front
-    #     d = depth * 1e4
-    #     dl = damage_layer_depth * 1e4
-    #     x = d * np.arange(n_layers) / n_layers
-    #     t = 10 * dl * np.arange(2 * n_layers) / (2 * n_layers)
-    #     x = np.concatenate([t, x[x >= 10 * dl]])
-    #     h = (
-    #         trap_length_h * (1 - np.exp(-x / trap_length_h)) + trap_length_e * (1 - np.exp(-(d - x) / trap_length_e))
-    #     ) / d
-    #     h = h * (1 - r0 * np.exp(-x / dl))  # charge collection efficiency per layer
-
-    #     emin = 0.5 * (energy[1:] + energy[:-1])
-    #     stot = np.exp(np.interp(np.log(emin), np.log(xsec_energy), np.log(xsec))) / 1e4  # 1/um
-    #     mx, dx = 0.5 * (x[1:] + x[:-1]), np.diff(x)
-
-    #     j = np.arange(nen - 1)
-    #     for i in range(x.size - 1):
-    #         f = energy * h[i]
-    #         pslice = np.exp(-stot * mx[i]) * (1 - np.exp(-stot * dx[i])) / (1 - np.exp(-stot * d))
-    #         g0 = np.searchsorted(energy, f[:-1], side="right") - 1  # IDL value_locate
-    #         g1 = np.searchsorted(energy, f[1:], side="right") - 1
-    #         width = f[1:] - f[:-1]
-
-    #         same = (g0 == g1) & (g0 >= 0)
-    #         tm[j[same], g0[same]] += pslice[same]
-
-    #         low = (g0 != g1) & (g0 < 0)
-    #         tm[j[low], g1[low]] += np.abs((f[1:][low] - energy[g1[low]]) / width[low]) * pslice[low]
-
-    #         split = (g0 != g1) & (g0 >= 0)
-    #         tm[j[split], g0[split]] += np.abs((f[:-1][split] - energy[g1[split]]) / width[split]) * pslice[split]
-    #         tm[j[split], g1[split]] += np.abs((f[1:][split] - energy[g1[split]]) / width[split]) * pslice[split]
-
-    #     return tm.T
 
     def get_masked_srm(self, flare_location, detector_indices_input, pixel_indices_input, rcr, srm_e_min=3.5 * u.keV):
         """
@@ -3371,6 +3302,17 @@ class ScienceData(L1Product):
 
         detector_indices_input = np.atleast_1d(detector_indices_input)
         pixel_indices_input = np.atleast_1d(pixel_indices_input)
+        rcr = int(np.asarray(rcr).item())  # callers may pass a 1-element array
+
+        # As in STIX-GSW stx_convert_spectrogram2ospex: the CFL (index 8) has no grid transmission,
+        # and the BKG detector (index 9) has its own, so it can only be used on its own.
+        if np.isin(8, detector_indices_input):
+            raise ValueError("The CFL detector (index 8) can not be selected for spectral fitting.")
+        if np.isin(9, detector_indices_input) and detector_indices_input.size > 1:
+            raise ValueError(
+                "The BKG detector (index 9) can not be selected together with imaging detectors for spectral fitting."
+            )
+
 
         energies = self.energies
 
@@ -3388,24 +3330,9 @@ class ScienceData(L1Product):
             e_edges = np.concatenate([e_low, [e_high[-1]]])
             ct_e_diff = np.diff(e_edges)
 
-        # epsilon = 1e-4
-
-        # mask_not_in_e = ~np.isclose(ct_energies[:, None], e_edges[None, :], atol=epsilon).any(axis=1)
-
-        # values_to_remove = ct_energies[mask_not_in_e]
-
-        # indices_to_remove = np.where(
-        #     np.isclose(ph_energies[:, None], values_to_remove[None, :], atol=epsilon).any(axis=1)
-        # )[0]
-
-        # drm_clipped, ph_energies_clipped = self._merge_removed_edges(drm, ph_energies, indices_to_remove)
-        # ph_e_diff = np.diff(ph_energies_clipped)
 
         drm_clipped, ph_energies_clipped = self._match_idl_grid(drm, ph_energies, ct_energies, e_edges)
 
-        # ph_energies_clipped = np.delete(ph_energies, indices_to_remove)
-
-        # ph_e_diff = np.diff(ph_energies_clipped)
 
         pixel_areas_full = STIX_INSTRUMENT.pixel_config["Area"].to("cm2")
 
@@ -3430,18 +3357,17 @@ class ScienceData(L1Product):
         rcr_state = rcr_state_all[int(rcr)]
         rcr_factor = rcr_state / np.sum(pixel_areas_full[pixel_indices_input_rcr].value)
 
-        attenuation = np.zeros(len(tot_trans["det-1"]))
+        # attenuation = np.zeros(len(tot_trans["det-1"]))
 
-        if np.size(detector_indices_input) != 1:
-            for i, det in enumerate(detector_indices_input):
-                attenuation += tot_trans[f"det-{det}"]
-        else:
-            attenuation += tot_trans[f"det-{int(detector_indices_input)}"]
+        # if np.size(detector_indices_input) != 1:
+        #     for i, det in enumerate(detector_indices_input):
+        #         attenuation += tot_trans[f"det-{det}"]
+        # else:
+        #     attenuation += tot_trans[f"det-{int(detector_indices_input)}"]
 
-        attenuation = attenuation / np.size(detector_indices_input)
+        # attenuation = attenuation / np.size(detector_indices_input)
 
-        # drm_clipped = drm_clipped * ph_e_diff[None, :] * attenuation[:, None]
-        # drm_clipped = drm_clipped * attenuation[:, None]
+        attenuation = np.mean([np.asarray(tot_trans[f"det-{det}"]) for det in detector_indices_input], axis=0)
 
         drm_new = []
 

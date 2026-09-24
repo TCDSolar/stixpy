@@ -1,6 +1,5 @@
 import warnings
 from pathlib import Path
-from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -12,7 +11,6 @@ from astropy.io import fits
 
 from stixpy.imaging.flare_location import estimate_flare_location
 from stixpy.product import Product
-from stixpy.product.sources.science import ScienceData
 
 # Each selection uses its own integration window. The reference files bear this
 # out: the top24 file stores EXPTIME ~4.00 s (the 5 s window below) while the

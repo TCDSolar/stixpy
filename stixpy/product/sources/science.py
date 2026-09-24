@@ -223,7 +223,7 @@ class SpectrogramPlotMixin:
         - 'cr': counts per second
         - 'dcr': counts per second per keV
         """
-        
+
         if axes is None:
             fig, axes = plt.subplots()
 
@@ -584,13 +584,37 @@ class ScienceData(L1Product):
                 detector_indices = None
 
             else:
-
                 detector_indices_working = detector_indices
 
                 if isinstance(detector_indices_working, str):
                     # named detector sets, as in STIX-GSW stx_label2det_ind
                     detector_labels = {
-                        "top24": [0, 1, 2, 3, 4, 5, 6, 7, 13, 14, 15, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31],
+                        "top24": [
+                            0,
+                            1,
+                            2,
+                            3,
+                            4,
+                            5,
+                            6,
+                            7,
+                            13,
+                            14,
+                            15,
+                            19,
+                            20,
+                            21,
+                            22,
+                            23,
+                            24,
+                            25,
+                            26,
+                            27,
+                            28,
+                            29,
+                            30,
+                            31,
+                        ],
                         "bkg": [9],
                     }
                     label = detector_indices_working.lower()
@@ -612,12 +636,11 @@ class ScienceData(L1Product):
                                 f'detector_indices="bkg" uses the BKG detector\'s small-aperture pixels [2, 5], '
                                 f"but pixel_indices={pixel_indices} was given. Either leave pixel_indices unset "
                                 f'(None) or set pixel_indices=[2, 5] if using the "bkg" preset.'
-                                f'To use background detectors with other pixel_indices use detector_indices=[9]'
-                                f'with your choice of pixel_indices.'
-                            )                       
+                                f"To use background detectors with other pixel_indices use detector_indices=[9]"
+                                f"with your choice of pixel_indices."
+                            )
 
                 else:
-                    
                     detector_indices_full = np.where(product.detector_masks.masks == 1)[1]
 
                     if np.ndim(detector_indices_working) == 2:
@@ -1798,7 +1821,7 @@ class ScienceData(L1Product):
             counts_uncertainity_final = np.sqrt(np.nansum(counts_uncertainity**2, axis=(0, 1, 2)))
 
             t_norm = t_norm[:, None, None, None] * livefrac
-            t_norm = t_norm.mean(axis=(1, 2, 3))
+            t_norm = np.nanmean(t_norm, axis=(1, 2, 3))
 
         elif case == "spec_sequence_detector_collapse" or case == "spec_1D_detector_expand":
             counts_final = np.nansum(counts, axis=(0, 1))
@@ -1806,7 +1829,7 @@ class ScienceData(L1Product):
             counts_uncertainity_final = np.sqrt(np.nansum(counts_uncertainity**2, axis=(0, 1)))
 
             t_norm = t_norm * livefrac
-            t_norm = t_norm.mean(axis=(0, 1, 2))
+            t_norm = np.nanmean(t_norm, axis=(0, 1, 2))
 
         elif case == "spec_sequence_detector_expand":
             counts_final = np.nansum(counts, axis=(0))
@@ -1814,7 +1837,7 @@ class ScienceData(L1Product):
             counts_uncertainity_final = np.sqrt(np.nansum(counts_uncertainity**2, axis=(0)))
 
             t_norm = t_norm * livefrac
-            t_norm = t_norm.mean(axis=(0))
+            t_norm = np.nanmean(t_norm, axis=(0))
 
         counts_uncertainity_pu = PoissonUncertainty(counts_uncertainity_final)
 

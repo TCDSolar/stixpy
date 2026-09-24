@@ -1,5 +1,4 @@
 from pathlib import Path
-from types import SimpleNamespace
 
 import numpy as np
 

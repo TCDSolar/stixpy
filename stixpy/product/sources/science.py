@@ -175,45 +175,55 @@ class SpectrogramPlotMixin:
         """
         Plot a spectrogram for the selected time and energies.
 
+        The data are not corrected for livetime or the ELUT.
+
         Parameters
         ----------
-        axes : optional `matplotlib.axes`
-            The axes the plot the spectrogram.
-        vtype : str
-           Type of value to return control the default normalisation:
-               * 'c' - count [c]
-               * 'cr' - count rate [c/s]
-               * 'dcr' - differential count rate [c/(s keV)]
-        time_indices : `list` or `numpy.ndarray`
-            If an 1xN array will be treated as mask if 2XN array will sum data between given
-            indices. For example `time_indices=[0, 2, 5]` would return only the first, third and
-            sixth times while `time_indices=[[0, 2],[3, 5]]` would sum the data between.
-        pixel_indices : `list` or `numpy.ndarray`
-            If an 1xN array will be treated as mask if 2XN array will sum data between given
-            indices. For example `pixel_indices=[0, 2, 5]` would return only the first, third and
-            sixth pixels while `pixel_indices=[[0, 2],[3, 5]]` would sum the data between.
-        detector_indices : `list` or `numpy.ndarray`
-            If an 1xN array will be treated as mask if 2XN array will sum data between given
-            indices. For example `detector_indices=[0, 2, 5]` would return only the first, third and
-            sixth detectors while `detector_indices=[[0, 2],[3, 5]]` would sum the data between.
-        energy_indices : `list` or `numpy.ndarray`
-            If an 1xN array will be treated as mask if 2XN array will sum data between given
-            indices. For example `energy_indices=[0, 2, 5]` would return only the first, third and
-            sixth times while `energy_indices=[[0, 2],[3, 5]]` would sum the data between.
-        **plot_kwargs : `dict`
-            Any additional arguments are passed to :meth:`~matplotlib.axes.Axes.pcolormesh`.
+        axes : matplotlib.axes.Axes, optional
+            Axes to plot on. A new figure is created if None.
+        vtype : {'c', 'cr', 'dcr'}, optional
+            Normalisation of the plotted values: counts ('c'), count rate in ct/s
+            ('cr'), or differential count rate in ct/(s keV) ('dcr', default).
+        time_indices : list, numpy.ndarray, str or astropy.time.Time, optional
+            Flat indices keep those time bins and [start, end] pairs sum each range,
+            e.g. ``[0, 2, 5]`` or ``[[0, 2], [3, 5]]``. Times are also accepted; see
+            `ScienceData.get_data`.
+        pixel_indices : list or numpy.ndarray, optional
+            A single pixel, e.g. ``[4]``, or one [start, end] range to sum, e.g.
+            ``[[0, 11]]``. Default "all" sums every pixel. Can not be used with a
+            spectrogram product.
+        detector_indices : list or numpy.ndarray, optional
+            A single detector, e.g. ``[5]``, or one [start, end] range to sum, e.g.
+            ``[[0, 31]]``. Default "all" sums every detector. Can not be used with a
+            spectrogram product.
+        energy_indices : list, numpy.ndarray or astropy.units.Quantity, optional
+            Flat indices keep those energy bins (rows of the energy table) and
+            [start, end] pairs sum each range. Energies can also be given in keV,
+            e.g. ``[[6, 10], [25, 100]] * u.keV``; each range takes the bins whose
+            centres lie inside it.
+        **plot_kwargs
+            Passed to :meth:`~matplotlib.axes.Axes.pcolormesh`.
 
         Returns
         -------
-        `matplotlib.axes`
+        matplotlib.axes.Axes
+
+        Raises
+        ------
+        ValueError
+            If more than one detector or pixel (or more than one range of them) is
+            selected, or if detector or pixel indices are given for a spectrogram
+            product.
 
         Notes
         -----
         The units of the plotted data are determined by the `vtype` parameter:
+
         - 'c': counts
         - 'cr': counts per second
         - 'dcr': counts per second per keV
         """
+        
         if axes is None:
             fig, axes = plt.subplots()
 
@@ -501,50 +511,64 @@ class ScienceData(L1Product):
         `product.pixel_masks`. They may be a flat list of indices or a list of
         [start, end] pairs; any that are not in the product raise a warning and the
         selection is kept as given. None selects every detector or pixel in the
-        product. The string "top24" selects a fixed set of 24 detectors and is not
-        checked against the mask.
+        product.
+
+        Detectors can also be given as a label, in any case. Labels are not checked
+        against the mask:
+
+        - "top24": the 24 imaging detectors of sub-collimators 3-10 (indices 0-7,
+          13-15 and 19-31), as in STIX-GSW.
+        - "bkg": the background detector (index 9) with its small-aperture pixels
+          [2, 5]. If `pixel_indices` is None it is set to [2, 5] with a warning;
+          any other pixels raise a ValueError. Use ``detector_indices=[9]`` to
+          choose other pixels.
 
         For spectrogram products (counts with fewer than 4 dimensions) detector and
         pixel selections do not apply, and any that were given are dropped with a
         warning.
 
-        Energy indices are checked against the bins in
-        `product.energy_masks.energy_mask`, in full energy table numbering. A bin
-        outside the mask raises a ValueError, since it holds no data.
+        Energy indices number the rows of `product.energies`, i.e. the last axis of
+        the counts. That table only holds the bins in the product's energy mask, so
+        an index outside it raises a ValueError naming the valid indices and energy
+        range.
 
         Parameters
         ----------
         product : ScienceData
             Product whose masks and energy table define what is available.
         detector_indices : list, numpy.ndarray, str or None
-            Flat detector indices, [start, end] pairs, "top24", or None for all
-            detectors in the product.
+            Flat detector indices, [start, end] pairs, "top24", "bkg", or None for
+            all detectors in the product.
         pixel_indices : list, numpy.ndarray or None
             Flat pixel indices, [start, end] pairs, or None for all pixels in the
-            product.
+            product ([2, 5] with ``detector_indices="bkg"``).
         energy_indices : list, numpy.ndarray or None
-            Flat energy bin indices or [start, end] pairs, in full energy table
-            numbering. None skips the energy check.
+            Flat energy bin indices or [start, end] pairs, numbering the rows of
+            `product.energies`. None skips the energy check.
 
         Returns
         -------
-        detector_indices : numpy.ndarray
-            The detector selection. ``np.array(None)`` for spectrogram products.
-        pixel_indices : numpy.ndarray
-            The pixel selection. ``np.array(None)`` for spectrogram products.
+        detector_indices : list, numpy.ndarray or None
+            The detector selection, with a label resolved to indices. None for
+            spectrogram products.
+        pixel_indices : list, numpy.ndarray or None
+            The pixel selection. None for spectrogram products.
         energy_indices : list, numpy.ndarray or None
             `energy_indices`, unchanged.
 
         Raises
         ------
         ValueError
-            If a requested energy bin is outside the product's energy mask.
+            If a detector label is not recognised, if ``detector_indices="bkg"`` is
+            given with pixels other than [2, 5], or if a requested energy bin is
+            outside the product's energy table.
 
         Warns
         -----
         UserWarning
-            If a requested detector or pixel is not in the product, or if detector
-            or pixel indices are given for a spectrogram product.
+            If a requested detector or pixel is not in the product, if detector or
+            pixel indices are given for a spectrogram product, or if
+            ``detector_indices="bkg"`` sets the pixels to [2, 5].
         """
 
         # --- Detector indices ---
@@ -560,14 +584,40 @@ class ScienceData(L1Product):
                 detector_indices = None
 
             else:
+
                 detector_indices_working = detector_indices
 
-                if detector_indices_working == "top24":
-                    detector_indices_working = np.array(
-                        [0, 1, 2, 3, 4, 5, 6, 7, 13, 14, 15, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31]
-                    )
-                    detector_indices = detector_indices_working
+                if isinstance(detector_indices_working, str):
+                    # named detector sets, as in STIX-GSW stx_label2det_ind
+                    detector_labels = {
+                        "top24": [0, 1, 2, 3, 4, 5, 6, 7, 13, 14, 15, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31],
+                        "bkg": [9],
+                    }
+                    label = detector_indices_working.lower()
+                    if label not in detector_labels:
+                        raise ValueError(
+                            f"Unknown detector label {detector_indices_working!r}, use one of {list(detector_labels)}."
+                        )
+                    detector_indices = np.array(detector_labels[label])
+
+                    if label == "bkg":
+                        if pixel_indices is None:
+                            pixel_indices = [2, 5]
+                            warnings.warn(
+                                'detector_indices="bkg" with no pixel_indices given: using the BKG detector\'s '
+                                "small-aperture pixels [2, 5]."
+                            )
+                        elif np.ndim(pixel_indices) != 1 or sorted(np.asarray(pixel_indices).tolist()) != [2, 5]:
+                            raise ValueError(
+                                f'detector_indices="bkg" uses the BKG detector\'s small-aperture pixels [2, 5], '
+                                f"but pixel_indices={pixel_indices} was given. Either leave pixel_indices unset "
+                                f'(None) or set pixel_indices=[2, 5] if using the "bkg" preset.'
+                                f'To use background detectors with other pixel_indices use detector_indices=[9]'
+                                f'with your choice of pixel_indices.'
+                            )                       
+
                 else:
+                    
                     detector_indices_full = np.where(product.detector_masks.masks == 1)[1]
 
                     if np.ndim(detector_indices_working) == 2:
@@ -762,9 +812,9 @@ class ScienceData(L1Product):
         ``sqrt(counts + compression_error**2)``.
 
         In both cases the 0 keV bottom energy bin and the open top bin (upper edge
-        NaN) are removed first. Energy indices are in full energy table numbering,
-        so they are shifted down by one when the bottom bin is removed and then
-        clipped into the remaining range.
+        NaN) are removed first. Energy indices number the rows of the product's
+        energy table, so they are shifted down by one when the bottom bin is
+        removed and then clipped into the remaining range.
 
         On every axis, flat indices keep those bins and [start, end] pairs sum each
         inclusive range into one bin (counts summed, uncertainties in quadrature,
@@ -790,14 +840,15 @@ class ScienceData(L1Product):
         product : ScienceData or tuple
             The science product, or the 10-element tuple returned by `_bkg_sub`.
         detector_indices : numpy.ndarray or None
-            Flat detector indices or [start, end] pairs. "top24" must already have
-            been resolved by `_indices_check`. Ignored for spectrogram products.
+            Flat detector indices or [start, end] pairs. Detector labels such as
+            "top24" must already have been resolved by `_indices_check`. Ignored
+            for spectrogram products.
         pixel_indices : numpy.ndarray or None
             Flat pixel indices or [start, end] pairs. Ignored for spectrogram
             products.
         energy_indices : list, numpy.ndarray or None
-            Flat energy indices or [start, end] pairs, in full energy table
-            numbering.
+            Flat energy indices or [start, end] pairs, numbering the rows of the
+            product's energy table.
         time_indices : list, numpy.ndarray or None
             Flat time indices or [start, end] pairs, as returned by
             `_time_indices_format`.
@@ -2453,8 +2504,8 @@ class ScienceData(L1Product):
         Returns
         -------
         numpy.ndarray
-            The aligned RCR state of each time bin, or `rcr` unchanged if no state
-            is above 0.
+            The aligned RCR state of each time bin, or `rcr` unchanged if it has
+            only one state.
 
         Raises
         ------
@@ -2752,7 +2803,7 @@ class ScienceData(L1Product):
         Returns
         -------
         list of list of int
-            [start, end] bin index pairs in full energy table numbering, or
+            [start, end] bin index pairs, numbering the rows of `energies`, or
             `energy_indices` unchanged if it is not a Quantity.
 
         Raises
@@ -2955,20 +3006,24 @@ class ScienceData(L1Product):
             `_time_indices_format`.
         energy_indices : list, numpy.ndarray or astropy.units.Quantity, optional
             Flat integer indices keep those energy bins, and [start, end] pairs sum
-            each range. Indices are in full energy table numbering and must be in
-            the energy mask. Energies can also be given as a Quantity, either flat
-            edges (``[4, 10, 28] * u.keV``) or [start, end] ranges
-            (``[[4, 10], [15, 28]] * u.keV``); each range takes the bins whose
-            centres lie inside it. Ignored, with a warning, if
+            each range. Indices number the rows of the product's energy table
+            (`energies`), which only holds the bins in the energy mask. Energies can
+            also be given as a Quantity, either flat edges (``[4, 10, 28] * u.keV``)
+            or [start, end] ranges (``[[4, 10], [15, 28]] * u.keV``); each range
+            takes the bins whose centres lie inside it. Ignored, with a warning, if
             `sunkit_spex_spectrum` is True.
         detector_indices : list, numpy.ndarray or str, optional
             Flat indices keep those detectors, and [start, end] pairs sum each
-            range. "top24" selects a fixed set of 24 detectors. None (default) uses
-            every detector in the product. Ignored for spectrogram products.
+            range. Two labels are accepted: "top24", the 24 imaging detectors used
+            for spectroscopy in STIX-GSW, and "bkg", the background detector
+            (index 9) with its small-aperture pixels [2, 5]. None (default) uses
+            every detector in the product. Ignored for spectrogram products. With
+            `sunkit_spex_spectrum`, the CFL detector (index 8) can not be used, and
+            the BKG detector only on its own.
         pixel_indices : list or numpy.ndarray, optional
             Flat indices keep those pixels, and [start, end] pairs sum each range.
-            None (default) uses every pixel in the product. Ignored for spectrogram
-            products.
+            None (default) uses every pixel in the product, or [2, 5] with
+            ``detector_indices="bkg"``. Ignored for spectrogram products.
         sum_all_times : bool, optional
             If True and `time_indices` gives [start, end] ranges, sum the ranges
             into one time bin. Default False.
@@ -3011,8 +3066,12 @@ class ScienceData(L1Product):
         Raises
         ------
         ValueError
-            If a selection is outside the file or the energy mask, if a time range
-            spans an RCR change, or if `vtype` is not 'c', 'cr' or 'dcr'.
+            If a selection is outside the file or the product's energy table, if a
+            detector label is not recognised, if ``detector_indices="bkg"`` is given
+            with pixels other than [2, 5], if a time range spans an RCR change, or
+            if `vtype` is not 'c', 'cr' or 'dcr'. With `sunkit_spex_spectrum`, also
+            if the CFL detector is selected or the BKG detector is combined with
+            other detectors.
         """
 
         rcr = self.rcr_shifted
@@ -3243,20 +3302,28 @@ class ScienceData(L1Product):
         """
         Build the spectral response matrix (SRM) for a set of detectors and pixels.
 
-        The detector response matrix and its photon and count energy grids are read
-        from the calibration file ``stx_detector_response_matrix.fits.gz``. The
-        count bin edges come from the product's energy table, without the 0 keV
-        lower edge and without the open top bin. Energies on the calibration grid
-        that fall between those edges are removed from the matrix and the photon
-        axis.
+        The detector response matrix (DRM) is read from the calibration file
+        ``stx_detector_response_matrix.fits.gz``: ``drm.smatrix`` from STIX-GSW
+        ``stx_build_drm``, without hole tailing, on a photon grid made of the STIX
+        transmission-file grid plus all 31 STIX count edges, together with its bin
+        edges, the count edges and the CdTe cross sections needed for the tailing.
 
-        The matrix is weighted by the photon bin widths and by the detector
-        transmission at the photon bin centres, averaged over the detectors (with
-        the attenuator in if ``rcr`` is not 0). It is then rebinned onto the count
-        bins, multiplied by the grid transmission for `flare_location` averaged over
-        the detectors, and divided by the count bin widths. For detector index 9 on
-        its own, the background detector, the grid transmission is replaced by the
-        mean over the selected pixels from ``real_bkg_grid_transmission.txt``.
+        The steps follow STIX-GSW ``stx_build_pixel_drm``:
+
+        1. The count edges are taken from the product's energy table, without the
+           0 keV lower edge and the open top bin.
+        2. The DRM is put on the photon grid IDL builds for these edges (see
+           `_match_idl_grid`).
+        3. The fine count bins are summed into the product's count bins.
+        4. Hole tailing is applied along the photon axis on this grid (see
+           `stixpy.calibration.detector.tailing_matrix`).
+        5. Each photon row is multiplied by the detector transmission at the bin
+           centre, averaged over the detectors, with the attenuator in if `rcr` is
+           not 0, and by the grid transmission for `flare_location`, averaged over
+           the detectors. For the background detector (index 9) on its own, the
+           grid transmission is the mean over the selected pixels from
+           ``real_bkg_grid_transmission.txt``.
+        6. The result is divided by the count bin widths.
 
         Parameters
         ----------
@@ -3267,9 +3334,9 @@ class ScienceData(L1Product):
             Detectors the response is for.
         pixel_indices_input : int or array_like
             Pixels the response is for.
-        rcr : int
-            RCR state, 0-7. Sets whether the attenuator is in and the fraction of
-            the pixel area that is active.
+        rcr : int or array_like
+            RCR state, 0-7, as a number or a one-element array. Sets whether the
+            attenuator is in and the fraction of the pixel area that is active.
         srm_e_min : astropy.units.Quantity, bool or None, optional
             Photon energies below this are cut from the SRM and the photon axis.
             True means 3.5 keV, and False or None keeps every photon energy.
@@ -3281,11 +3348,18 @@ class ScienceData(L1Product):
             With keys:
 
             - 'srm': the response matrix, one row per photon bin and one column per
-              count bin, per keV of count energy.
+              count bin, in counts per keV of count energy per photon.
             - 'ph_axis': photon bin edges in keV, as a plain array.
             - 'geo_area': geometric area in cm^2, the number of detectors times the
               area of the selected pixels, scaled by the fraction of the pixel area
               active in this RCR state.
+
+        Raises
+        ------
+        ValueError
+            If the CFL detector (index 8) is selected, if the BKG detector (index 9)
+            is combined with other detectors, or if a count edge of the product is
+            not on the DRM grid.
         """
 
         HERE = Path(__file__).parent

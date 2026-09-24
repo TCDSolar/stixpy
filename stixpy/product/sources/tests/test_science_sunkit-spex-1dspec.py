@@ -1,5 +1,6 @@
 import warnings
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -11,6 +12,7 @@ from astropy.io import fits
 
 from stixpy.imaging.flare_location import estimate_flare_location
 from stixpy.product import Product
+from stixpy.product.sources.science import ScienceData
 
 # Each selection uses its own integration window. The reference files bear this
 # out: the top24 file stores EXPTIME ~4.00 s (the 5 s window below) while the
@@ -211,8 +213,7 @@ def spec_bkgdet_bkgsub_elut(cpd_2024_03_10, bkg_2024_03_10, flare_location):
         cpd_2024_03_10,
         flare_location,
         time_indices=T_RANGE_BKGDET,
-        detector_indices=[9],
-        pixel_indices=[2, 5],
+        detector_indices="bkg",
         elut_correction=True,
         bkg=bkg_2024_03_10,
     )
@@ -224,8 +225,7 @@ def spec_bkgdet_bkgsub_noelut(cpd_2024_03_10, bkg_2024_03_10, flare_location):
         cpd_2024_03_10,
         flare_location,
         time_indices=T_RANGE_BKGDET,
-        detector_indices=[9],
-        pixel_indices=[2, 5],
+        detector_indices="bkg",
         elut_correction=False,
         bkg=bkg_2024_03_10,
     )
@@ -237,8 +237,7 @@ def spec_bkgdet_nobkgsub_elut(cpd_2024_03_10, flare_location):
         cpd_2024_03_10,
         flare_location,
         time_indices=T_RANGE_BKGDET,
-        detector_indices=[9],
-        pixel_indices=[2, 5],
+        detector_indices="bkg",
         elut_correction=True,
         bkg=None,
     )
@@ -250,8 +249,7 @@ def spec_bkgdet_nobkgsub_noelut(cpd_2024_03_10, flare_location):
         cpd_2024_03_10,
         flare_location,
         time_indices=T_RANGE_BKGDET,
-        detector_indices=[9],
-        pixel_indices=[2, 5],
+        detector_indices="bkg",
         elut_correction=False,
         bkg=None,
     )

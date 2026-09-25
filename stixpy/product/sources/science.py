@@ -3279,7 +3279,7 @@ class ScienceData(L1Product):
 
         if livetime_correction:
             warnings.warn(
-                "If livetime_correction=True livetime is applied avergaed across detectors to be consistent with IDL approach.",
+                "If livetime_correction=True livetime is applied averaged across detectors to be consistent with IDL approach.",
                 stacklevel=2,
             )
 

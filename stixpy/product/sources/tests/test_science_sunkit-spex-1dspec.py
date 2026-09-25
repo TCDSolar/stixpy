@@ -114,20 +114,20 @@ def expected_bkgdet():
 
 
 def _get_spectrum(cpd, flare_location, *, time_indices, detector_indices, elut_correction, bkg, pixel_indices=None):
-    kwargs = dict(
-        time_indices=time_indices,
-        sunkit_spex_spectrum=True,
-        flare_location=flare_location,
-        elut_correction=elut_correction,
-        detector_indices=detector_indices,
-        bkg=bkg,
-        sunkit_spex_detector_sum=True,
-        sunkit_spex_systematic_error=True,
+    kwargs = {
+        "time_indices": time_indices,
+        "sunkit_spex_spectrum": True,
+        "flare_location": flare_location,
+        "elut_correction": elut_correction,
+        "detector_indices": detector_indices,
+        "bkg": bkg,
+        "sunkit_spex_detector_sum": True,
+        "sunkit_spex_systematic_error": True,
         # No photon-axis trim: the reference SRM was generated before get_data
         # gained srm_e_min, so it still spans the full 3210 photon bins. Passing
         # False keeps the SRM untrimmed and the stored shape valid.
-        srm_e_min=False,
-    )
+        "srm_e_min": False,
+    }
     if pixel_indices is not None:
         kwargs["pixel_indices"] = pixel_indices
     # stixpy emits a NumPy DeprecationWarning ("Conversion of an array with

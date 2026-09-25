@@ -118,14 +118,14 @@ def _get_summed_counts(cpd, *, detector_indices, elut_correction, bkg, pixel_ind
     tuple of (n_time, n_detector, n_pixel, n_energy) arrays; axes 1 and 2 are
     summed away here, errors in quadrature.
     """
-    kwargs = dict(
-        vtype="cr",
-        sunkit_spex_spectrum=False,
-        elut_correction=elut_correction,
-        livetime_correction=True,
-        detector_indices=detector_indices,
-        bkg=bkg,
-    )
+    kwargs = {
+        "vtype": "cr",
+        "sunkit_spex_spectrum": False,
+        "elut_correction": elut_correction,
+        "livetime_correction": True,
+        "detector_indices": detector_indices,
+        "bkg": bkg,
+    }
     if pixel_indices is not None:
         kwargs["pixel_indices"] = pixel_indices
 

@@ -578,7 +578,8 @@ class ScienceData(L1Product):
                 warnings.warn(
                     f"As a spectrogram file is being used, the user selected detector indices \
                                 {detector_indices} will not be used, defaulting to the indices used in the creation \
-                                of the spectrgram file."
+                                of the spectrgram file.",
+                    stacklevel=3,
                 )
 
                 detector_indices = None
@@ -629,7 +630,8 @@ class ScienceData(L1Product):
                             pixel_indices = [2, 5]
                             warnings.warn(
                                 'detector_indices="bkg" with no pixel_indices given: using the BKG detector\'s '
-                                "small-aperture pixels [2, 5]."
+                                "small-aperture pixels [2, 5].",
+                                stacklevel=3,
                             )
                         elif np.ndim(pixel_indices) != 1 or sorted(np.asarray(pixel_indices).tolist()) != [2, 5]:
                             raise ValueError(
@@ -640,8 +642,18 @@ class ScienceData(L1Product):
                                 f"with your choice of pixel_indices."
                             )
 
+                    detector_indices_full = np.unique(np.where(product.detector_masks.masks == 1)[1])
+                    missing = np.setdiff1d(detector_indices, detector_indices_full)
+                    if missing.size > 0:
+                        usable = np.intersect1d(detector_indices, detector_indices_full)
+                        raise ValueError(
+                            f'detector_indices="{label}" includes detectors {missing.tolist()} that are switched off in '
+                            f"this file (detectors on: {detector_indices_full.tolist()}). Give the detectors explicitly, "
+                            f"e.g. detector_indices={usable.tolist()}."
+                        )
+
                 else:
-                    detector_indices_full = np.where(product.detector_masks.masks == 1)[1]
+                    detector_indices_full = np.unique(np.where(product.detector_masks.masks == 1)[1])
 
                     if np.ndim(detector_indices_working) == 2:
                         # [[start, end], ...] range format
@@ -649,14 +661,18 @@ class ScienceData(L1Product):
                             requested = np.arange(start, end + 1)
                             missing = np.setdiff1d(requested, detector_indices_full)
                             if missing.size > 0:
-                                warnings.warn(
-                                    f"Detector indices {missing.tolist()} in range [{start}, {end}] are not available in the product."
+                                raise ValueError(
+                                    f"Detector range [{start}, {end}] includes detectors {missing.tolist()} that are "
+                                    f"switched off in this file (detectors on: {detector_indices_full.tolist()}). Split "
+                                    "the range around them or give the detectors as a flat list."
                                 )
                     else:
                         missing = np.setdiff1d(detector_indices_working, detector_indices_full)
                         if missing.size > 0:
-                            warnings.warn(
-                                f"The following detector indices are not available in the product: {missing.tolist()}"
+                            raise ValueError(
+                                f"Detectors {missing.tolist()} are switched off in this file (detectors on: "
+                                f"{detector_indices_full.tolist()}). Remove them, or leave detector_indices unset to "
+                                "use every detector that is on."
                             )
 
         else:
@@ -667,13 +683,14 @@ class ScienceData(L1Product):
 
         # --- Pixel indices ---
         if pixel_indices is not None:
-            pixel_indices_full = np.where(product.pixel_masks.masks == 1)[1]
+            pixel_indices_full = np.unique(np.where(product.pixel_masks.masks == 1)[1])
 
             if len(product.data["counts"].shape) < 4:
                 warnings.warn(
                     f"As a spectrogram file is being used, the user selected detector indices \
                                 {pixel_indices} will not be used, defaulting to the indices used in the creation \
-                                of the spectrgram file."
+                                of the spectrgram file.",
+                    stacklevel=3,
                 )
                 pixel_indices = None
 
@@ -683,14 +700,18 @@ class ScienceData(L1Product):
                         requested = np.arange(start, end + 1)
                         missing = np.setdiff1d(requested, pixel_indices_full)
                         if missing.size > 0:
-                            warnings.warn(
-                                f"Pixel indices {missing.tolist()} in range [{start}, {end}] are not available in the product."
+                            raise ValueError(
+                                f"Pixel range [{start}, {end}] includes pixels {missing.tolist()} that are switched off "
+                                f"in this file (pixels on: {pixel_indices_full.tolist()}). Split the range around them "
+                                "or give the pixels as a flat list."
                             )
                 else:
                     missing = np.setdiff1d(pixel_indices, pixel_indices_full)
                     if missing.size > 0:
-                        warnings.warn(
-                            f"The following pixel indices are not available in the product: {missing.tolist()}"
+                        raise ValueError(
+                            f"Pixels {missing.tolist()} are switched off in this file (pixels on: "
+                            f"{pixel_indices_full.tolist()}). Remove them, or leave pixel_indices unset to use every "
+                            "pixel that is on."
                         )
 
         else:
@@ -812,6 +833,65 @@ class ScienceData(L1Product):
         return counts_out, counts_var_out, new_livefrac
 
     @staticmethod
+    def _full_layout(product, column):
+        """
+        Place a (time, detector, pixel, energy) data column on the full 32 x 12 grid.
+
+        L1 pixel data files store only the enabled detectors and pixels, so position
+        n on those axes is not necessarily detector or pixel n. As in IDL's
+        ``stx_read_pixel_data_fits_file``, the stored values are placed at their
+        detector and pixel numbers, with zeros for detectors and pixels that are off.
+        After this every detector and pixel index is a real detector or pixel number.
+
+        Parameters
+        ----------
+        product : ScienceData
+            Product to read from.
+        column : str
+            Column of ``product.data``, e.g. 'counts' or 'counts_comp_err'.
+
+        Returns
+        -------
+        astropy.units.Quantity or numpy.ndarray
+            The column with shape (time, 32, 12, energy). Returned unchanged if it
+            already has that shape, is not 4-dimensional, or holds summed pixel sets.
+
+        Raises
+        ------
+        KeyError
+            If `column` is not in ``product.data``.
+        ValueError
+            If the detector mask changes within the file, or the stored shape does
+            not match the masks.
+        """
+        values = product.data[column]
+        if values.ndim != 4 or values.shape[1:3] == (32, 12) or product.pixel_masks.masks.ndim != 2:
+            return values
+
+        if len(product.detector_masks.masks) > 1:
+            raise ValueError(
+                f"The detector mask changes within the file, so {column!r} can not be placed on the full detector grid."
+            )
+        dets = np.flatnonzero(product.detector_masks.masks[0])
+        pixs = np.flatnonzero(product.pixel_masks.masks.any(axis=0))  # pixels used at any time, as stored by STIXcore
+
+        if values.shape[1] == 32:
+            values = values[:, dets]
+        if values.shape[2] == 12:
+            values = values[:, :, pixs]
+        if values.shape[1:3] != (dets.size, pixs.size):
+            raise ValueError(
+                f"{column!r} has shape {values.shape}, which does not match the masks "
+                f"({dets.size} detectors, {pixs.size} pixels)."
+            )
+
+        full = np.zeros((values.shape[0], 32, 12, values.shape[3]), dtype=values.dtype)
+        if isinstance(values, u.Quantity):
+            full = full << values.unit
+        full[:, dets[:, None], pixs, :] = values
+        return full
+
+    @staticmethod
     def _data_select(
         product,
         detector_indices,
@@ -911,14 +991,14 @@ class ScienceData(L1Product):
 
         if isinstance(product, ScienceData):
             e_norm = product.dE
-            counts = product.data["counts"]
+            counts = ScienceData._full_layout(product, "counts")
 
             shape = counts.shape
 
             try:
-                counts_var = product.data["counts_comp_err"] ** 2
+                counts_var = ScienceData._full_layout(product, "counts_comp_err") ** 2
             except KeyError:
-                counts_var = product.data["counts_comp_comp_err"] ** 2
+                counts_var = ScienceData._full_layout(product, "counts_comp_comp_err") ** 2
 
             if len(shape) < 4:
                 counts = counts.reshape(shape[0], 1, 1, shape[-1])
@@ -1003,7 +1083,7 @@ class ScienceData(L1Product):
                         axis=2,
                     )
 
-                if livefrac is not None:
+                if livefrac is not None and livefrac.shape[2] != 1:
                     livefrac = np.concatenate(
                         [np.mean(livefrac[..., pl : ph + 1, :], axis=2, keepdims=True) for pl, ph in pixel_indices],
                         axis=2,
@@ -1354,38 +1434,66 @@ class ScienceData(L1Product):
         """
 
         e_norm = product.dE
-        counts = product.data["counts"]
+        counts = ScienceData._full_layout(product, "counts")
         shape = counts.shape
 
         try:
-            counts_var = (product.data["counts_comp_err"].value ** 2) * u.ct
+            counts_var = (ScienceData._full_layout(product, "counts_comp_err").value ** 2) * u.ct
         except KeyError:
-            counts_var = (product.data["counts_comp_comp_err"].value ** 2) * u.ct
+            counts_var = (ScienceData._full_layout(product, "counts_comp_comp_err").value ** 2) * u.ct
 
-        counts_bkg = bkg.data["counts"]
+        counts_bkg = ScienceData._full_layout(bkg, "counts")
 
         try:
-            counts_var_bkg = (bkg.data["counts_comp_err"].value ** 2) * u.ct
+            counts_var_bkg = (ScienceData._full_layout(bkg, "counts_comp_err").value ** 2) * u.ct
         except KeyError:
-            counts_var_bkg = (bkg.data["counts_comp_comp_err"].value ** 2) * u.ct
+            counts_var_bkg = (ScienceData._full_layout(bkg, "counts_comp_comp_err").value ** 2) * u.ct
 
         counts_var_bkg = np.sqrt(counts_bkg + counts_var_bkg)
 
-        counts_bkg = counts_bkg[:, detector_indices_bkg, :, :]
-        counts_bkg = counts_bkg[:, :, pixel_indices_bkg, :]
+        # counts_bkg = counts_bkg[:, detector_indices_bkg, :, :]
+        # counts_bkg = counts_bkg[:, :, pixel_indices_bkg, :]
+        # counts_bkg = counts_bkg[:, :, :, energy_indices_bkg]
+
+        # counts_var_bkg = counts_var_bkg[:, detector_indices_bkg, :, :]
+        # counts_var_bkg = counts_var_bkg[:, :, pixel_indices_bkg, :]
+        # counts_var_bkg = counts_var_bkg[:, :, :, energy_indices_bkg]
+
+        # livefrac_error_bkg = livefrac_error_bkg[:, detector_indices_bkg, :, :]
+        # livefrac_error_bkg = livefrac_error_bkg[:, :, pixel_indices_bkg, :]
+
+        # if elut_cor_fac is None:
+        #     livefrac_error_bkg = livefrac_error_bkg[:, :, :, energy_indices_bkg]
+
+        # livefrac_bkg = livefrac_bkg[:, detector_indices_bkg, :, :]
+
+        # if len(shape) == 4:
+        #     pix = np.asarray(pixel_indices)
+        #     if pix.ndim == 2:
+        #         pix = np.asarray(ScienceData._indices_expand_ranges(pix, nest=False))
+        #     pix = np.asarray(pix, dtype=int)
+
+        #     # counts_var_bkg has already been sliced to pixel_indices_bkg, so map the
+        #     # requested pixels onto positions within that subset.
+        #     # pix_bkg_pos = np.searchsorted(np.asarray(pixel_indices_bkg), pix)
+
+        #     pix_bkg_pos = np.flatnonzero(np.isin(pixel_indices_bkg, pix))
+        #     if pix_bkg_pos.size != len(pix):
+        #         missing = np.setdiff1d(pix, pixel_indices_bkg)
+        #         raise ValueError(f"pixels {missing.tolist()}")
+
+        #     counts_var_bkg = counts_var_bkg[:, :, pix_bkg_pos, :]
+        #     if livefrac_error_bkg.shape[2] != 1:
+        #         livefrac_error_bkg = livefrac_error_bkg[:, :, pix_bkg_pos, :]
+
+        # Both products are on the full 32 x 12 grid (_full_layout), so detector and pixel
+        # numbers index the background directly: keep the full grid, so its shape matches the
+        # science counts, and only select the matching energy bins.
         counts_bkg = counts_bkg[:, :, :, energy_indices_bkg]
-
-        counts_var_bkg = counts_var_bkg[:, detector_indices_bkg, :, :]
-        counts_var_bkg = counts_var_bkg[:, :, pixel_indices_bkg, :]
         counts_var_bkg = counts_var_bkg[:, :, :, energy_indices_bkg]
-
-        livefrac_error_bkg = livefrac_error_bkg[:, detector_indices_bkg, :, :]
-        livefrac_error_bkg = livefrac_error_bkg[:, :, pixel_indices_bkg, :]
 
         if elut_cor_fac is None:
             livefrac_error_bkg = livefrac_error_bkg[:, :, :, energy_indices_bkg]
-
-        livefrac_bkg = livefrac_bkg[:, detector_indices_bkg, :, :]
 
         if len(shape) == 4:
             pix = np.asarray(pixel_indices)
@@ -1393,18 +1501,30 @@ class ScienceData(L1Product):
                 pix = np.asarray(ScienceData._indices_expand_ranges(pix, nest=False))
             pix = np.asarray(pix, dtype=int)
 
-            # counts_var_bkg has already been sliced to pixel_indices_bkg, so map the
-            # requested pixels onto positions within that subset.
-            # pix_bkg_pos = np.searchsorted(np.asarray(pixel_indices_bkg), pix)
+            dets = np.asarray(detector_indices)
+            if dets.ndim == 2:
+                dets = np.asarray(ScienceData._indices_expand_ranges(dets, nest=False))
 
-            pix_bkg_pos = np.flatnonzero(np.isin(pixel_indices_bkg, pix))
-            if pix_bkg_pos.size != len(pix):
-                missing = np.setdiff1d(pix, pixel_indices_bkg)
-                raise ValueError(f"pixels {missing.tolist()}")
+            # every selected detector and pixel must be on in both files
+            missing_dets = np.setdiff1d(dets, detector_indices_bkg)
+            missing_pix = np.setdiff1d(pix, pixel_indices_bkg)
+            if missing_dets.size or missing_pix.size:
+                raise ValueError(
+                    f"Detectors {missing_dets.tolist()} and pixels {missing_pix.tolist()} are selected but are not "
+                    "on in both the science and background files, so they can not be background subtracted. "
+                    f"Detectors on in both: {list(detector_indices_bkg)}, pixels on in both: {list(pixel_indices_bkg)}."
+                )
 
-            counts_var_bkg = counts_var_bkg[:, :, pix_bkg_pos, :]
+            counts_var_bkg = counts_var_bkg[:, :, pix, :]
             if livefrac_error_bkg.shape[2] != 1:
-                livefrac_error_bkg = livefrac_error_bkg[:, :, pix_bkg_pos, :]
+                livefrac_error_bkg = livefrac_error_bkg[:, :, pix, :]
+        else:
+            # spectrogram: the counts were summed onboard over the detectors and pixels in its
+            # masks, so sum the background over the same ones (those also on in the background)
+            counts_bkg = counts_bkg[:, detector_indices_bkg][:, :, pixel_indices_bkg]
+            counts_var_bkg = counts_var_bkg[:, detector_indices_bkg][:, :, pixel_indices_bkg]
+            livefrac_error_bkg = livefrac_error_bkg[:, detector_indices_bkg][:, :, pixel_indices_bkg]
+            livefrac_bkg = livefrac_bkg[:, detector_indices_bkg]
 
         if elut_cor_fac is not None:
             counts_var_bkg = counts_var_bkg * elut_cor_fac
@@ -1698,7 +1818,7 @@ class ScienceData(L1Product):
             livefrac_upper = livefrac_upper.reshape(livefrac_upper.shape + (1, 1, 1))
 
         else:
-            counts = product.data["counts"]
+            counts = ScienceData._full_layout(product, "counts")
 
             triggers = product.data["triggers"][:, trigger_to_detector].astype(float)[...]
 
@@ -2499,7 +2619,8 @@ class ScienceData(L1Product):
                     f"RCR state change detected "
                     f"index {time_indices[0]} has RCR={first_rcr!r}, "
                     f"index {i} has RCR={rcr[i]!r}."
-                    f"Use with caution!"
+                    f"Use with caution!",
+                    stacklevel=4,
                 )
         return None
 
@@ -2644,14 +2765,14 @@ class ScienceData(L1Product):
         data_bin_end = times + (0.5 * dt)
 
         results = []
-        for n, bin in enumerate(time_bin):
+        for n, pair in enumerate(time_bin):
             if len(bin) != 2:
                 raise ValueError(
-                    f"Each time bin must have exactly 2 elements [start, end], got {len(bin)} at index {n}."
+                    f"Each time bin must have exactly 2 elements [start, end], got {len(pair)} at index {n}."
                 )
 
-            bin_start = Time(bin[0])
-            bin_end = Time(bin[1])
+            bin_start = Time(pair[0])
+            bin_end = Time(pair[1])
 
             matched = [
                 i for i, t in enumerate(times) if (bin_start <= data_bin_start[i]) and (data_bin_end[i] <= bin_end)
@@ -2689,7 +2810,7 @@ class ScienceData(L1Product):
             If the pairs are in different RCR states from each other.
         """
         # Check within each pair
-        for n, pair in enumerate(time_indices):
+        for pair in time_indices:
             indices_in_pair = list(range(pair[0], pair[1] + 1))
             ScienceData._rcr_error(indices_in_pair, rcr)
 
@@ -2698,7 +2819,8 @@ class ScienceData(L1Product):
         if len(set(pair_representatives)) > 1:
             warnings.warn(
                 f"RCR state differs across nested pairs: "
-                f"{[f'pair {n}={r!r}' for n, r in enumerate(pair_representatives)]}."
+                f"{[f'pair {n}={r!r}' for n, r in enumerate(pair_representatives)]}.",
+                stacklevel=4,
             )
 
         return time_indices
@@ -3109,7 +3231,10 @@ class ScienceData(L1Product):
         if energy_indices is not None:
             if sunkit_spex_spectrum:
                 energy_indices = None
-                warnings.warn("sunkit_spex_spectrum == True and so energy_indices set to None")
+                warnings.warn(
+                    "sunkit_spex_spectrum == True and so energy_indices set to None",
+                    stacklevel=2,
+                )
             else:
                 energy_indices = self._energy_indices_format(energy_indices, self.energies)
 
@@ -3138,7 +3263,8 @@ class ScienceData(L1Product):
 
             warnings.warn(
                 "ELUT correction factor is always averaged over the used pixels"
-                "but can be given detector-wise or detector averaged."
+                "but can be given detector-wise or detector averaged.",
+                stacklevel=2,
             )
 
         else:
@@ -3153,7 +3279,8 @@ class ScienceData(L1Product):
 
         if livetime_correction:
             warnings.warn(
-                "If livetime_correction=True livetime is applied avergaed across detectors to be consistent with IDL approach."
+                "If livetime_correction=True livetime is applied avergaed across detectors to be consistent with IDL approach.",
+                stacklevel=2,
             )
 
             livefraction_sci, livefraction_sci_error = self._livefrac(self, elut_cor_fac, pixel_indices)
@@ -3188,7 +3315,10 @@ class ScienceData(L1Product):
 
         else:
             background_boolean = True
-            warnings.warn("For background subtraction livetime_correction set as True.")
+            warnings.warn(
+                "For background subtraction livetime_correction set as True.",
+                stacklevel=2,
+            )
 
             sci_data_all = self._bkg_sub(
                 self,
@@ -3226,7 +3356,8 @@ class ScienceData(L1Product):
         if sunkit_spex_spectrum:
             warnings.warn(
                 "As sunkit_spex_spectrum = True, all data will be output as counts."
-                "Normalisation selection (vtype) will not be taken into account."
+                "Normalisation selection (vtype) will not be taken into account.",
+                stacklevel=2,
             )
 
             sunkit_spex_spectrum = self._get_sunkit_spex_spectrum(

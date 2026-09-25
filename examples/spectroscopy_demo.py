@@ -175,7 +175,6 @@ ax.set_ylabel("Count rate [ct / (keV s)]")
 ax.legend(fontsize="small", ncol=2)
 
 
-
 time_range = ["2021-09-23T15:20:30", "2021-09-23T15:23:30"]
 
 spec_sub = cpd_sci.get_data(

@@ -49,7 +49,10 @@ def flare_spacecraft_angle(
     flare_hgs = flare_hpc.transform_to(hgs_frame)
 
     if np.isnan(flare_hgs.lat.value):
-        warnings.warn("Flare location is off the limb so no angle can be calculated.")
+        warnings.warn(
+            "Flare location is off the limb so no angle can be calculated.",
+            stacklevel=2,
+        )
         return np.nan
 
     else:

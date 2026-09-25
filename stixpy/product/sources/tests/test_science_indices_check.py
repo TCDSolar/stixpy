@@ -84,18 +84,16 @@ def test_detectors_in_mask_returned_unchanged(cpd, detector_indices):
     assert np.array_equal(result, detector_indices)
 
 
-def test_detectors_not_in_mask_warn_and_are_kept():
+def test_detectors_switched_off_raise():
     product = make_product(detectors=range(10))
-    with pytest.warns(UserWarning, match=r"detector indices are not available in the product: \[12, 20\]"):
-        result, _, _ = ScienceData._indices_check(product, [1, 12, 20], None, None)
-    assert np.array_equal(result, [1, 12, 20])
+    with pytest.raises(ValueError, match=r"Detectors \[12, 20\] are switched off in this file"):
+        ScienceData._indices_check(product, [1, 12, 20], None, None)
 
 
-def test_detector_range_not_in_mask_warns():
+def test_detector_range_with_switched_off_detectors_raises():
     product = make_product(detectors=range(10))
-    with pytest.warns(UserWarning, match=r"Detector indices \[10, 11\] in range \[8, 11\]"):
-        result, _, _ = ScienceData._indices_check(product, [[0, 3], [8, 11]], None, None)
-    assert np.array_equal(result, [[0, 3], [8, 11]])
+    with pytest.raises(ValueError, match=r"Detector range \[8, 11\] includes detectors \[10, 11\]"):
+        ScienceData._indices_check(product, [[0, 3], [8, 11]], None, None)
 
 
 @pytest.mark.parametrize("label", ["top24", "TOP24", "Top24"])
@@ -106,11 +104,24 @@ def test_top24_label(cpd, label):
     assert not set(result.tolist()) & {8, 9, 10, 11, 12, 16, 17, 18}
 
 
-def test_top24_label_is_not_checked_against_mask():
-    # a label is a fixed set, so a detector missing from the mask gives no warning
+def test_top24_label_raises_if_a_detector_is_switched_off():
+    # labels are checked against the mask like explicit indices, and the error suggests the usable set
     product = make_product(detectors=range(1, 32))
-    result, _, _ = ScienceData._indices_check(product, "top24", None, None)
-    assert 0 in result
+    with pytest.raises(ValueError, match=r'detector_indices="top24" includes detectors \[0\] that are switched off'):
+        ScienceData._indices_check(product, "top24", None, None)
+
+
+def test_bkg_label_raises_if_bkg_detector_switched_off():
+    # pixels given explicitly so the "using pixels [2, 5]" warning does not fire first
+    product = make_product(detectors=[d for d in range(32) if d != 9])
+    with pytest.raises(ValueError, match=r'detector_indices="bkg" includes detectors \[9\]'):
+        ScienceData._indices_check(product, "bkg", [2, 5], None)
+
+
+def test_bkg_label_raises_if_its_pixels_are_switched_off():
+    product = make_product(pixels=[p for p in range(12) if p != 5])
+    with pytest.raises(ValueError, match=r"Pixels \[5\] are switched off in this file"):
+        ScienceData._indices_check(product, "bkg", [2, 5], None)
 
 
 def test_top24_label_keeps_pixel_default():
@@ -202,18 +213,16 @@ def test_pixels_in_mask_returned_unchanged(cpd, pixel_indices):
     assert np.array_equal(result, pixel_indices)
 
 
-def test_pixels_not_in_mask_warn_and_are_kept():
+def test_pixels_switched_off_raise():
     product = make_product(pixels=range(8))
-    with pytest.warns(UserWarning, match=r"pixel indices are not available in the product: \[9, 10\]"):
-        _, result, _ = ScienceData._indices_check(product, None, [0, 9, 10], None)
-    assert np.array_equal(result, [0, 9, 10])
+    with pytest.raises(ValueError, match=r"Pixels \[9, 10\] are switched off in this file"):
+        ScienceData._indices_check(product, None, [0, 9, 10], None)
 
 
-def test_pixel_range_not_in_mask_warns():
+def test_pixel_range_with_switched_off_pixels_raises():
     product = make_product(pixels=range(8))
-    with pytest.warns(UserWarning, match=r"Pixel indices \[8, 9\] in range \[4, 9\]"):
-        _, result, _ = ScienceData._indices_check(product, None, [[4, 9]], None)
-    assert np.array_equal(result, [[4, 9]])
+    with pytest.raises(ValueError, match=r"Pixel range \[4, 9\] includes pixels \[8, 9\]"):
+        ScienceData._indices_check(product, None, [[4, 9]], None)
 
 
 def test_spectrogram_pixels_given_warn_and_are_dropped():

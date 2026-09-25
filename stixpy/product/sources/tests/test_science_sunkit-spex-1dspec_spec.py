@@ -111,18 +111,18 @@ def _get_spectrum(spec_prod, *, time_indices, elut_correction, bkg):
     stays scoped to this one call rather than going in the global config - it's
     an upstream bug worth fixing in stixpy, not a test problem.
     """
-    kwargs = dict(
-        time_indices=time_indices,
-        sunkit_spex_spectrum=True,
-        elut_correction=elut_correction,
-        bkg=bkg,
-        sunkit_spex_detector_sum=True,
-        sunkit_spex_systematic_error=True,
+    kwargs = {
+        "time_indices": time_indices,
+        "sunkit_spex_spectrum": True,
+        "elut_correction": elut_correction,
+        "bkg": bkg,
+        "sunkit_spex_detector_sum": True,
+        "sunkit_spex_systematic_error": True,
         # No photon-axis trim: the reference SRM was generated before get_data
         # gained srm_e_min, so it still spans the full 3210 photon bins. Passing
         # False keeps the SRM untrimmed and the stored shape valid.
-        srm_e_min=False,
-    )
+        "srm_e_min": False,
+    }
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=DeprecationWarning)
         warnings.filterwarnings("ignore", category=UserWarning)

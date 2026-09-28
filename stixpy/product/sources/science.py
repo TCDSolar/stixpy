@@ -236,8 +236,8 @@ class SpectrogramPlotMixin:
             pid = None
             did = None
         else:
-            if detector_indices == "all":
-                did = [[0, 31]]
+            if isinstance(detector_indices, str) and detector_indices == "all":
+                did = None  # every detector that is switched on, summed below
             else:
                 det_idx_arr = np.array(detector_indices)
                 if det_idx_arr.ndim == 1 and det_idx_arr.size != 1:
@@ -249,8 +249,8 @@ class SpectrogramPlotMixin:
                     raise ValueError("Spectrogram plots can only one sum detector or summed over a number of detectors")
                 did = detector_indices
 
-            if pixel_indices == "all":
-                pid = [[0, 11]]
+            if isinstance(pixel_indices, str) and pixel_indices == "all":
+                pid = None  # every pixel that is switched on, summed below
             else:
                 pix_idx_arr = np.array(pixel_indices)
                 if pix_idx_arr.ndim == 1 and pix_idx_arr.size != 1:
@@ -277,6 +277,8 @@ class SpectrogramPlotMixin:
         t_edges = Time(
             np.concatenate([times - timedeltas.reshape(-1) / 2, times[-1] + timedeltas.reshape(-1)[-1:] / 2])
         )
+
+        counts = np.nansum(counts, axis=(1, 2), keepdims=True)  # one summed spectrogram
 
         pcolor_kwargs = {"norm": LogNorm(), "shading": "flat"}
         pcolor_kwargs.update(plot_kwargs)
@@ -356,11 +358,13 @@ class TimesSeriesPlotMixin:
         if axes is None:
             fig, axes = plt.subplots()
 
-        if detector_indices == "all":
-            detector_indices = [[0, 31]]
-
-        if pixel_indices == "all":
-            pixel_indices = [[0, 11]]
+           # "all" is every detector / pixel that is switched on, summed after get_data
+        sum_detectors = isinstance(detector_indices, str) and detector_indices == "all"
+        sum_pixels = isinstance(pixel_indices, str) and pixel_indices == "all"
+        if sum_detectors:
+            detector_indices = None
+        if sum_pixels:
+            pixel_indices = None
 
         counts, errors, timedeltas, _, _, _, _, times, energies, _ = self.get_data(
             vtype=vtype,
@@ -371,6 +375,11 @@ class TimesSeriesPlotMixin:
             livetime_correction=False,
             elut_correction=False,
         )
+
+        sum_axes = tuple(axis for axis, summed in ((1, sum_detectors), (2, sum_pixels)) if summed)
+        if sum_axes:
+            counts = np.sum(counts, axis=sum_axes, keepdims=True)
+            errors = np.sqrt(np.sum(errors**2, axis=sum_axes, keepdims=True))
 
         labels = [f"{el.value} - {eh.value} keV" for el, eh in energies["e_low", "e_high"]]
 

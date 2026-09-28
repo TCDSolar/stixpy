@@ -2766,7 +2766,7 @@ class ScienceData(L1Product):
 
         results = []
         for n, pair in enumerate(time_bin):
-            if len(bin) != 2:
+            if len(pair) != 2:
                 raise ValueError(
                     f"Each time bin must have exactly 2 elements [start, end], got {len(pair)} at index {n}."
                 )

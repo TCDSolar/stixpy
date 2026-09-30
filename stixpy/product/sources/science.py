@@ -496,12 +496,6 @@ class ScienceData(L1Product):
         """
         return self.data["timedel"]
 
-    @property
-    def rcr_shifted(self):
-        """
-        The rcr state
-        """
-        return ScienceData._rcr_shift(self.data["rcr"], self.data["counts"])
 
     @property
     def rcr_raw(self):
@@ -509,6 +503,25 @@ class ScienceData(L1Product):
         The rcr state
         """
         return self.data["rcr"]
+
+    @property
+    def rcr_shifted(self):
+        """
+        The RCR state of each time bin, aligned to the counts as STIX-GSW does, for the
+        settings last given to `align_rcr` (see `rcr_settings`).
+
+        Raises
+        ------
+        ValueError
+            If `align_rcr` has not been called yet.
+        """
+        if getattr(self, "_rcr_shifted", None) is None:
+            raise ValueError(
+                "rcr_shifted depends on the detector, pixel, livetime, ELUT and background "
+                "settings. Call align_rcr(...) with the settings you use first."
+            )
+        return self._rcr_shifted
+
 
     @staticmethod
     def _indices_check(product, detector_indices, pixel_indices, energy_indices):
@@ -900,6 +913,69 @@ class ScienceData(L1Product):
         full[:, dets[:, None], pixs, :] = values
         return full
 
+
+
+    @property
+    def rcr_settings(self):
+        """
+        The settings `rcr_shifted` was aligned with, as given to `align_rcr`, or None.
+        """
+        return getattr(self, "_rcr_settings", None)
+
+    def align_rcr(
+        self, *, detector_indices=None, pixel_indices=None, livetime_correction=True, elut_correction=True, bkg=None
+    ):
+        """
+        Align the RCR state changes to the jumps in the counts as STIX-GSW does, for
+        these settings, and keep the result as `rcr_shifted`.
+
+        Parameters
+        ----------
+        detector_indices, pixel_indices, livetime_correction, elut_correction, bkg
+            As in `get_data`. Use the same values as for the data you work with.
+
+        Returns
+        -------
+        numpy.ndarray
+            The aligned RCR state of each time bin, also kept as `rcr_shifted`.
+        """
+        settings = dict(
+            detector_indices=detector_indices,
+            pixel_indices=pixel_indices,
+            livetime_correction=livetime_correction,
+            elut_correction=elut_correction,
+            bkg=bkg,
+        )
+        self._rcr_shifted = np.asarray(self.get_data(vtype="c", **settings)[9])
+        self._rcr_settings = settings
+        return self._rcr_shifted
+
+    @staticmethod
+    def _rcr_signal(counts, n_detectors):
+        """
+        The counts STIX-GSW looks for RCR jumps in:
+        ``total(spec, 1) * 24. / n_elements(detectors_used)``.
+
+        The counts are summed over every axis except time (detectors or detector
+        groups, pixels, energies) and scaled to 24 detectors, so that the fixed 1e4
+        jump threshold in `_rcr_shift` means the same whatever the number of
+        detectors used.
+
+        Parameters
+        ----------
+        counts : astropy.units.Quantity or numpy.ndarray
+            Counts with time on the first axis.
+        n_detectors : int
+            Number of detectors used (selected and switched on).
+
+        Returns
+        -------
+        numpy.ndarray
+            One value per time bin.
+        """
+        counts = np.asarray(getattr(counts, "value", counts), dtype=np.float64)
+        return np.nansum(counts, axis=tuple(range(1, counts.ndim))) * 24.0 / max(n_detectors, 1)
+
     @staticmethod
     def _data_select(
         product,
@@ -915,6 +991,7 @@ class ScienceData(L1Product):
         systematic,
         sunkit_spex_detector_sum,
         bkg,
+        n_detectors=None
     ):
         """
         Apply the requested detector, pixel, energy and time selection to the data.
@@ -1021,7 +1098,7 @@ class ScienceData(L1Product):
             t_norm = product.data["timedel"]
             times = product.times
             energies = product.energies
-            rcr = product.rcr_shifted
+            # rcr = product.rcr_shifted
 
         else:
             counts, counts_var, t_norm, e_norm, livefrac, livefrac_error, elut_cor_fac, times, energies, rcr = product
@@ -1106,6 +1183,8 @@ class ScienceData(L1Product):
                         ],
                         axis=2,
                     )
+        
+        counts_rcr = np.nansum(counts, axis=-1, keepdims=True)
 
         if energy_indices is not None:
             energy_indices = np.asarray(energy_indices)
@@ -1173,6 +1252,8 @@ class ScienceData(L1Product):
             n_det = counts.shape[1]
             groups = [np.arange(n_det)]
 
+            counts_rcr = ScienceData._apply_livetime(counts_rcr, counts_rcr, livefrac, groups)[0]
+            counts_rcr = np.nansum(counts_rcr, axis=2, keepdims=True)
             counts_var = ScienceData._livetime_uncertainty(counts_var, livefrac_error, livefrac)
             counts, counts_var, livefrac = ScienceData._apply_livetime(counts, counts_var, livefrac, groups)
             counts = np.nansum(counts, axis=2, keepdims=True)
@@ -1189,15 +1270,25 @@ class ScienceData(L1Product):
                 else:  # ndim == 2 : each (dl, dh) range -> one output spectrum
                     groups = [np.arange(dl, dh + 1) for dl, dh in detector_indices]
 
+                counts_rcr = ScienceData._apply_livetime(counts_rcr, counts_rcr, livefrac, groups)[0]
+                counts_rcr = np.nansum(counts_rcr, axis=2, keepdims=True)
                 counts_var = ScienceData._livetime_uncertainty(counts_var, livefrac_error, livefrac)
                 counts, counts_var, livefrac = ScienceData._apply_livetime(counts, counts_var, livefrac, groups)
                 counts = np.nansum(counts, axis=2, keepdims=True)
 
             # ---- detector selection / summing -----------------------------------
+            selected = (
+                np.concatenate([np.arange(dl, dh + 1) for dl, dh in detector_indices])
+                if detector_indices.ndim == 2
+                else detector_indices
+            )
+            n_det_rcr = np.count_nonzero(np.nansum(np.abs(counts_rcr[:, selected]), axis=(0, 2, 3)))
+
             if detector_indices.ndim == 1:
                 detector_mask = np.full(32, False)
                 detector_mask[detector_indices] = True
                 counts = counts[:, detector_mask, ...]
+                counts_rcr = counts_rcr[:, detector_mask, ...]
                 counts_var = counts_var[:, detector_mask, ...]
                 if livefrac is not None:
                     livefrac = livefrac[:, detector_mask, :, :]
@@ -1208,6 +1299,11 @@ class ScienceData(L1Product):
                 counts = np.hstack(
                     [np.sum(counts[:, dl : dh + 1, ...], axis=1, keepdims=True) for dl, dh in detector_indices]
                 )
+
+                counts_rcr = np.hstack(
+                    [np.sum(counts_rcr[:, dl : dh + 1, ...], axis=1, keepdims=True) for dl, dh in detector_indices]
+                )
+
                 counts_var = np.concatenate(
                     [
                         np.sqrt(np.sum(counts_var[:, dl : dh + 1, ...] ** 2, axis=1, keepdims=True))
@@ -1266,6 +1362,21 @@ class ScienceData(L1Product):
             counts_var = (
                 np.sqrt(counts_var.value**2 + np.broadcast_to(sys_err_elem.value, counts_var.shape) ** 2) * u.ct
             )
+
+        if detector_indices is None:
+            # no detector selection: a spectrogram (summed on board over n_detectors)
+            # or pixel data with every detector
+            if n_detectors is not None:
+                n_det_rcr = n_detectors
+            else:
+                n_det_rcr = np.count_nonzero(np.nansum(np.abs(counts_rcr), axis=(0, 2, 3)))
+        rcr = ScienceData._rcr_shift(rcr, ScienceData._rcr_signal(counts_rcr, n_det_rcr))
+        if time_indices is not None:
+            if np.asarray(time_indices).ndim == 1:
+                ScienceData._rcr_warning(list(time_indices), rcr)
+            else:
+                ScienceData._handle_nested_pairs(time_indices, rcr)
+
 
         if time_indices is not None:
             time_indices = np.asarray(time_indices)
@@ -2464,10 +2575,9 @@ class ScienceData(L1Product):
     #             )
 
     @staticmethod
-    def _time_indices_format(time_indices, times, dt, rcr):
+    def _time_indices_format(time_indices, times, dt):
         """
-        Turn a time selection into integer indices, checking it against the file
-        and the RCR states.
+        Turn a time selection into integer indices, checking it against the file.
 
         Accepted forms:
 
@@ -2479,10 +2589,10 @@ class ScienceData(L1Product):
         - [start, end] pairs of integer indices.
 
         Indices and times are checked against the file first. Times are then
-        resolved to the data bins that lie wholly inside each range. Flat indices
-        warn if the RCR state varies across them; for pairs, an RCR change inside a
-        pair raises and a difference between pairs warns. Numpy integers and arrays
-        are accepted as well as Python ints and lists.
+        resolved to the data bins that lie wholly inside each range. Numpy integers
+        and arrays are accepted as well as Python ints and lists. The selection is
+        checked against the RCR states later, in `_data_select`, once the RCR has
+        been aligned to the counts.
 
         Parameters
         ----------
@@ -2492,8 +2602,6 @@ class ScienceData(L1Product):
             Centre time of each data bin.
         dt : astropy.units.Quantity
             Duration of each data bin.
-        rcr : array_like
-            RCR state of each data bin.
 
         Returns
         -------
@@ -2503,15 +2611,10 @@ class ScienceData(L1Product):
         Raises
         ------
         ValueError
-            If an index or time is outside the file, if the RCR state changes
-            inside a pair, or if the format is not recognised.
+            If an index or time is outside the file, or if the format is not
+            recognised.
         IndexError
             If a time range contains no complete data bin.
-
-        Warns
-        -----
-        UserWarning
-            If the RCR state varies across flat indices or between pairs.
         """
 
         first = time_indices[0]
@@ -2522,31 +2625,24 @@ class ScienceData(L1Product):
 
         if isinstance(first, (int, np.integer)):
             ScienceData._check_index_limits(time_indices, len(times))
-            ScienceData._rcr_warning(time_indices, rcr)
             return time_indices
 
         if isinstance(first, (str, Time)):
             bins = [[time_indices[i], time_indices[i + 1]] for i in range(len(time_indices) - 1)]
             ScienceData._check_time_limits(bins, file_start, file_end)
-            result = ScienceData._handle_datetime_strings(bins, times, dt)
-            ScienceData._handle_nested_pairs(result, rcr)
-
-            return result
+            return ScienceData._handle_datetime_strings(bins, times, dt)
 
         if isinstance(first, (list, tuple, np.ndarray)):
             if isinstance(first[0], (str, Time)):
                 ScienceData._check_time_limits(time_indices, file_start, file_end)
-                result = ScienceData._handle_datetime_strings(time_indices, times, dt)
-                ScienceData._handle_nested_pairs(result, rcr)
-                return result
+                return ScienceData._handle_datetime_strings(time_indices, times, dt)
             if len(first) == 2 and all(isinstance(v, (int, np.integer)) for v in first):
                 ScienceData._check_index_limits(time_indices, len(times))
-                ScienceData._handle_nested_pairs(time_indices, rcr)
                 return time_indices
             raise ValueError(f"Nested lists must be [start, end] integer or time pairs, got: {first}")
 
         raise ValueError(f"Cannot determine format from first element: {first!r}")
-
+    
     @staticmethod
     def _check_time_limits(bins, file_start, file_end):
         """
@@ -2634,84 +2730,72 @@ class ScienceData(L1Product):
         return None
 
     @staticmethod
-    def _rcr_shift(rcr, counts):
+    def _rcr_shift(rcr, signal):
         """
-        Align the RCR state boundaries with the jumps in the counts.
+        Move the reported RCR state changes onto the jumps in the counts, as in
+        STIX-GSW.
 
-        The recorded RCR changes can be a few time bins away from where the counts
-        actually change. This finds the jumps in the counts and moves the RCR
-        boundaries onto them.
+        A line-by-line port of the RCR correction in STIX-GSW
+        ``stx_convert_spectrogram2ospex`` (ECMD, 2022-06-27):
 
-        A jump is a change of more than 1e4 between consecutive time bins in the
-        counts of energy channel index 2, summed over detectors and pixels.
-        Adjacent jump indices are merged into one. The time axis is then split at
-        the jumps and each segment is given the next RCR state in order.
+        1. ``find_changes``: the first bin of each RCR state, starting with bin 0.
+        2. Only if ``max(rcr) > 0``: a jump is at bin ``i`` when
+           ``|signal[i] - signal[i + 1]| > 1e4`` (IDL ``shift`` wraps around, so the
+           last bin is also compared with the first). Bin 0 is put in front.
+        3. A jump is kept if the next jump (wrapping around) is more than 2 bins
+           away, so from each group of close jumps the last one is kept.
+        4. Each reported change is moved to the closest kept jump (``value_closest``).
+
+        IDL behaviour is kept where no jump or no kept jump is found: ``where``
+        returns -1, a scalar -1 subscript takes the last element, and a -1 in a
+        subscript array is clipped to 0.
+
+        The per-bin states are then rebuilt as STIX-GSW ``stx_read_sp_data`` does:
+        each bin takes the state in force at its start (``value_locate``, clipped
+        at 0). ``stx_read_sp_data`` also marks bins in which a state change falls
+        as uncertain (-99); that is not done here.
 
         Parameters
         ----------
         rcr : array_like
-            Recorded RCR state of each time bin.
-        counts : astropy.units.Quantity
-            Counts, shape (time, detector, pixel, energy) or (time, energy).
+            Reported RCR state of each time bin.
+        signal : array_like
+            GSW's ``total(spec, 1) * 24. / n_elements(detectors_used)``: counts per
+            time bin summed over energies and scaled to 24 detectors.
 
         Returns
         -------
         numpy.ndarray
-            The aligned RCR state of each time bin, or `rcr` unchanged if it has
-            only one state.
-
-        Raises
-        ------
-        IndexError
-            If the RCR state changes but no jump is found in the counts, or if more
-            jumps are found than there are RCR changes.
+            The RCR state of each time bin.
         """
+        rcr_arr = np.asarray(rcr)
+        n_times = rcr_arr.size
 
-        if np.unique(rcr).size > 1:
-            rcr = np.asarray(rcr)
+        # find_changes, rcr, index, state
+        index = np.concatenate(([0], np.flatnonzero(rcr_arr[1:] != rcr_arr[:-1]) + 1))
+        state = rcr_arr[index]
 
-            diffs = rcr[1:] - rcr[:-1]
-            q = np.where(diffs != 0)[0]
+        if np.max(rcr_arr) > 0:
+            signal = np.asarray(signal, dtype=np.float64)
 
-            index = np.concatenate(([0], q + 1))
-            state = rcr[index]
+            # jumps = where(abs(x - shift(x, -1)) gt 1e4)   (-1 if none)
+            jumps = np.flatnonzero(np.abs(signal - np.roll(signal, -1)) > 1e4)
+            if jumps.size == 0:
+                jumps = np.array([-1])
+            # jumps = [0, jumps]
+            jumps = np.concatenate(([0], jumps))
+            # idx_jumps = where(abs(jumps - shift(jumps, -1)) gt 2)   (-1 if none)
+            idx_jumps = np.flatnonzero(np.abs(jumps - np.roll(jumps, -1)) > 2)
+            # jumps_use = [jumps[idx_jumps]]   (scalar -1 subscript = last element)
+            jumps_use = jumps[idx_jumps] if idx_jumps.size else jumps[-1:]
+            # index = jumps_use[value_closest(jumps_use, index)]
+            index = jumps_use[np.abs(jumps_use[None, :] - index[:, None]).argmin(axis=1)]
+            # ut_rcr[index]: a negative subscript in an array is clipped to 0
+            index = np.clip(index, 0, n_times - 1)
 
-            shape = counts.shape
-
-            if len(shape) < 4:
-                counts = counts.reshape(shape[0], 1, 1, shape[-1])
-
-            cts_collapse = np.nansum(counts[:, :, :, 2], axis=(1, 2)).astype(np.int64)
-
-            inds = []
-
-            for i in range(len(cts_collapse) - 1):
-                if abs(cts_collapse[i] - cts_collapse[i + 1]).value > 1e4:
-                    inds.append(i + 1)
-
-            inds_clipped = [inds[0]]
-
-            for prev, curr in zip(inds, inds[1:]):
-                if curr != prev + 1:
-                    inds_clipped.append(curr)
-
-            length = counts.shape[0]
-
-            # Length of each state segment
-            range_vals = np.concatenate(([0], inds_clipped, [length]))
-            segment_lengths = np.diff(range_vals)
-
-            rcr_shift_lists = []
-            for i in range(len(segment_lengths)):
-                rg = np.full(segment_lengths[i], state[i])
-                rcr_shift_lists.append(rg)
-
-            rcr_shifted = np.concatenate(rcr_shift_lists)
-
-            return rcr_shifted
-
-        else:
-            return rcr
+        # stx_read_sp_data: state[value_locate(time, bin_start) > 0]
+        which = np.searchsorted(index, np.arange(n_times), side="right") - 1
+        return state[np.clip(which, 0, None)]
 
     @staticmethod
     def _rcr_error(indices, rcr):
@@ -3228,7 +3312,8 @@ class ScienceData(L1Product):
             other detectors.
         """
 
-        rcr = self.rcr_shifted
+
+        rcr = np.asarray(self.data["rcr"])
 
         if isinstance(srm_e_min, bool):
             srm_e_min = 3.5 * u.keV if srm_e_min else None
@@ -3248,10 +3333,16 @@ class ScienceData(L1Product):
                 energy_indices = self._energy_indices_format(energy_indices, self.energies)
 
         if time_indices is not None:
-            time_indices = self._time_indices_format(time_indices, self.times, self.durations, rcr)
+            time_indices = self._time_indices_format(time_indices, self.times, self.durations)
 
         detector_indices, pixel_indices, energy_indices = self._indices_check(
             self, detector_indices, pixel_indices, energy_indices
+        )
+        
+        n_det_spectrogram = (
+            int(np.count_nonzero(np.asarray(self.detector_masks.masks, dtype=bool).any(axis=0)))
+            if len(self.data["counts"].shape) < 4
+            else None
         )
 
         if elut_correction:
@@ -3320,6 +3411,7 @@ class ScienceData(L1Product):
                 sunkit_spex_systematic_error,
                 sunkit_spex_detector_sum,
                 bkg=background_boolean,
+                n_detectors=n_det_spectrogram
             )
 
         else:
@@ -3360,6 +3452,7 @@ class ScienceData(L1Product):
                 sunkit_spex_systematic_error,
                 sunkit_spex_detector_sum,
                 bkg=background_boolean,
+                n_detectors=n_det_spectrogram
             )
 
         if sunkit_spex_spectrum:

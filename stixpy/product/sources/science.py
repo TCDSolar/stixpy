@@ -1178,7 +1178,7 @@ class ScienceData(L1Product):
                 if livefrac_error is not None:
                     livefrac_error = np.concatenate(
                         [
-                            np.sqrt(np.mean(livefrac_error[..., pl : ph + 1, :] ** 2, axis=2, keepdims=True))
+                            np.sqrt(np.sum(livefrac_error[..., pl : ph + 1, :] ** 2, axis=2, keepdims=True))
                             for pl, ph in pixel_indices
                         ],
                         axis=2,
@@ -1223,23 +1223,21 @@ class ScienceData(L1Product):
 
                 if elut_cor_fac is not None:
                     elut_cor_fac = np.concatenate(
-                        [np.mean(elut_cor_fac[..., el : eh + 1]) for el, eh in energy_indices], axis=-1
+                        [np.mean(elut_cor_fac[..., el : eh + 1], axis=-1, keepdims=True) for el, eh in energy_indices], axis=-1
                     )
 
-                if bkg:
-                    if livefrac is not None:
-                        livefrac = np.concatenate(
-                            [np.mean(livefrac[..., el : eh + 1], axis=2, keepdims=True) for el, eh in pixel_indices],
-                            axis=2,
-                        )
+                if bkg and livefrac is not None and livefrac.shape[-1] != 1:
+                    livefrac = np.concatenate(
+                        [np.mean(livefrac[..., el : eh + 1], axis=-1, keepdims=True) for el, eh in energy_indices],
+                        axis=-1,
+                    )
 
                 if livefrac_error is not None:
+                    # scales with the counts and shares one livetime across all energies,
+                    # so the bins in a band are fully correlated: add them linearly
                     livefrac_error = np.concatenate(
-                        [
-                            np.sqrt(np.mean(livefrac_error[..., el : eh + 1] ** 2, axis=2, keepdims=True))
-                            for el, eh in pixel_indices
-                        ],
-                        axis=2,
+                        [np.sum(livefrac_error[..., el : eh + 1], axis=-1, keepdims=True) for el, eh in energy_indices],
+                        axis=-1,
                     )
 
                 energies = np.atleast_2d(
@@ -1411,14 +1409,21 @@ class ScienceData(L1Product):
                 rcr = np.vstack([np.mean(rcr[tl : th + 1, ...], axis=0, keepdims=True) for tl, th in time_indices])
 
                 if livefrac is not None:
+
+                    dur = t_norm.to_value(u.s).reshape((-1,) + (1,) * (livefrac.ndim - 1))
                     livefrac = np.vstack(
-                        [np.mean(livefrac[tl : th + 1, ...], axis=0, keepdims=True) for tl, th in time_indices]
+                        [
+                            np.sum(livefrac[tl : th + 1, ...] * dur[tl : th + 1], axis=0, keepdims=True)
+                            / np.sum(dur[tl : th + 1])
+                            for tl, th in time_indices
+                        ]
                     )
 
                 if livefrac_error is not None:
+
                     livefrac_error = np.vstack(
                         [
-                            np.sqrt(np.mean(livefrac_error[tl : th + 1, ...] ** 2, axis=0, keepdims=True))
+                            np.sqrt(np.sum(livefrac_error[tl : th + 1, ...] ** 2, axis=0, keepdims=True))
                             for tl, th in time_indices
                         ]
                     )

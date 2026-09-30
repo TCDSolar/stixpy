@@ -45,6 +45,72 @@ SubCollimatorConfig = read_subc_params(
 )
 
 
+def _full_layout(values, detector_masks, pixel_masks, name="values"):
+    """
+    Place a (time, detector, pixel, energy) data column on the full 32 x 12 grid.
+
+    L1 pixel data files store only the enabled detectors and pixels, so position
+    n on those axes is not necessarily detector or pixel n. As in IDL's
+    ``stx_read_pixel_data_fits_file``, the stored values are placed at their
+    detector and pixel numbers, with zeros for detectors and pixels that are off.
+    After this every detector and pixel index is a real detector or pixel number.
+
+    Parameters
+    ----------
+    values : astropy.units.Quantity or numpy.ndarray
+        Data column, e.g. ``data['counts']`` or ``data['counts_comp_err']``.
+    detector_masks : DetectorMasks or None
+        Detector masks of the product.
+    pixel_masks : PixelMasks or None
+        Pixel masks of the product.
+    name : str, optional
+        Name of the column, used in error messages.
+
+    Returns
+    -------
+    astropy.units.Quantity or numpy.ndarray
+        The column with shape (time, 32, 12, energy). Returned unchanged if it
+        already has that shape, is not 4-dimensional, has no masks, or holds summed pixel sets.
+
+    Raises
+    ------
+    ValueError
+        If the detector mask changes within the file, or the stored shape does
+        not match the masks.
+    """
+    if (
+        values.ndim != 4
+        or values.shape[1:3] == (32, 12)
+        or detector_masks is None
+        or pixel_masks is None
+        or pixel_masks.masks.ndim != 2
+    ):
+        return values
+
+    if len(detector_masks.masks) > 1:
+        raise ValueError(
+            f"The detector mask changes within the file, so {name!r} can not be placed on the full detector grid."
+        )
+    dets = np.flatnonzero(detector_masks.masks[0])
+    pixs = np.flatnonzero(pixel_masks.masks.any(axis=0))  # pixels used at any time, as stored by STIXcore
+
+    if values.shape[1] == 32:
+        values = values[:, dets]
+    if values.shape[2] == 12:
+        values = values[:, :, pixs]
+    if values.shape[1:3] != (dets.size, pixs.size):
+        raise ValueError(
+            f"{name!r} has shape {values.shape}, which does not match the masks "
+            f"({dets.size} detectors, {pixs.size} pixels)."
+        )
+
+    full = np.zeros((values.shape[0], 32, 12, values.shape[3]), dtype=values.dtype)
+    if isinstance(values, u.Quantity):
+        full = full << values.unit
+    full[:, dets[:, None], pixs, :] = values
+    return full
+
+
 class PPrintMixin:
     """
     Provides pretty printing for index masks.
@@ -504,11 +570,11 @@ class ScienceData(L1Product):
             Counts, errors, times, deltatimes,  energies
 
         """
-        counts = self.data["counts"]
-        try:
-            counts_var = self.data["counts_comp_err"] ** 2
-        except KeyError:
-            counts_var = self.data["counts_comp_comp_err"] ** 2
+        detector_masks = getattr(self, "detector_masks", None)
+        pixel_masks = getattr(self, "pixel_masks", None)
+        counts = _full_layout(self.data["counts"], detector_masks, pixel_masks, name="counts")
+        err_name = "counts_comp_err" if "counts_comp_err" in self.data.colnames else "counts_comp_comp_err"
+        counts_var = _full_layout(self.data[err_name], detector_masks, pixel_masks, name=err_name) ** 2
         shape = counts.shape
         if len(shape) < 4:
             counts = counts.reshape(shape[0], 1, 1, shape[-1])

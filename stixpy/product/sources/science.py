@@ -526,6 +526,13 @@ class ScienceData(L1Product):
         """
         return self.data["timedel"]
 
+    @property
+    def rcr_raw(self):
+        """
+        The rcr state
+        """
+        return self.data["rcr"]
+
     def get_data(
         self,
         *,

@@ -1,3 +1,4 @@
+import warnings
 from itertools import product
 from pathlib import Path
 from typing import NamedTuple
@@ -19,6 +20,7 @@ from sunpy.util import deprecated
 from stixpy.calibration.elut import get_elut_correction
 from stixpy.io.readers import read_subc_params
 from stixpy.product.product import L1Product
+from stixpy.product.sources._background import _bkg_indices_check, _bkg_sub, _energies_bkg_sub
 from stixpy.product.sources._corrections import (
     _data_select,
     _elut_correction_sort,
@@ -635,14 +637,16 @@ class ScienceData(L1Product):
         """
         return getattr(self, "_rcr_settings", None)
 
-    def align_rcr(self, *, detector_indices=None, pixel_indices=None, livetime_correction=True, elut_correction=True):
+    def align_rcr(
+        self, *, detector_indices=None, pixel_indices=None, livetime_correction=True, elut_correction=True, bkg=None
+    ):
         """
         Align the RCR state changes to the jumps in the counts as STIX-GSW does, for
         these settings, and keep the result as `rcr_shifted`.
 
         Parameters
         ----------
-        detector_indices, pixel_indices, livetime_correction, elut_correction
+        detector_indices, pixel_indices, livetime_correction, elut_correction, bkg
             As in `get_data`. Use the same values as for the data you work with.
 
         Returns
@@ -655,6 +659,7 @@ class ScienceData(L1Product):
             "pixel_indices": pixel_indices,
             "livetime_correction": livetime_correction,
             "elut_correction": elut_correction,
+            "bkg": bkg,
         }
         self._rcr_shifted = np.asarray(self.get_data(vtype="c", **settings).rcr)
         self._rcr_settings = settings
@@ -671,9 +676,10 @@ class ScienceData(L1Product):
         sum_all_times=False,
         livetime_correction=True,
         elut_correction=True,
+        bkg=None,
     ):
         """
-        Return the selected data, with optional livetime and ELUT corrections.
+        Return the selected data, with optional livetime, ELUT and background corrections.
 
         Parameters
         ----------
@@ -708,9 +714,12 @@ class ScienceData(L1Product):
         sum_all_times : bool, optional
             If True, sum the selected time bins into one. Default False.
         livetime_correction : bool, optional
-            Apply the livetime correction. Default True.
+            Apply the livetime correction. Default True; forced to True when `bkg`
+            is given.
         elut_correction : bool, optional
             Apply the ELUT correction. Default True.
+        bkg : ScienceData, optional
+            Background product to subtract.
 
         Returns
         -------
@@ -798,27 +807,89 @@ class ScienceData(L1Product):
         else:
             elut_cor_fac = None
 
+        if bkg:
+            livetime_correction = True
+
+            energy_indices_bkg = _energies_bkg_sub(self, bkg)
+
+            pixel_indices_bkg, detector_indices_bkg = _bkg_indices_check(self, bkg)
+
         if livetime_correction:
             livefrac, livefrac_error = _livefrac(self, counts, elut_cor_fac, checked_pixels)
+
+            if bkg and isinstance(bkg, ScienceData):
+                counts_bkg = _full_layout(bkg.data["counts"], bkg.detector_masks, bkg.pixel_masks, name="counts")
+                err_name_bkg = "counts_comp_err" if "counts_comp_err" in bkg.data.colnames else "counts_comp_comp_err"
+                counts_err_bkg = _full_layout(
+                    bkg.data[err_name_bkg], bkg.detector_masks, bkg.pixel_masks, name=err_name_bkg
+                )
+                livefrac_bkg, livefrac_error_bkg = _livefrac(
+                    bkg, counts_bkg, elut_cor_fac, pixel_indices_bkg, energy_indices_bkg
+                )
 
         else:
             livefrac = None
             livefrac_error = None
 
-        sci_data = _data_select(
-            self,
-            counts,
-            counts_err,
-            detector_indices,
-            pixel_indices,
-            energy_indices,
-            time_indices,
-            livefrac,
-            livefrac_error,
-            elut_cor_fac,
-            sum_all_times,
-            n_detectors=n_det_spectrogram,
-        )
+        if not bkg:
+            sci_data = _data_select(
+                self,
+                counts,
+                counts_err,
+                detector_indices,
+                pixel_indices,
+                energy_indices,
+                time_indices,
+                livefrac,
+                livefrac_error,
+                elut_cor_fac,
+                sum_all_times,
+                n_detectors=n_det_spectrogram,
+            )
+
+        else:
+            warnings.warn(
+                "For background subtraction livetime_correction set as True.",
+                stacklevel=2,
+            )
+
+            sci_data_all = _bkg_sub(
+                self,
+                bkg,
+                counts,
+                counts_err,
+                counts_bkg,
+                counts_err_bkg,
+                checked_detectors,
+                checked_pixels,
+                detector_indices_bkg,
+                pixel_indices_bkg,
+                energy_indices_bkg,
+                livefrac,
+                livefrac_error,
+                livefrac_bkg,
+                livefrac_error_bkg,
+                elut_cor_fac,
+                np.asarray(self.data["rcr"]),
+            )
+            counts_sub, counts_var_sub, _, _, livefrac_sub, _, elut_cor_fac_sub, _, _, _ = sci_data_all
+
+            # the background is subtracted from every detector and pixel on the grid, so select the ones in use
+            sci_data = _data_select(
+                self,
+                counts_sub,
+                counts_var_sub,
+                checked_detectors,
+                checked_pixels,
+                energy_indices,
+                time_indices,
+                livefrac_sub,
+                None,
+                elut_cor_fac_sub,
+                sum_all_times,
+                n_detectors=n_det_spectrogram,
+                bkg=True,
+            )
 
         counts, counts_err, t_norm, e_norm, livefrac, livefrac_error, elut_cor_fac, times, energies, rcr = sci_data
 

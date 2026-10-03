@@ -1395,6 +1395,7 @@ class ScienceData(L1Product):
                 new_times = []
                 dt = []
                 for tl, th in time_indices:
+
                     ts = times[tl] - t_norm[tl] * 0.5
                     te = times[th] + t_norm[th] * 0.5
                     td = te - ts
@@ -2065,6 +2066,7 @@ class ScienceData(L1Product):
             counts_final = np.nansum(counts, axis=(0, 1, 2))
             counts_uncertainity_final = np.sqrt(np.nansum(counts_uncertainity**2, axis=(0, 1, 2)))
 
+            t_norm_or = t_norm
             t_norm = t_norm[:, None, None, None] * livefrac
             t_norm = np.nanmean(t_norm, axis=(1, 2, 3))
 
@@ -2073,6 +2075,7 @@ class ScienceData(L1Product):
             counts_final[counts_final < 0] = 0
             counts_uncertainity_final = np.sqrt(np.nansum(counts_uncertainity**2, axis=(0, 1)))
 
+            t_norm_or = np.nanmean(t_norm, axis=(0, 1, 2))
             t_norm = t_norm * livefrac
             t_norm = np.nanmean(t_norm, axis=(0, 1, 2))
 
@@ -2081,6 +2084,7 @@ class ScienceData(L1Product):
             counts_final[counts_final < 0] = 0
             counts_uncertainity_final = np.sqrt(np.nansum(counts_uncertainity**2, axis=(0)))
 
+            t_norm_or = np.nanmean(t_norm, axis=(0))
             t_norm = t_norm * livefrac
             t_norm = np.nanmean(t_norm, axis=(0))
 
@@ -2090,7 +2094,7 @@ class ScienceData(L1Product):
 
         meta = NDMeta()
 
-        time_range_actual = Time([(times_full - 0.5 * t_norm).value, (times_full + 0.5 * t_norm).value])
+        time_range_actual = Time([(times_full - 0.5 * t_norm_or).value, (times_full + 0.5 * t_norm_or).value])
 
         ct_de = np.diff(counts_axis.value)
 

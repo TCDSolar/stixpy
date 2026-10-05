@@ -2062,6 +2062,9 @@ class ScienceData(L1Product):
 
         counts_axis = np.concatenate([energies["e_low"], [energies["e_high"][-1]]])
 
+        print('tn',t_norm.shape)
+        print('lf',livefrac.shape)
+
         if case == "spec_1D_detector_collapse":
             counts_final = np.nansum(counts, axis=(0, 1, 2))
             counts_uncertainity_final = np.sqrt(np.nansum(counts_uncertainity**2, axis=(0, 1, 2)))
@@ -2075,7 +2078,7 @@ class ScienceData(L1Product):
             counts_final[counts_final < 0] = 0
             counts_uncertainity_final = np.sqrt(np.nansum(counts_uncertainity**2, axis=(0, 1)))
 
-            t_norm_or = np.nanmean(t_norm, axis=(0, 1, 2))
+            t_norm_or = np.nanmean(t_norm, axis=(0))
             t_norm = t_norm * livefrac
             t_norm = np.nanmean(t_norm, axis=(0, 1, 2))
 

@@ -2062,8 +2062,6 @@ class ScienceData(L1Product):
 
         counts_axis = np.concatenate([energies["e_low"], [energies["e_high"][-1]]])
 
-        print('tn',t_norm.shape)
-        print('lf',livefrac.shape)
 
         if case == "spec_1D_detector_collapse":
             counts_final = np.nansum(counts, axis=(0, 1, 2))

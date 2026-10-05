@@ -401,6 +401,8 @@ def _data_select(
     sum_all_times,
     n_detectors=None,
     bkg=False,
+    systematic=False,
+    sunkit_spex_detector_sum=True,
 ):
     """
     Apply the requested detector, pixel, energy and time selection to the data.
@@ -429,9 +431,10 @@ def _data_select(
        [start, end] range is its own group.
     5. Detector selection.
     6. On the background path, counts are set to zero wherever their total over
-       the detectors and pixels is negative.
-    7. RCR alignment (see `_rcr_shift`).
-    8. Time selection, and optionally a sum over all time bins.
+       the pooled axes (see `sunkit_spex_detector_sum`) is negative.
+    7. Optionally, a systematic uncertainty is added.
+    8. RCR alignment (see `_rcr_shift`).
+    9. Time selection, and optionally a sum over all time bins.
 
     Parameters
     ----------
@@ -472,6 +475,13 @@ def _data_select(
         True when `counts` come from `_bkg_sub`. They are then already trimmed,
         livetime corrected and ELUT corrected, so only the energy table is
         trimmed and those corrections are not repeated.
+    systematic : bool, optional
+        If True, add a systematic uncertainty of 7% below 7 keV, 5% from 7 to
+        10 keV and 3% from 10 keV of the pooled counts, spread so that a
+        quadrature sum over the pooled axes returns that percentage.
+    sunkit_spex_detector_sum : bool, optional
+        Which axes are pooled into one output bin for steps 6 and 7: detectors
+        and pixels if True (default), pixels only if False.
 
     Returns
     -------
@@ -726,9 +736,35 @@ def _data_select(
                     axis=1,
                 )
 
+    # sunkit_spex_detector_sum=True  -> detectors collapse downstream, so the
+    #   output bin is the sum over remaining detector AND pixel axes.
+    # sunkit_spex_detector_sum=False -> each detector stays its own output
+    #   bin, so only the pixel axis is pooled.
+    sum_axes = (1, 2) if sunkit_spex_detector_sum else (2,)
+
     if bkg:
-        total = np.nansum(counts, axis=(1, 2), keepdims=True)
+        total = np.nansum(counts, axis=sum_axes, keepdims=True)
         counts = np.where(total < 0, 0, counts.value) * counts.unit
+
+    if systematic:
+        e_mean = ((energies["e_low"] + energies["e_high"]) / 2).value
+        systematic_err_percentage = np.select(
+            [e_mean < 7, (e_mean < 10) & (e_mean >= 7), e_mean >= 10],
+            [0.07, 0.05, 0.03],
+        )
+
+        total = np.nansum(counts, axis=sum_axes, keepdims=True)
+
+        # Divisor taken from counts_var, not counts: these are the axes that
+        # actually get quadrature-summed downstream. On the bkgsub path
+        # counts_var's pixel axis is already collapsed while counts' is not,
+        # so sizing off counts would mis-scale by sqrt(n_pix). Spreading
+        # p*total over n_elem slots as p*total/sqrt(n_elem) means the
+        # downstream quadrature sum returns exactly p*total.
+        n_elem = int(np.prod([counts_var.shape[a] for a in sum_axes]))
+        sys_err_elem = (systematic_err_percentage * total) / np.sqrt(n_elem)
+
+        counts_var = np.sqrt(counts_var.value**2 + np.broadcast_to(sys_err_elem.value, counts_var.shape) ** 2) * u.ct
 
     if detector_indices is None:
         # no detector selection: a spectrogram (summed on board over n_detectors)

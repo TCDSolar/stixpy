@@ -1,0 +1,1 @@
+`~stixpy.calibration.grid.get_grid_transmission` now takes the photon energies and detectors as well as the flare location, ``get_grid_transmission(ph_energy, detectors, flare_location)``, and returns the energy-dependent grid transmission of each requested detector, corrected for internal shadowing and including the finest grids, as in STIX-GSW.

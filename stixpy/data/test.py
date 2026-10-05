@@ -38,6 +38,7 @@ _TEST_DATA = {
     "STIX_HK_MAXI_TIMESERIES": "solo_L1_stix-hk-maxi_20200501_V01.fits",
     "STIX_QL_BACKGROUND_TIMESERIES": "solo_L1_stix-ql-background_20200506_V01.fits",
     "STIX_QL_CALIBRATION": "solo_L1_stix-cal-energy_20200506_V01.fits",
+    "STIX_CAL_ENERGY": "solo_CAL_stix-cal-energy_20250302T230511-20250303T230512_V02.fits",
     "STIX_QL_FLAREFLAG": "solo_L1_stix-ql-ql-tmstatusflarelist_20200506_V01.fits",
     "STIX_QL_LIGHTCURVE_TIMESERIES": "solo_L1_stix-ql-lightcurve_20200506_V01.fits",
     "STIX_QL_SPECTRA": "solo_L1_stix-ql-spectra_20200506_V01.fits",

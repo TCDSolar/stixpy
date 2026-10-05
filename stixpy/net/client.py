@@ -209,6 +209,23 @@ class STIXClient(GenericClient):
             rowdict["End Time"] = tr.end
             rowdict.pop("tc")
             rowdict.pop("Request")
+        elif rowdict.get("DataType") == "CAL":
+            rowdict["Request ID"] = "-"
+            # CAL filenames embed a precise start-end range:
+            # solo_CAL_stix-cal-energy_<startUTC>-<endUTC>_V<NN>.fits
+            # Sunpy's default Start/End come from the directory date and span
+            # the whole calendar day; override with the filename's precise
+            # times so consumers see the real acquisition window.
+            time_str = rowdict.pop("time")
+            if "-" in time_str:
+                start_str, end_str = time_str.split("-", 1)
+                tr = TimeRange(
+                    Time.strptime(start_str, "%Y%m%dT%H%M%S"),
+                    Time.strptime(end_str, "%Y%m%dT%H%M%S"),
+                )
+                rowdict["tr"] = tr
+                rowdict["Start Time"] = tr.start
+                rowdict["End Time"] = tr.end
         else:
             rowdict["Request ID"] = "-"
             rowdict.pop("time")
@@ -230,6 +247,7 @@ class STIXClient(GenericClient):
                 ("L1", "STIX: Engineering and UTC time conversion ."),
                 ("L2", "STIX: Calibrated data."),
                 ("ANC", "STIX: Ancillary data."),
+                ("CAL", "STIX: Calibration data."),
             ],
             attrs.stix.DataType: [
                 ("QL", "Quick Look"),

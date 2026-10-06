@@ -10,3 +10,5 @@ The ``coordinates`` submodule contains STIX specific coordinate frames and trans
 .. automodapi:: stixpy.coordinates.frames
 
 .. automodapi:: stixpy.coordinates.transforms
+
+.. automodapi:: stixpy.coordinates.utils

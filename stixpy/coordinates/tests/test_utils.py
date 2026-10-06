@@ -11,7 +11,7 @@ from astropy.time import Time
 from sunpy.coordinates import HeliographicStonyhurst, Helioprojective
 from sunpy.util.exceptions import SunpyUserWarning
 
-from stixpy.coordinates.flare_angle import flare_spacecraft_angle
+from stixpy.coordinates.utils import heliocentric_angle
 
 OBSTIME = Time("2022-03-30T17:30:00")
 
@@ -51,21 +51,21 @@ _HORIZON = np.arccos(1 / (0.4 * u.AU).to_value(u.R_sun)) << u.rad
 def test_known_angles(observer, flare_lonlat, spacecraft_lonlat, distance, expected):
     flare = _flare_hpc(*flare_lonlat, observer)
     spacecraft = _spacecraft(*spacecraft_lonlat, distance)
-    angle = flare_spacecraft_angle(flare, spacecraft)
+    angle = heliocentric_angle(flare, spacecraft)
     assert angle.unit == u.deg
     assert_quantity_allclose(angle, expected, atol=1e-5 * u.deg)
 
 
-def test_defaults_to_flare_observer(observer):
+def test_defaults_to_coord_observer(observer):
     spacecraft = _spacecraft(-30 * u.deg, 5 * u.deg, 0.3 * u.AU)
     flare = _flare_hpc(10 * u.deg, -15 * u.deg, spacecraft)
-    assert_quantity_allclose(flare_spacecraft_angle(flare), flare_spacecraft_angle(flare, spacecraft))
+    assert_quantity_allclose(heliocentric_angle(flare), heliocentric_angle(flare, spacecraft))
 
 
 def test_no_observer_raises():
     flare = SkyCoord(0 * u.arcsec, 0 * u.arcsec, frame=Helioprojective(obstime=OBSTIME))
     with pytest.raises(ValueError, match="no observer"):
-        flare_spacecraft_angle(flare)
+        heliocentric_angle(flare)
 
 
 @pytest.mark.parametrize(
@@ -73,14 +73,14 @@ def test_no_observer_raises():
     [
         # pytest.ini turns warnings into errors, so any warning in the nullcontext case fails the test.
         pytest.param(1 * u.h, nullcontext(), id="within-tolerance"),
-        pytest.param(1 * u.min, pytest.warns(UserWarning, match="differs from flare obstime"), id="mismatch"),
+        pytest.param(1 * u.min, pytest.warns(UserWarning, match="differs from coord obstime"), id="mismatch"),
     ],
 )
 def test_obstime_tolerance(observer, tolerance, context):
     flare = _flare_hpc(10 * u.deg, 10 * u.deg, observer)
     spacecraft = _spacecraft(0 * u.deg, 0 * u.deg, 0.5 * u.AU, obstime=OBSTIME - 30 * u.min)
     with context:
-        flare_spacecraft_angle(flare, spacecraft, obstime_tolerance=tolerance)
+        heliocentric_angle(flare, spacecraft, obstime_tolerance=tolerance)
 
 
 def test_off_limb_flare_warns_and_returns_nan(observer):
@@ -89,6 +89,14 @@ def test_off_limb_flare_warns_and_returns_nan(observer):
         pytest.warns(SunpyUserWarning, match="all NaNs"),
         pytest.warns(UserWarning, match="off the limb"),
     ):
-        angle = flare_spacecraft_angle(flare)
+        angle = heliocentric_angle(flare)
     assert np.isnan(angle)
     assert angle.unit == u.deg
+
+
+def test_coord_without_observer_attribute():
+    flare = SkyCoord(30 * u.deg, 0 * u.deg, 1 * u.R_sun, frame=HeliographicStonyhurst(obstime=OBSTIME))
+    with pytest.raises(ValueError, match="no observer"):
+        heliocentric_angle(flare)
+    observer = _spacecraft(30 * u.deg, 0 * u.deg, 0.5 * u.AU)
+    assert_quantity_allclose(heliocentric_angle(flare, observer), 0 * u.deg, atol=1e-5 * u.deg)

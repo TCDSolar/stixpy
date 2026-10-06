@@ -12,72 +12,70 @@ __all__ = [
 ]
 
 
+@u.quantity_input
 def flare_spacecraft_angle(
-    spacecraft_coord: SkyCoord,
     flare_hpc: SkyCoord,
-) -> u.Quantity:
-    """
-    Calculate the angle between the flare surface normal and the
-    spacecraft direction as seen from the flare.
+    spacecraft_coord: SkyCoord | None = None,
+    obstime_tolerance: u.Quantity[u.s] = 1 * u.min,
+) -> u.deg:
+    r"""
+    Calculate the angle between the flare's surface normal and the direction to the spacecraft.
 
-    The flare surface normal is the outward radial unit vector from the
-    Sun's centre through the flare location (i.e. the local vertical).
+    The surface normal is taken to be the local radial direction, the outward unit vector from Sun
+    centre through the flare. An angle of 0 deg means the spacecraft is directly above the flare and
+    90 deg means the spacecraft sees the flare on the limb.
 
     Parameters
     ----------
-    spacecraft_coord : SkyCoord
-        Position of the spacecraft in *any* frame that Astropy/SunPy can
-        transform.  Typically HeliographicStonyhurst (HGS) with a distance.
-    flare_hpc : SkyCoord
-        Flare position in Helioprojective coordinates (Tx, Ty).  Must be
-        observed from *some* observer — usually Earth or a spacecraft.
-        The observer frame's `obstime` is used for the coordinate transform.
+    flare_hpc : `~astropy.coordinates.SkyCoord`
+        Flare position in a 2D `~sunpy.coordinates.Helioprojective` frame. It is projected onto the
+        solar surface, so it must lie on the disk as seen by its observer.
+    spacecraft_coord : `~astropy.coordinates.SkyCoord`, optional
+        Spacecraft position in any frame that can be transformed to
+        `~sunpy.coordinates.HeliographicStonyhurst`. Defaults to the observer of ``flare_hpc``, which
+        is correct when the flare position was derived from the spacecraft's own data, e.g. by
+        `~stixpy.imaging.flare_location.estimate_flare_location`.
+    obstime_tolerance : `~astropy.units.Quantity`, optional
+        Warn if ``spacecraft_coord`` and ``flare_hpc`` have observation times further apart than
+        this. The spacecraft position is not propagated in time, so it should be given for the time
+        of the flare position.
 
     Returns
     -------
-    angle : ~astropy.units.Quantity
-        Angle in degrees between the flare surface normal and the
-        line-of-sight to the spacecraft.  0° means the spacecraft is
-        directly above the flare; 90° means it is on the limb as seen
-        from the flare.
+    `~astropy.units.Quantity`
+        The angle in degrees, or NaN deg (with a warning) if the flare is off the limb.
+
+    Examples
+    --------
+    >>> import astropy.units as u
+    >>> from astropy.coordinates import SkyCoord
+    >>> from sunpy.coordinates import HeliographicStonyhurst, Helioprojective
+    >>> from stixpy.coordinates.flare_angle import flare_spacecraft_angle
+    >>> solo = SkyCoord(0 * u.deg, 0 * u.deg, 0.5 * u.AU, frame=HeliographicStonyhurst(obstime="2022-03-30"))
+    >>> flare = SkyCoord(0 * u.arcsec, 0 * u.arcsec, frame=Helioprojective(observer=solo, obstime="2022-03-30"))
+    >>> flare_spacecraft_angle(flare)  # doctest: +FLOAT_CMP
+    <Quantity 0. deg>
     """
+    if spacecraft_coord is None:
+        spacecraft_coord = flare_hpc.observer
+        if spacecraft_coord is None:
+            raise ValueError("spacecraft_coord must be given if flare_hpc has no observer.")
 
-    obstime = flare_hpc.obstime
+    if spacecraft_coord.obstime is not None and abs(spacecraft_coord.obstime - flare_hpc.obstime) > obstime_tolerance:
+        warnings.warn(
+            f"Spacecraft obstime {spacecraft_coord.obstime.isot} differs from flare obstime "
+            f"{flare_hpc.obstime.isot} by more than {obstime_tolerance}.",
+            stacklevel=2,
+        )
 
-    hgs_frame = HeliographicStonyhurst(obstime=obstime)
-
-    flare_hgs = flare_hpc.transform_to(hgs_frame)
-
-    if np.isnan(flare_hgs.lat.value):
+    flare_hgs = flare_hpc.transform_to(HeliographicStonyhurst(obstime=flare_hpc.obstime))
+    if np.isnan(flare_hgs.lat):
         warnings.warn(
             "Flare location is off the limb so no angle can be calculated.",
             stacklevel=2,
         )
-        return np.nan
+        return np.nan * u.deg
 
-    else:
-        lon_rad = flare_hgs.lon.to(u.rad).value
-        lat_rad = flare_hgs.lat.to(u.rad).value
-
-        flare_cart = np.array(
-            [
-                np.cos(lat_rad) * np.cos(lon_rad),
-                np.cos(lat_rad) * np.sin(lon_rad),
-                np.sin(lat_rad),
-            ]
-        )
-
-        sc_hgs = spacecraft_coord.transform_to(hgs_frame)
-
-        sc_cart = sc_hgs.cartesian.xyz.value
-
-        sc_unit = sc_hgs.cartesian.xyz.unit
-        flare_pos_m = flare_cart * (1.0 * u.R_sun).to(sc_unit).value
-
-        cos_theta = np.dot(flare_cart, (sc_cart - flare_pos_m)) / (
-            np.linalg.norm(flare_cart) * np.linalg.norm(sc_cart - flare_pos_m)
-        )
-
-        angle = np.degrees(np.arccos(cos_theta)) * u.deg
-
-        return angle
+    flare = flare_hgs.cartesian
+    los = spacecraft_coord.transform_to(flare_hgs.frame).cartesian - flare
+    return np.arctan2(flare.cross(los).norm(), flare.dot(los)).to(u.deg)

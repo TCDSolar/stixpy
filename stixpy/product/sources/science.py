@@ -17,6 +17,8 @@ from sunpy.util import deprecated
 
 from stixpy.io.readers import read_subc_params
 from stixpy.product.product import L1Product
+from stixpy.product.sources._selection import _energy_indices_format, _indices_check, _time_indices_format
+from stixpy.visualisation.plotters import PixelPlotter
 
 __all__ = [
     "ScienceData",
@@ -35,7 +37,6 @@ __all__ = [
     "EnergyEdgeMasks",
 ]
 
-from stixpy.visualisation.plotters import PixelPlotter
 
 quantity_support()
 
@@ -394,11 +395,13 @@ class TimesSeriesPlotMixin:
         if axes is None:
             fig, axes = plt.subplots()
 
+        # a spectrogram has no detector or pixel axes to sum over
+        is_spectrogram = self.data["counts"].ndim < 4
         if detector_indices == "all":
-            detector_indices = [[0, 31]]
+            detector_indices = None if is_spectrogram else [[0, 31]]
 
         if pixel_indices == "all":
-            pixel_indices = [[0, 11]]
+            pixel_indices = None if is_spectrogram else [[0, 11]]
 
         counts, errors, times, timedeltas, energies = self.get_data(
             vtype=vtype,
@@ -545,22 +548,33 @@ class ScienceData(L1Product):
                 * 'c' - count [c]
                 * 'cr' - count rate [c/s]
                 * 'dcr' - differential count rate [c/(s keV)]
-        time_indices : `list` or `numpy.ndarray`
+        time_indices : `list`, `numpy.ndarray` or `astropy.time.Time`
             If an 1xN array will be treated as mask if 2XN array will sum data between given
             indices. For example `time_indices=[0, 2, 5]` would return only the first, third and
             sixth times while `time_indices=[[0, 2],[3, 5]]` would sum the data between.
-        energy_indices : `list` or `numpy.ndarray`
+            Times can also be given as strings or `~astropy.time.Time`, either as [start, end]
+            pairs or as a flat list of consecutive range edges; each range sums the data bins that
+            lie wholly inside it. Indices and times outside the file raise a `ValueError`.
+        energy_indices : `list`, `numpy.ndarray` or `astropy.units.Quantity`
             If an 1xN array will be treated as mask if 2XN array will sum data between given
             indices. For example `energy_indices=[0, 2, 5]` would return only the first, third and
             sixth times while `energy_indices=[[0, 2],[3, 5]]` would sum the data between.
-        detector_indices : `list` or `numpy.ndarray`
+            Energies can also be given as a `~astropy.units.Quantity`, either as [start, end] pairs,
+            e.g. ``[[4, 10], [15, 28]] * u.keV``, or as a flat list of consecutive range edges; each
+            range sums the bins whose centres lie inside it. Indices number the rows of
+            `energies`, and any outside it raise a `ValueError`.
+        detector_indices : `list`, `numpy.ndarray` or `str`
             If an 1xN array will be treated as mask if 2XN array will sum data between given
             indices. For example `detector_indices=[0, 2, 5]` would return only the first, third and
             sixth detectors while `detector_indices=[[0, 2],[3, 5]]` would sum the data between.
+            The labels ``"top24"`` (the 24 imaging detectors, as in STIX-GSW) and ``"bkg"`` (the
+            background detector with its small-aperture pixels 2 and 5) are also accepted.
+            Detectors that are not in the file raise a `ValueError`.
         pixel_indices : `list` or `numpy.ndarray`
             If an 1xN array will be treated as mask if 2XN array will sum data between given
             indices. For example `pixel_indices=[0, 2, 5]` would return only the first, third and
             sixth pixels while `pixel_indices=[[0, 2],[3, 5]]` would sum the data between.
+            Pixels that are not in the file raise a `ValueError`.
         sum_all_times : `bool`
             Flag to sum all give time intervals into one
 
@@ -570,6 +584,21 @@ class ScienceData(L1Product):
             Counts, errors, times, deltatimes,  energies
 
         """
+        energy_indices = _energy_indices_format(energy_indices, self.energies)
+        if time_indices is not None:
+            time_indices = _time_indices_format(time_indices, self.times, self.data["timedel"])
+
+        # _indices_check fills in every detector and pixel that is on when none are given, but get_data has always
+        # kept the full axes then, so only take its result for selections that were made
+        bkg_label = isinstance(detector_indices, str) and detector_indices.lower() == "bkg"
+        checked_detectors, checked_pixels, energy_indices = _indices_check(
+            self, detector_indices, pixel_indices, energy_indices
+        )
+        if detector_indices is not None:
+            detector_indices = checked_detectors
+        if pixel_indices is not None or bkg_label:
+            pixel_indices = checked_pixels
+
         detector_masks = getattr(self, "detector_masks", None)
         pixel_masks = getattr(self, "pixel_masks", None)
         counts = _full_layout(self.data["counts"], detector_masks, pixel_masks, name="counts")

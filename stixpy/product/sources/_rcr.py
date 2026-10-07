@@ -8,6 +8,13 @@ import numpy as np
 
 __all__ = []
 
+# Both values are hard-coded in the RCR correction of STIX-GSW ``stx_convert_spectrogram2ospex``:
+# ``where(abs(total(spec,1) - shift(total(spec,1),-1)) * 24. / n_elements(detectors_used) gt 1e4)``
+#: Counts change between adjacent time bins, scaled to `RCR_SIGNAL_DETECTORS`, above which the bins are a jump.
+RCR_JUMP_THRESHOLD = 1e4
+#: Number of detectors the jump signal is scaled to before it is compared with `RCR_JUMP_THRESHOLD`.
+RCR_SIGNAL_DETECTORS = 24
+
 
 def _rcr_signal(counts, n_detectors):
     """
@@ -15,9 +22,9 @@ def _rcr_signal(counts, n_detectors):
     ``total(spec, 1) * 24. / n_elements(detectors_used)``.
 
     The counts are summed over every axis except time (detectors or detector
-    groups, pixels, energies) and scaled to 24 detectors, so that the fixed 1e4
-    jump threshold in `_rcr_shift` means the same whatever the number of
-    detectors used.
+    groups, pixels, energies) and scaled to `RCR_SIGNAL_DETECTORS` detectors, so
+    that the fixed `RCR_JUMP_THRESHOLD` in `_rcr_shift` means the same whatever
+    the number of detectors used.
 
     Parameters
     ----------
@@ -32,7 +39,7 @@ def _rcr_signal(counts, n_detectors):
         One value per time bin.
     """
     counts = np.asarray(getattr(counts, "value", counts), dtype=np.float64)
-    return np.nansum(counts, axis=tuple(range(1, counts.ndim))) * 24.0 / max(n_detectors, 1)
+    return np.nansum(counts, axis=tuple(range(1, counts.ndim))) * RCR_SIGNAL_DETECTORS / max(n_detectors, 1)
 
 
 def _rcr_shift(rcr, signal):
@@ -45,7 +52,7 @@ def _rcr_shift(rcr, signal):
 
     1. ``find_changes``: the first bin of each RCR state, starting with bin 0.
     2. Only if ``max(rcr) > 0``: a jump is at bin ``i`` when
-       ``|signal[i] - signal[i + 1]| > 1e4`` (IDL ``shift`` wraps around, so the
+       ``|signal[i] - signal[i + 1]| > RCR_JUMP_THRESHOLD`` (IDL ``shift`` wraps around, so the
        last bin is also compared with the first). Bin 0 is put in front.
     3. A jump is kept if the next jump (wrapping around) is more than 2 bins
        away, so from each group of close jumps the last one is kept.
@@ -72,6 +79,25 @@ def _rcr_shift(rcr, signal):
     -------
     numpy.ndarray
         The RCR state of each time bin.
+
+    Notes
+    -----
+    These follow from keeping GSW's behaviour and can be surprising:
+
+    * A jump at bin ``i`` is a step between bins ``i`` and ``i + 1``, and the
+      change is moved to bin ``i``. So the last bin before the step in counts
+      takes the new state. GSW does the same, as it uses ``time_start[i]`` as
+      the time of the change.
+    * Because ``shift`` wraps around, the last bin is a jump whenever the first
+      and last bins differ by more than the threshold, which is usual when the
+      attenuator is inserted and stays in. A reported change near the end of
+      the data can be pulled onto this last bin.
+    * If there is no jump at all, ``where`` returns -1, ``jumps`` is ``[0, -1]``,
+      no jump is kept, and the scalar -1 subscript takes ``-1``. Every change
+      is then moved to -1, clipped to 0, so every bin takes the last reported
+      state.
+    * Reported changes that move to the same jump collapse into one, and the
+      bins after it take the last of their states.
     """
     rcr_arr = np.asarray(rcr)
     n_times = rcr_arr.size
@@ -84,7 +110,7 @@ def _rcr_shift(rcr, signal):
         signal = np.asarray(signal, dtype=np.float64)
 
         # jumps = where(abs(x - shift(x, -1)) gt 1e4)   (-1 if none)
-        jumps = np.flatnonzero(np.abs(signal - np.roll(signal, -1)) > 1e4)
+        jumps = np.flatnonzero(np.abs(signal - np.roll(signal, -1)) > RCR_JUMP_THRESHOLD)
         if jumps.size == 0:
             jumps = np.array([-1])
         # jumps = [0, jumps]
@@ -127,7 +153,7 @@ def _rcr_warning(time_indices, rcr):
             warnings.warn(
                 f"RCR state change detected "
                 f"index {time_indices[0]} has RCR={first_rcr!r}, "
-                f"index {i} has RCR={rcr[i]!r}."
+                f"index {i} has RCR={rcr[i]!r}. "
                 f"Use with caution!",
                 stacklevel=4,
             )

@@ -3,6 +3,7 @@ import pytest
 from numpy.testing import assert_allclose
 
 import astropy.units as u
+from astropy.table import QTable
 
 from stixpy.data import test
 from stixpy.product import Product
@@ -231,3 +232,132 @@ def test_spec_plot_timeseries(spec):
 @pytest.mark.remote_data
 def test_spec_plot_spectrogram(spec):
     spec.plot_spectrogram()
+
+
+def _make_product(cls, counts, detector_masks, pixel_masks, err_name="counts_comp_err"):
+    """Build a synthetic science product from a counts array and per-time masks."""
+    nt, ne = counts.shape[0], counts.shape[-1]
+    data = QTable()
+    data["time"] = np.arange(nt) * u.s
+    data["timedel"] = np.ones(nt) * u.s
+    data["pixel_masks"] = pixel_masks
+    data["counts"] = counts * u.ct
+    data[err_name] = np.sqrt(counts) * u.ct
+    control = QTable()
+    control["energy_bin_edge_mask"] = np.ones((1, ne + 1), dtype=int)
+    if cls is Spectrogram:
+        control["detector_masks"] = detector_masks[:1]
+    else:
+        data["detector_masks"] = detector_masks
+    energies = QTable()
+    energies["e_low"] = np.arange(ne) * u.keV
+    energies["e_high"] = (np.arange(ne) + 1) * u.keV
+    return cls(
+        meta={"date-obs": "2024-01-01T00:00:00"}, control=control, data=data, energies=energies, idb_versions=None
+    )
+
+
+@pytest.fixture
+def cpd_partial():
+    """Compressed pixel data with detectors 9, 10 and pixels 3, 7 switched off, so only 30 x 10 are stored."""
+    nt, ne = 3, 4
+    dmask = np.ones(32, dtype=int)
+    dmask[[9, 10]] = 0
+    pmask = np.ones(12, dtype=int)
+    pmask[[3, 7]] = 0
+    counts = np.arange(nt * 30 * 10 * ne, dtype=float).reshape(nt, 30, 10, ne) + 1
+    return _make_product(CompressedPixelData, counts, np.tile(dmask, (nt, 1)), np.tile(pmask, (nt, 1)))
+
+
+def test_get_data_full_layout(cpd_partial):
+    stored = cpd_partial.data["counts"]
+    stored_err = cpd_partial.data["counts_comp_err"]
+    dets = np.flatnonzero(cpd_partial.detector_masks.masks[0])
+    pixs = np.flatnonzero(cpd_partial.pixel_masks.masks[0])
+
+    counts, errors, *_ = cpd_partial.get_data(vtype="c")
+    assert counts.shape == (3, 32, 12, 4)
+
+    # Stored position (i, j) lands at real detector dets[i] and pixel pixs[j]
+    assert_allclose(counts[:, dets[:, None], pixs, :], stored)
+    assert_allclose(counts[:, 11, 8, :], stored[:, 9, 6, :])
+    assert_allclose(errors[:, dets[:, None], pixs, :], np.sqrt(stored * u.ct + stored_err**2))
+
+    # Detectors and pixels that are off are zero
+    assert np.all(counts[:, [9, 10]] == 0)
+    assert np.all(counts[:, :, [3, 7]] == 0)
+    assert np.all(errors[:, [9, 10]] == 0)
+    assert np.all(errors[:, :, [3, 7]] == 0)
+
+    # Indices refer to real detectors and pixels
+    sel, *_ = cpd_partial.get_data(vtype="c", detector_indices=[11], pixel_indices=[8])
+    assert_allclose(sel[:, 0, 0, :], stored[:, 9, 6, :])
+    total, *_ = cpd_partial.get_data(vtype="c", detector_indices=[[0, 31]], pixel_indices=[[0, 11]])
+    assert_allclose(total[:, 0, 0, :], stored.sum(axis=(1, 2)))
+
+
+def test_get_data_full_layout_comp_comp_err():
+    nt = 2
+    dmask = np.ones(32, dtype=int)
+    dmask[0] = 0
+    counts = np.ones((nt, 31, 12, 3))
+    prod = _make_product(
+        CompressedPixelData,
+        counts,
+        np.tile(dmask, (nt, 1)),
+        np.ones((nt, 12), dtype=int),
+        err_name="counts_comp_comp_err",
+    )
+    counts, errors, *_ = prod.get_data(vtype="c")
+    assert counts.shape == errors.shape == (nt, 32, 12, 3)
+    assert np.all(errors[:, 0] == 0)
+    assert np.all(errors[:, 1:] > 0)
+
+
+def test_get_data_full_layout_changing_detector_mask():
+    nt = 2
+    dmasks = np.ones((nt, 32), dtype=int)
+    dmasks[1, 5] = 0
+    prod = _make_product(CompressedPixelData, np.ones((nt, 31, 12, 3)), dmasks, np.ones((nt, 12), dtype=int))
+    with pytest.raises(ValueError, match="detector mask changes"):
+        prod.get_data()
+
+
+def test_get_data_full_layout_shape_mismatch():
+    nt = 2
+    dmask = np.ones(32, dtype=int)
+    dmask[0] = 0
+    prod = _make_product(
+        CompressedPixelData, np.ones((nt, 30, 12, 3)), np.tile(dmask, (nt, 1)), np.ones((nt, 12), dtype=int)
+    )
+    with pytest.raises(ValueError, match="does not match the masks"):
+        prod.get_data()
+
+
+def test_get_data_full_layout_summed_unchanged():
+    nt = 2
+    pmask = np.zeros((4, 12), dtype=int)
+    for i in range(4):
+        pmask[i, i::4] = 1
+    counts = np.arange(nt * 32 * 4 * 3, dtype=float).reshape(nt, 32, 4, 3)
+    prod = _make_product(SummedCompressedPixelData, counts, np.ones((nt, 32), dtype=int), np.tile(pmask, (nt, 1, 1)))
+    out, *_ = prod.get_data(vtype="c")
+    assert_allclose(out, counts * u.ct)
+
+
+def test_get_data_full_layout_spectrogram_unchanged():
+    nt = 2
+    counts = np.arange(nt * 3, dtype=float).reshape(nt, 3)
+    dmask = np.ones(32, dtype=int)
+    dmask[[9, 10]] = 0
+    prod = _make_product(Spectrogram, counts, dmask[None, :], np.zeros((nt, 12), dtype=int))
+    out, *_ = prod.get_data(vtype="c")
+    assert_allclose(out, counts.reshape(nt, 1, 1, 3) * u.ct)
+
+
+def test_plot_pixels_full_layout(cpd_partial):
+    plotter = cpd_partial.plot_pixels()
+    assert plotter.counts.shape == (3, 32, 12, 4)
+    assert np.isnan(plotter.counts[:, [9, 10]]).all()
+    assert np.isnan(plotter.counts[:, :, [3, 7]]).all()
+    assert_allclose(plotter.counts[0, 11, 8, :].value, cpd_partial.data["counts"][0, 9, 6, :].value)

@@ -25,6 +25,10 @@ BKG_PIXELS = [2, 5]
 #: Named detector sets accepted by ``detector_indices``.
 DETECTOR_LABELS = {"top24": TOP24, "bkg": [BKG_DETECTOR]}
 
+#: Tolerance on time comparisons, which absorbs floating-point error in bin edges and the
+#: millisecond rounding of ISO time strings.
+TIME_TOLERANCE = 1 * u.ms
+
 
 def _on_indices(masks):
     """
@@ -36,15 +40,52 @@ def _on_indices(masks):
     return np.unique(np.nonzero(np.asarray(masks) == 1)[-1])
 
 
+def _check_ranges(ranges, on, n_total, name):
+    """
+    Check [start, end] detector or pixel ranges against the indices that are on.
+
+    Parameters
+    ----------
+    ranges : array_like
+        [start, end] pairs, inclusive at both ends.
+    on : numpy.ndarray
+        Indices that are on in the product.
+    n_total : int
+        Length of the mask, i.e. 32 detectors or 12 pixels.
+    name : str
+        "detector" or "pixel", for the error messages.
+
+    Raises
+    ------
+    ValueError
+        If a range is reversed, runs outside ``0`` to ``n_total - 1``, or holds
+        no index that is on.
+    """
+    for start, end in ranges:
+        if not 0 <= start <= end < n_total:
+            raise ValueError(
+                f"{name.capitalize()} range [{start}, {end}] must have 0 <= start <= end <= {n_total - 1}."
+            )
+        if np.intersect1d(np.arange(start, end + 1), on).size == 0:
+            raise ValueError(
+                f"{name.capitalize()} range [{start}, {end}] holds no {name}s that are on in this file "
+                f"({name}s on: {on.tolist()})."
+            )
+
+
 def _indices_check(product, detector_indices, pixel_indices, energy_indices):
     """
     Check the requested detector, pixel and energy indices against what the
     product contains, and fill in defaults.
 
     Detectors and pixels are checked against `product.detector_masks` and
-    `product.pixel_masks`. They may be a flat list of indices or a list of
-    [start, end] pairs; any that are not in the product raise a ValueError.
-    None selects every detector or pixel in the product.
+    `product.pixel_masks`. They may be a flat list of indices, any of which
+    that are not in the product raise a ValueError, or a list of [start, end]
+    pairs to sum over. A range may span detectors or pixels that are switched
+    off, which add nothing to the sum, so ``[[0, 31]]`` sums every detector;
+    it raises a ValueError if it runs outside the mask or holds none that are
+    on (see `_check_ranges`). None selects every detector or pixel in the
+    product.
 
     Detectors can also be given as a label, in any case. The detectors a label
     stands for are checked against the mask like explicit indices:
@@ -151,15 +192,7 @@ def _indices_check(product, detector_indices, pixel_indices, energy_indices):
                 )
 
         elif np.ndim(detector_indices) == 2:
-            # [[start, end], ...] range format
-            for start, end in detector_indices:
-                missing = np.setdiff1d(np.arange(start, end + 1), detector_indices_on)
-                if missing.size > 0:
-                    raise ValueError(
-                        f"Detector range [{start}, {end}] includes detectors {missing.tolist()} that are "
-                        f"switched off in this file (detectors on: {detector_indices_on.tolist()}). Split "
-                        "the range around them or give the detectors as a flat list."
-                    )
+            _check_ranges(detector_indices, detector_indices_on, np.shape(product.detector_masks.masks)[-1], "detector")
         else:
             missing = np.setdiff1d(detector_indices, detector_indices_on)
             if missing.size > 0:
@@ -184,14 +217,7 @@ def _indices_check(product, detector_indices, pixel_indices, energy_indices):
         pixel_indices_on = _on_indices(product.pixel_masks.masks)
 
         if np.ndim(pixel_indices) == 2:
-            for start, end in pixel_indices:
-                missing = np.setdiff1d(np.arange(start, end + 1), pixel_indices_on)
-                if missing.size > 0:
-                    raise ValueError(
-                        f"Pixel range [{start}, {end}] includes pixels {missing.tolist()} that are switched off "
-                        f"in this file (pixels on: {pixel_indices_on.tolist()}). Split the range around them "
-                        "or give the pixels as a flat list."
-                    )
+            _check_ranges(pixel_indices, pixel_indices_on, np.shape(product.pixel_masks.masks)[-1], "pixel")
         else:
             missing = np.setdiff1d(pixel_indices, pixel_indices_on)
             if missing.size > 0:
@@ -316,9 +342,8 @@ def _check_time_limits(bins, file_start, file_end):
     ValueError
         If any start is before `file_start` or any end is after `file_end`.
     """
-    tol = 1 * u.ms  # absorbs floating-point error in file_start / file_end
     for start, end in bins:
-        if Time(start) < file_start - tol or Time(end) > file_end + tol:
+        if Time(start) < file_start - TIME_TOLERANCE or Time(end) > file_end + TIME_TOLERANCE:
             raise ValueError(
                 f"Requested times [{Time(start).isot} - {Time(end).isot}] fall outside the "
                 f"file time range [{file_start.isot} - {file_end.isot}]."
@@ -352,6 +377,10 @@ def _check_index_limits(indices, n_times):
 def _handle_datetime_strings(time_bin: list[list[str | Time]], times: list[str | Time], dt) -> list[list[int]]:
     """
     Resolve time ranges to the data bins that lie wholly inside them.
+
+    Bin edges are compared with a tolerance of `TIME_TOLERANCE` (1 ms), so a
+    range given as ISO strings, which round the edges to the millisecond, still
+    includes the bins that start or end on it.
 
     Parameters
     ----------
@@ -387,7 +416,9 @@ def _handle_datetime_strings(time_bin: list[list[str | Time]], times: list[str |
         bin_start = Time(pair[0])
         bin_end = Time(pair[1])
 
-        matched = np.flatnonzero((bin_start <= data_bin_start) & (data_bin_end <= bin_end))
+        matched = np.flatnonzero(
+            (bin_start - TIME_TOLERANCE <= data_bin_start) & (data_bin_end <= bin_end + TIME_TOLERANCE)
+        )
         if matched.size == 0:
             raise ValueError(f"Time range [{bin_start.isot} - {bin_end.isot}] does not contain a complete data bin.")
 
@@ -433,7 +464,7 @@ def _find_bin_index(start, end, e_low, e_high):
     if matches.size == 0:
         raise ValueError(f"Energy range [{start} - {end}] keV does not contain the centre of any product energy bin.")
 
-    return [np.min(matches), np.max(matches)]
+    return [int(matches[0]), int(matches[-1])]
 
 
 def _energy_indices_from_flat_edges(values, e_low, e_high):

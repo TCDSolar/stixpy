@@ -10,7 +10,30 @@ import numpy as np
 import astropy.units as u
 from astropy.time import Time
 
-__all__ = []
+__all__ = ["TOP24", "DETECTOR_LABELS"]
+
+
+#: The 24 imaging detectors of sub-collimators 3-10, as in STIX-GSW ``stx_label2det_ind``.
+TOP24 = [0, 1, 2, 3, 4, 5, 6, 7, 13, 14, 15, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31]
+
+#: The background (BKG) detector.
+BKG_DETECTOR = 9
+
+#: The small-aperture pixels of the background detector.
+BKG_PIXELS = [2, 5]
+
+#: Named detector sets accepted by ``detector_indices``.
+DETECTOR_LABELS = {"top24": TOP24, "bkg": [BKG_DETECTOR]}
+
+
+def _on_indices(masks):
+    """
+    Indices along the last axis of ``masks`` that are on in any of the masks.
+
+    The last axis is the detector axis of detector masks and the pixel axis of
+    pixel masks, which can be ``(n, 12)`` or ``(n, 32, 12)``.
+    """
+    return np.unique(np.nonzero(np.asarray(masks) == 1)[-1])
 
 
 def _indices_check(product, detector_indices, pixel_indices, energy_indices):
@@ -20,15 +43,14 @@ def _indices_check(product, detector_indices, pixel_indices, energy_indices):
 
     Detectors and pixels are checked against `product.detector_masks` and
     `product.pixel_masks`. They may be a flat list of indices or a list of
-    [start, end] pairs; any that are not in the product raise a warning and the
-    selection is kept as given. None selects every detector or pixel in the
-    product.
+    [start, end] pairs; any that are not in the product raise a ValueError.
+    None selects every detector or pixel in the product.
 
-    Detectors can also be given as a label, in any case. Labels are not checked
-    against the mask:
+    Detectors can also be given as a label, in any case. The detectors a label
+    stands for are checked against the mask like explicit indices:
 
     - "top24": the 24 imaging detectors of sub-collimators 3-10 (indices 0-7,
-      13-15 and 19-31), as in STIX-GSW.
+      13-15 and 19-31, `TOP24`), as in STIX-GSW.
     - "bkg": the background detector (index 9) with its small-aperture pixels
       [2, 5]. If `pixel_indices` is None it is set to [2, 5] with a warning;
       any other pixels raise a ValueError. Use ``detector_indices=[9]`` to
@@ -70,191 +92,136 @@ def _indices_check(product, detector_indices, pixel_indices, energy_indices):
     Raises
     ------
     ValueError
-        If a detector label is not recognised, if ``detector_indices="bkg"`` is
-        given with pixels other than [2, 5], or if a requested energy bin is
-        outside the product's energy table.
+        If a requested detector or pixel is not in the product, if a detector
+        label is not recognised, if ``detector_indices="bkg"`` is given with
+        pixels other than [2, 5], or if a requested energy bin is outside the
+        product's energy table.
 
     Warns
     -----
     UserWarning
-        If a requested detector or pixel is not in the product, if detector or
-        pixel indices are given for a spectrogram product, or if
+        If detector or pixel indices are given for a spectrogram product, or if
         ``detector_indices="bkg"`` sets the pixels to [2, 5].
     """
+    is_spectrogram = len(product.data["counts"].shape) < 4
 
     # --- Detector indices ---
-
-    if detector_indices is not None:
-        if len(product.data["counts"].shape) < 4:
-            warnings.warn(
-                f"As a spectrogram file is being used, the user selected detector indices \
-                            {detector_indices} will not be used, defaulting to the indices used in the creation \
-                            of the spectrgram file.",
-                stacklevel=3,
-            )
-
-            detector_indices = None
-
-        else:
-            detector_indices_working = detector_indices
-
-            if isinstance(detector_indices_working, str):
-                # named detector sets, as in STIX-GSW stx_label2det_ind
-                detector_labels = {
-                    "top24": [
-                        0,
-                        1,
-                        2,
-                        3,
-                        4,
-                        5,
-                        6,
-                        7,
-                        13,
-                        14,
-                        15,
-                        19,
-                        20,
-                        21,
-                        22,
-                        23,
-                        24,
-                        25,
-                        26,
-                        27,
-                        28,
-                        29,
-                        30,
-                        31,
-                    ],
-                    "bkg": [9],
-                }
-                label = detector_indices_working.lower()
-                if label not in detector_labels:
-                    raise ValueError(
-                        f"Unknown detector label {detector_indices_working!r}, use one of {list(detector_labels)}."
-                    )
-                detector_indices = np.array(detector_labels[label])
-
-                if label == "bkg":
-                    if pixel_indices is None:
-                        pixel_indices = [2, 5]
-                        warnings.warn(
-                            'detector_indices="bkg" with no pixel_indices given: using the BKG detector\'s '
-                            "small-aperture pixels [2, 5].",
-                            stacklevel=3,
-                        )
-                    elif np.ndim(pixel_indices) != 1 or sorted(np.asarray(pixel_indices).tolist()) != [2, 5]:
-                        raise ValueError(
-                            f'detector_indices="bkg" uses the BKG detector\'s small-aperture pixels [2, 5], '
-                            f"but pixel_indices={pixel_indices} was given. Either leave pixel_indices unset "
-                            f'(None) or set pixel_indices=[2, 5] if using the "bkg" preset.'
-                            f"To use background detectors with other pixel_indices use detector_indices=[9]"
-                            f"with your choice of pixel_indices."
-                        )
-
-                detector_indices_full = np.unique(np.where(product.detector_masks.masks == 1)[1])
-                missing = np.setdiff1d(detector_indices, detector_indices_full)
-                if missing.size > 0:
-                    usable = np.intersect1d(detector_indices, detector_indices_full)
-                    raise ValueError(
-                        f'detector_indices="{label}" includes detectors {missing.tolist()} that are switched off in '
-                        f"this file (detectors on: {detector_indices_full.tolist()}). Give the detectors explicitly, "
-                        f"e.g. detector_indices={usable.tolist()}."
-                    )
-
-            else:
-                detector_indices_full = np.unique(np.where(product.detector_masks.masks == 1)[1])
-
-                if np.ndim(detector_indices_working) == 2:
-                    # [[start, end], ...] range format
-                    for start, end in detector_indices_working:
-                        requested = np.arange(start, end + 1)
-                        missing = np.setdiff1d(requested, detector_indices_full)
-                        if missing.size > 0:
-                            raise ValueError(
-                                f"Detector range [{start}, {end}] includes detectors {missing.tolist()} that are "
-                                f"switched off in this file (detectors on: {detector_indices_full.tolist()}). Split "
-                                "the range around them or give the detectors as a flat list."
-                            )
-                else:
-                    missing = np.setdiff1d(detector_indices_working, detector_indices_full)
-                    if missing.size > 0:
-                        raise ValueError(
-                            f"Detectors {missing.tolist()} are switched off in this file (detectors on: "
-                            f"{detector_indices_full.tolist()}). Remove them, or leave detector_indices unset to "
-                            "use every detector that is on."
-                        )
-
+    if detector_indices is None:
+        if not is_spectrogram:
+            detector_indices = _on_indices(product.detector_masks.masks)
+    elif is_spectrogram:
+        warnings.warn(
+            f"The product is a spectrogram, so detector_indices={detector_indices} is ignored and the detectors "
+            "used to make the spectrogram are kept.",
+            stacklevel=3,
+        )
+        detector_indices = None
     else:
-        if len(product.data["counts"].shape) < 4:
-            detector_indices = None
+        detector_indices_on = _on_indices(product.detector_masks.masks)
+
+        if isinstance(detector_indices, str):
+            label = detector_indices.lower()
+            if label not in DETECTOR_LABELS:
+                raise ValueError(f"Unknown detector label {detector_indices!r}, use one of {list(DETECTOR_LABELS)}.")
+            detector_indices = np.array(DETECTOR_LABELS[label])
+
+            if label == "bkg":
+                if pixel_indices is None:
+                    pixel_indices = BKG_PIXELS
+                    warnings.warn(
+                        'detector_indices="bkg" with no pixel_indices given: using the BKG detector\'s '
+                        f"small-aperture pixels {BKG_PIXELS}.",
+                        stacklevel=3,
+                    )
+                elif np.ndim(pixel_indices) != 1 or sorted(np.asarray(pixel_indices).tolist()) != BKG_PIXELS:
+                    raise ValueError(
+                        f'detector_indices="bkg" uses the BKG detector\'s small-aperture pixels {BKG_PIXELS}, '
+                        f"but pixel_indices={pixel_indices} was given. Either leave pixel_indices unset (None) or "
+                        f'set pixel_indices={BKG_PIXELS} if using the "bkg" preset. To use the BKG detector with '
+                        f"other pixels use detector_indices=[{BKG_DETECTOR}] with your choice of pixel_indices."
+                    )
+
+            missing = np.setdiff1d(detector_indices, detector_indices_on)
+            if missing.size > 0:
+                usable = np.intersect1d(detector_indices, detector_indices_on)
+                raise ValueError(
+                    f'detector_indices="{label}" includes detectors {missing.tolist()} that are switched off in '
+                    f"this file (detectors on: {detector_indices_on.tolist()}). Give the detectors explicitly, "
+                    f"e.g. detector_indices={usable.tolist()}."
+                )
+
+        elif np.ndim(detector_indices) == 2:
+            # [[start, end], ...] range format
+            for start, end in detector_indices:
+                missing = np.setdiff1d(np.arange(start, end + 1), detector_indices_on)
+                if missing.size > 0:
+                    raise ValueError(
+                        f"Detector range [{start}, {end}] includes detectors {missing.tolist()} that are "
+                        f"switched off in this file (detectors on: {detector_indices_on.tolist()}). Split "
+                        "the range around them or give the detectors as a flat list."
+                    )
         else:
-            detector_indices = np.where(product.detector_masks.masks == 1)[1]
+            missing = np.setdiff1d(detector_indices, detector_indices_on)
+            if missing.size > 0:
+                raise ValueError(
+                    f"Detectors {missing.tolist()} are switched off in this file (detectors on: "
+                    f"{detector_indices_on.tolist()}). Remove them, or leave detector_indices unset to "
+                    "use every detector that is on."
+                )
 
     # --- Pixel indices ---
-    if pixel_indices is not None:
-        pixel_indices_full = np.unique(np.where(product.pixel_masks.masks == 1)[1])
+    if pixel_indices is None:
+        if not is_spectrogram:
+            pixel_indices = _on_indices(product.pixel_masks.masks)
+    elif is_spectrogram:
+        warnings.warn(
+            f"The product is a spectrogram, so pixel_indices={pixel_indices} is ignored and the pixels used to "
+            "make the spectrogram are kept.",
+            stacklevel=3,
+        )
+        pixel_indices = None
+    else:
+        pixel_indices_on = _on_indices(product.pixel_masks.masks)
 
-        if len(product.data["counts"].shape) < 4:
-            warnings.warn(
-                f"As a spectrogram file is being used, the user selected detector indices \
-                            {pixel_indices} will not be used, defaulting to the indices used in the creation \
-                            of the spectrgram file.",
-                stacklevel=3,
-            )
-            pixel_indices = None
-
-        else:
-            if np.ndim(pixel_indices) == 2:
-                for start, end in pixel_indices:
-                    requested = np.arange(start, end + 1)
-                    missing = np.setdiff1d(requested, pixel_indices_full)
-                    if missing.size > 0:
-                        raise ValueError(
-                            f"Pixel range [{start}, {end}] includes pixels {missing.tolist()} that are switched off "
-                            f"in this file (pixels on: {pixel_indices_full.tolist()}). Split the range around them "
-                            "or give the pixels as a flat list."
-                        )
-            else:
-                missing = np.setdiff1d(pixel_indices, pixel_indices_full)
+        if np.ndim(pixel_indices) == 2:
+            for start, end in pixel_indices:
+                missing = np.setdiff1d(np.arange(start, end + 1), pixel_indices_on)
                 if missing.size > 0:
                     raise ValueError(
-                        f"Pixels {missing.tolist()} are switched off in this file (pixels on: "
-                        f"{pixel_indices_full.tolist()}). Remove them, or leave pixel_indices unset to use every "
-                        "pixel that is on."
+                        f"Pixel range [{start}, {end}] includes pixels {missing.tolist()} that are switched off "
+                        f"in this file (pixels on: {pixel_indices_on.tolist()}). Split the range around them "
+                        "or give the pixels as a flat list."
                     )
-
-    else:
-        if len(product.data["counts"].shape) < 4:
-            pixel_indices = None
         else:
-            pixel_indices = np.where(product.pixel_masks.masks == 1)[1]
+            missing = np.setdiff1d(pixel_indices, pixel_indices_on)
+            if missing.size > 0:
+                raise ValueError(
+                    f"Pixels {missing.tolist()} are switched off in this file (pixels on: "
+                    f"{pixel_indices_on.tolist()}). Remove them, or leave pixel_indices unset to use every "
+                    "pixel that is on."
+                )
 
     # --- Energy indices ---
     if energy_indices is not None:
-        energy_indices_full = np.arange(len(product.energies))
+        n_energies = len(product.energies)
         e_min = np.nanmin(product.energies["e_low"].value)
         e_max = np.nanmax(product.energies["e_high"].value)
-
-        energy_range = (
-            f"The product has energy indices {energy_indices_full[0]}-{energy_indices_full[-1]} "
-            f"({e_min} - {e_max} keV)."
-        )
+        energy_range = f"The product has energy indices 0-{n_energies - 1} ({e_min} - {e_max} keV)."
 
         if np.ndim(energy_indices) == 2:
             for start, end in energy_indices:
-                requested = np.arange(start, end + 1)
-                missing = np.setdiff1d(requested, energy_indices_full)
+                missing = np.setdiff1d(np.arange(start, end + 1), np.arange(n_energies))
                 if missing.size > 0:
                     raise ValueError(
-                        f"Energy indices {missing.tolist()} in range [{start}, {end}] are not included in the product's energy mask. {energy_range}"
+                        f"Energy indices {missing.tolist()} in range [{start}, {end}] are not included in the "
+                        f"product's energy mask. {energy_range}"
                     )
         else:
-            missing = np.setdiff1d(energy_indices, energy_indices_full)
+            missing = np.setdiff1d(energy_indices, np.arange(n_energies))
             if missing.size > 0:
                 raise ValueError(
-                    f"The following energy indices are not included in the product's energy mask: {missing.tolist()}. {energy_range}"
+                    "The following energy indices are not included in the product's energy mask: "
+                    f"{missing.tolist()}. {energy_range}"
                 )
 
     return detector_indices, pixel_indices, energy_indices
@@ -275,9 +242,7 @@ def _time_indices_format(time_indices, times, dt):
 
     Indices and times are checked against the file first. Times are then
     resolved to the data bins that lie wholly inside each range. Numpy integers
-    and arrays are accepted as well as Python ints and lists. The selection is
-    checked against the RCR states later, in `_data_select`, once the RCR has
-    been aligned to the counts.
+    and arrays are accepted as well as Python ints and lists.
 
     Parameters
     ----------
@@ -296,10 +261,8 @@ def _time_indices_format(time_indices, times, dt):
     Raises
     ------
     ValueError
-        If an index or time is outside the file, or if the format is not
-        recognised.
-    IndexError
-        If a time range contains no complete data bin.
+        If an index or time is outside the file, if a time range contains no
+        complete data bin, or if the format is not recognised.
     """
 
     first = time_indices[0]
@@ -313,6 +276,8 @@ def _time_indices_format(time_indices, times, dt):
         return time_indices
 
     if isinstance(first, (str, Time)):
+        if len(time_indices) < 2:
+            raise ValueError(f"Times given as a flat list are range edges and need at least two, got: {time_indices}")
         bins = [[time_indices[i], time_indices[i + 1]] for i in range(len(time_indices) - 1)]
         _check_time_limits(bins, file_start, file_end)
         return _handle_datetime_strings(bins, times, dt)
@@ -359,7 +324,7 @@ def _check_time_limits(bins, file_start, file_end):
                 f"file time range [{file_start.isot} - {file_end.isot}]."
             )
 
-@staticmethod
+
 def _check_index_limits(indices, n_times):
     """
     Check that time indices lie within the file.
@@ -407,9 +372,8 @@ def _handle_datetime_strings(time_bin: list[list[str | Time]], times: list[str |
     Raises
     ------
     ValueError
-        If a range does not have exactly two elements.
-    IndexError
-        If a range contains no complete data bin.
+        If a range does not have exactly two elements, or contains no complete
+        data bin.
     """
 
     data_bin_start = times - (0.5 * dt)
@@ -418,18 +382,16 @@ def _handle_datetime_strings(time_bin: list[list[str | Time]], times: list[str |
     results = []
     for n, pair in enumerate(time_bin):
         if len(pair) != 2:
-            raise ValueError(
-                f"Each time bin must have exactly 2 elements [start, end], got {len(pair)} at index {n}."
-            )
+            raise ValueError(f"Each time bin must have exactly 2 elements [start, end], got {len(pair)} at index {n}.")
 
         bin_start = Time(pair[0])
         bin_end = Time(pair[1])
 
-        matched = [
-            i for i, t in enumerate(times) if (bin_start <= data_bin_start[i]) and (data_bin_end[i] <= bin_end)
-        ]
+        matched = np.flatnonzero((bin_start <= data_bin_start) & (data_bin_end <= bin_end))
+        if matched.size == 0:
+            raise ValueError(f"Time range [{bin_start.isot} - {bin_end.isot}] does not contain a complete data bin.")
 
-        results.append([matched[0], matched[-1]])
+        results.append([int(matched[0]), int(matched[-1])])
 
     return results
 
@@ -469,9 +431,7 @@ def _find_bin_index(start, end, e_low, e_high):
     matches = np.where((e_centre >= start) & (e_centre <= end))[0]
 
     if matches.size == 0:
-        raise ValueError(
-            f"Energy range [{start} - {end}] keV does not contain the centre of any product energy bin."
-        )
+        raise ValueError(f"Energy range [{start} - {end}] keV does not contain the centre of any product energy bin.")
 
     return [np.min(matches), np.max(matches)]
 

@@ -10,6 +10,7 @@ from astropy.time import Time
 from sunpy.coordinates import HeliographicStonyhurst, Helioprojective
 from sunpy.time import TimeRange
 
+from stixpy.calibration.grid import get_grid_transmission
 from stixpy.calibration.visibility import (
     calibrate_visibility,
     create_meta_pixels,
@@ -164,13 +165,24 @@ def test_create_meta_pixels_timebins(flare_cpd):
 def test_create_meta_pixels_shadow(flare_cpd):
     energy_range = [6, 12] * u.keV
     time_range = [flare_cpd.times[0], flare_cpd.times[2]]
-    create_meta_pixels(
+    flare_location = SkyCoord(0 * u.arcsec, 0 * u.arcsec, frame=STIXImaging)
+    shadowed = create_meta_pixels(
         flare_cpd,
         time_range=time_range,
         energy_range=energy_range,
-        flare_location=SkyCoord(0 * u.arcsec, 0 * u.arcsec, frame=STIXImaging),
+        flare_location=flare_location,
         no_shadowing=False,
     )
+    unshadowed = create_meta_pixels(
+        flare_cpd, time_range=time_range, energy_range=energy_range, flare_location=flare_location, no_shadowing=True
+    )
+    # Grid transmission evaluated at the mean of the selected energy range (6-12 keV bins) and CFL/BKG untouched
+    imaging = np.isin(np.arange(32), [8, 9], invert=True)
+    transmission = get_grid_transmission(9 * u.keV, np.arange(32)[imaging], flare_location)[0]
+    assert_quantity_allclose(
+        shadowed["abcd_rate_kev"][imaging], unshadowed["abcd_rate_kev"][imaging] / transmission.reshape(-1, 1) / 4
+    )
+    assert_quantity_allclose(shadowed["abcd_rate_kev"][~imaging], unshadowed["abcd_rate_kev"][~imaging])
 
 
 @pytest.mark.parametrize(

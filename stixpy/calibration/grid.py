@@ -8,6 +8,7 @@ import numpy as np
 from roentgen.absorption import MassAttenuationCoefficient
 
 import astropy.units as u
+from astropy.coordinates import SkyCoord
 from astropy.table import Table
 
 from stixpy.coordinates.frames import STIXImaging
@@ -28,11 +29,11 @@ _W_MASS_ATTEN = MassAttenuationCoefficient("W")
 
 def _tungsten_path_length(ph_energy):
     """
-    Photon energy [keV] -> attenuation path length L [mm] in tungsten, using
+    Photon energy -> attenuation path length L [mm] in tungsten, using
     roentgen's tabulated mass attenuation coefficient. Mirrors IDL's
     L = 1 / (mass_attenuation * density / 10), with density = 19.30 g/cm^3.
     """
-    energy = np.atleast_1d(ph_energy).astype(float) * u.keV
+    energy = np.atleast_1d(ph_energy.to(u.keV))
     mass_atten = _W_MASS_ATTEN.func(energy)  # cm^2/g
     density_w = 19.30 * u.g / u.cm**3
     mu_linear = mass_atten * density_w  # cm^-1
@@ -74,7 +75,8 @@ def stx_grid_transmission(pitch, slit, thickness, L, ds=5e-3, dh=5e-2):
     return g0 + g1
 
 
-def get_grid_transmission(ph_energy, detectors, flare_location: STIXImaging):
+@u.quantity_input(ph_energy=u.keV)
+def get_grid_transmission(ph_energy, detectors, flare_location: SkyCoord | u.Quantity | None = None):
     r"""
     Return the grid transmission for the requested sub-collimators, corrected
     for internal shadowing, including the finest grids (1a/b/c, 2a/b/c) with
@@ -82,14 +84,15 @@ def get_grid_transmission(ph_energy, detectors, flare_location: STIXImaging):
 
     Parameters
     ----------
-    ph_energy : array_like
-        Photon energies [keV].
+    ph_energy : `~astropy.units.Quantity`
+        Photon energies.
     detectors : array_like
         0-indexed subcollimator numbers to compute transmission for
         (detector = subcollimator - 1, e.g. detector 0 = subcollimator 1).
-    flare_location : STIXImaging, array-like, or None
-        Location of the flare, in arcsec ([Tx, Ty]). If None, on-axis (0, 0)
-        is assumed.
+    flare_location : `~astropy.coordinates.SkyCoord` or `~astropy.units.Quantity`, optional
+        Location of the flare, either as a coordinate in the
+        `~stixpy.coordinates.frames.STIXImaging` frame or as angles ``[Tx, Ty]``
+        in that frame. If None, on-axis (0, 0) is assumed.
 
     Returns
     -------
@@ -131,14 +134,19 @@ def get_grid_transmission(ph_energy, detectors, flare_location: STIXImaging):
     intercept_all = np.asarray(calib["intercept"])
     slope_all = np.asarray(calib["slope[1/deg]"])
 
-    ph_energy = np.atleast_1d(ph_energy)
     L = _tungsten_path_length(ph_energy)  # mm, shape (n_energies,)
     n_energies = len(L)
 
-    if flare_location is not None:
-        flare_loc_deg = np.asarray(flare_location, dtype=float) / 3600.0  # arcsec -> deg
-    else:
+    if flare_location is None:
         flare_loc_deg = np.array([0.0, 0.0])
+    elif isinstance(flare_location, SkyCoord):
+        if not isinstance(flare_location.frame, STIXImaging):
+            raise ValueError("flare_location must be in the STIXImaging frame.")
+        flare_loc_deg = u.Quantity([flare_location.Tx, flare_location.Ty]).to_value(u.deg)
+    else:
+        if flare_location.shape != (2,):
+            raise ValueError("flare_location must be a SkyCoord or a Quantity [Tx, Ty] of shape (2,).")
+        flare_loc_deg = flare_location.to_value(u.deg)
 
     detectors = np.atleast_1d(detectors)
     n_det = len(detectors)

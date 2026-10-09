@@ -10,6 +10,7 @@ from stixpy.product import Product
 from stixpy.product.sources.science import (
     CompressedPixelData,
     RawPixelData,
+    SelectedData,
     Spectrogram,
     SummedCompressedPixelData,
     Visibility,
@@ -46,75 +47,55 @@ def spec():
 
 @pytest.mark.remote_data
 def test_sciencedata_get_data(cpd):
-    tot = cpd.data["counts"]
-    norm = cpd.data["timedel"].reshape(5, 1, 1, 1).to(u.s) * cpd.dE
-    rate = tot / norm
-    error = np.sqrt(tot * u.ct + cpd.data["counts_comp_err"] ** 2) / norm
-    r, re, t, dt, e = cpd.get_data(vtype="dcr")
-    assert_allclose(rate, r)
-    assert_allclose(error, re)
+    # Without corrections get_data returns the stored counts, less the 0 keV bottom and open top energy bins
+    uncorrected = {"vtype": "dcr", "livetime_correction": False, "elut_correction": False}
+    counts = cpd.data["counts"][..., 1:31]
+    var = counts * u.ct + cpd.data["counts_comp_err"][..., 1:31] ** 2
+    timedel = cpd.data["timedel"].reshape(5, 1, 1, 1).to(u.s)
+    de = cpd.dE[1:31]
+
+    data = cpd.get_data(**uncorrected)
+    assert_allclose(data.counts, counts / (timedel * de))
+    assert_allclose(data.counts_err, np.sqrt(var) / (timedel * de), rtol=1e-6)
 
     # Detector sum
-    tot = cpd.data["counts"][:, 0:32, ...].sum(axis=1, keepdims=True)
-    norm = cpd.data["timedel"].reshape(5, 1, 1, 1).to(u.s) * cpd.dE
-    rate = tot / norm
-    error = np.sqrt(tot * u.ct + cpd.data["counts_comp_err"][:, 0:32, ...].sum(axis=1, keepdims=True) ** 2) / norm
-    r, re, t, dt, e = cpd.get_data(vtype="dcr", detector_indices=[[0, 31]])
-    assert_allclose(rate, r)
-    assert_allclose(error, re, atol=1e-3)
+    data = cpd.get_data(detector_indices=[[0, 31]], **uncorrected)
+    assert_allclose(data.counts, counts.sum(axis=1, keepdims=True) / (timedel * de))
+    assert_allclose(data.counts_err, np.sqrt(var.sum(axis=1, keepdims=True)) / (timedel * de), rtol=1e-6)
 
     # Pixel sum
-    tot = cpd.data["counts"][..., 0:12, :].sum(axis=2, keepdims=True)
-    norm = cpd.data["timedel"].reshape(5, 1, 1, 1).to(u.s) * cpd.dE
-    rate = tot / norm
-    error = np.sqrt(tot * u.ct + cpd.data["counts_comp_err"][..., 0:12, :].sum(axis=2, keepdims=True) ** 2) / norm
-    r, re, t, dt, e = cpd.get_data(vtype="dcr", pixel_indices=[[0, 11]])
-    assert_allclose(rate, r)
-    assert_allclose(error, re)
+    data = cpd.get_data(pixel_indices=[[0, 11]], **uncorrected)
+    assert_allclose(data.counts, counts.sum(axis=2, keepdims=True) / (timedel * de))
+    assert_allclose(data.counts_err, np.sqrt(var.sum(axis=2, keepdims=True)) / (timedel * de), rtol=1e-6)
 
     # Detector and Pixel sum
-    tot = cpd.data["counts"][:, 0:32, 0:12, :].sum(axis=(1, 2), keepdims=True)
-    norm = cpd.data["timedel"].reshape(5, 1, 1, 1).to(u.s) * cpd.dE
-    rate = tot / norm
-    error = (
-        np.sqrt(tot * u.ct + cpd.data["counts_comp_err"][:, 0:32, 0:12, :].sum(axis=(1, 2), keepdims=True) ** 2) / norm
-    )
-    r, re, t, dt, e = cpd.get_data(vtype="dcr", pixel_indices=[[0, 11]], detector_indices=[[0, 31]])
-    assert_allclose(rate, r)
-    assert_allclose(error, re, atol=1e-3)
+    data = cpd.get_data(pixel_indices=[[0, 11]], detector_indices=[[0, 31]], **uncorrected)
+    assert_allclose(data.counts, counts.sum(axis=(1, 2), keepdims=True) / (timedel * de))
+    assert_allclose(data.counts_err, np.sqrt(var.sum(axis=(1, 2), keepdims=True)) / (timedel * de), rtol=1e-6)
 
-    # Energy sum
-    tot = cpd.data["counts"][..., 1:31].sum(axis=3, keepdims=True)
-    norm = cpd.data["timedel"].reshape(5, 1, 1, 1).to(u.s) * (cpd.energies[30]["e_high"] - cpd.energies[1]["e_low"])
-    rate = tot / norm
-    error = np.sqrt(tot * u.ct + cpd.data["counts_comp_err"][..., 1:31].sum(axis=3, keepdims=True) ** 2) / norm
-    r, re, t, dt, e = cpd.get_data(vtype="dcr", energy_indices=[[1, 30]])
-    assert_allclose(rate, r)
-    assert_allclose(error, re, atol=1e-3)
+    # Energy sum: rows 1 to 30 of the energy table are every bin get_data returns
+    de_sum = cpd.energies[30]["e_high"] - cpd.energies[1]["e_low"]
+    data = cpd.get_data(energy_indices=[[1, 30]], **uncorrected)
+    assert_allclose(data.counts, counts.sum(axis=3, keepdims=True) / (timedel * de_sum))
+    assert_allclose(data.counts_err, np.sqrt(var.sum(axis=3, keepdims=True)) / (timedel * de_sum), rtol=1e-6)
+    assert_allclose(data.e_norm.reshape(-1), de_sum)
 
     # Time sum
-    tot = cpd.data["counts"][:, ...].sum(axis=0, keepdims=True)
-    norm = cpd.data["timedel"].sum().to(u.s) * cpd.dE
-    rate = tot / norm
-    error = np.sqrt(tot * u.ct + cpd.data["counts_comp_err"][:, ...].sum(axis=0, keepdims=True) ** 2) / norm
-    r, re, t, dt, e = cpd.get_data(vtype="dcr", time_indices=[[0, 4]])
-    assert_allclose(rate, r)
-    assert_allclose(error, re)
+    data = cpd.get_data(time_indices=[[0, 4]], **uncorrected)
+    assert_allclose(data.counts, counts.sum(axis=0, keepdims=True) / (timedel.sum() * de))
+    assert_allclose(data.counts_err, np.sqrt(var.sum(axis=0, keepdims=True)) / (timedel.sum() * de), rtol=1e-6)
+    assert_allclose(data.t_norm.reshape(-1), timedel.sum())
 
     # Sum everything down to one number
-    tot = cpd.data["counts"][..., 1:31].sum(keepdims=True)
-    norm = cpd.data["timedel"].sum().to(u.s) * (cpd.energies[30]["e_high"] - cpd.energies[1]["e_low"])
-    rate = tot / norm
-    error = np.sqrt(tot * u.ct + cpd.data["counts_comp_err"][..., 1:31].sum(keepdims=True) ** 2) / norm
-    r, re, t, dt, e = cpd.get_data(
-        vtype="dcr",
+    data = cpd.get_data(
         time_indices=[[0, 4]],
         energy_indices=[[1, 30]],
         pixel_indices=[[0, 11]],
         detector_indices=[[0, 31]],
+        **uncorrected,
     )
-    assert_allclose(rate, r)
-    assert_allclose(error, re, atol=1e-3)
+    assert_allclose(data.counts, counts.sum(keepdims=True) / (timedel.sum() * de_sum))
+    assert_allclose(data.counts_err, np.sqrt(var.sum(keepdims=True)) / (timedel.sum() * de_sum), rtol=1e-6)
 
     # Overwrite data with known values
     # 5 seconds, with dE 1/30keV across 30 channels
@@ -127,17 +108,18 @@ def test_sciencedata_get_data(cpd):
     cpd.energies["e_high"][1:-1] = ((np.arange(31) / 30)[1:] * u.keV).astype(np.float32)
     cpd.energies["e_low"][1:-1] = ((np.arange(31) / 30)[:-1] * u.keV).astype(np.float32)
     cpd.data["time"] = cpd.time_range.start + np.arange(5) / 5 * u.s
-    count, count_err, times, timedel, energies = cpd.get_data(
-        vtype="dcr", time_indices=[[0, 4]], energy_indices=[[1, 30]]
-    )
-    assert_allclose(count, 1 * u.ct / (u.s * u.keV))
-    assert_allclose(count_err, np.sqrt(2) * u.ct / (u.s * u.keV))  # 1 + 1
+    data = cpd.get_data(time_indices=[[0, 4]], energy_indices=[[1, 30]], **uncorrected)
+    assert_allclose(data.counts, 1 * u.ct / (u.s * u.keV))
+    assert_allclose(data.counts_err, np.sqrt(2) * u.ct / (u.s * u.keV))  # 1 + 1
 
 
 @pytest.mark.remote_data
 def test_cpd_get_data_pixel_indices(cpd):
-    counts, *_ = cpd.get_data(pixel_indices=[8, 9])
+    counts, *_ = cpd.get_data(pixel_indices=[8, 9], livetime_correction=False)
     assert counts.shape[2] == 2
+    # the livetime correction sums the selected pixels
+    counts, *_ = cpd.get_data(pixel_indices=[8, 9])
+    assert counts.shape[2] == 1
 
 
 # Raw Pixel Data (rpd) or l0
@@ -234,6 +216,10 @@ def test_spec_plot_spectrogram(spec):
     spec.plot_spectrogram()
 
 
+# synthetic products have no triggers or ELUT channels, so get_data is called without the corrections
+UNCORRECTED = {"livetime_correction": False, "elut_correction": False}
+
+
 def _make_product(cls, counts, detector_masks, pixel_masks, err_name="counts_comp_err"):
     """Build a synthetic science product from a counts array and per-time masks."""
     nt, ne = counts.shape[0], counts.shape[-1]
@@ -241,6 +227,7 @@ def _make_product(cls, counts, detector_masks, pixel_masks, err_name="counts_com
     data["time"] = np.arange(nt) * u.s
     data["timedel"] = np.ones(nt) * u.s
     data["pixel_masks"] = pixel_masks
+    data["rcr"] = np.zeros(nt, dtype=int)
     data["counts"] = counts * u.ct
     data[err_name] = np.sqrt(counts) * u.ct
     control = QTable()
@@ -250,8 +237,9 @@ def _make_product(cls, counts, detector_masks, pixel_masks, err_name="counts_com
     else:
         data["detector_masks"] = detector_masks
     energies = QTable()
-    energies["e_low"] = np.arange(ne) * u.keV
-    energies["e_high"] = (np.arange(ne) + 1) * u.keV
+    # start above 0 keV, as get_data drops a 0 keV bottom bin
+    energies["e_low"] = (np.arange(ne) + 1) * u.keV
+    energies["e_high"] = (np.arange(ne) + 2) * u.keV
     return cls(
         meta={"date-obs": "2024-01-01T00:00:00"}, control=control, data=data, energies=energies, idb_versions=None
     )
@@ -275,7 +263,7 @@ def test_get_data_full_layout(cpd_partial):
     dets = np.flatnonzero(cpd_partial.detector_masks.masks[0])
     pixs = np.flatnonzero(cpd_partial.pixel_masks.masks[0])
 
-    counts, errors, *_ = cpd_partial.get_data(vtype="c")
+    counts, errors, *_ = cpd_partial.get_data(vtype="c", **UNCORRECTED)
     assert counts.shape == (3, 32, 12, 4)
 
     # Stored position (i, j) lands at real detector dets[i] and pixel pixs[j]
@@ -290,9 +278,9 @@ def test_get_data_full_layout(cpd_partial):
     assert np.all(errors[:, :, [3, 7]] == 0)
 
     # Indices refer to real detectors and pixels
-    sel, *_ = cpd_partial.get_data(vtype="c", detector_indices=[11], pixel_indices=[8])
+    sel, *_ = cpd_partial.get_data(vtype="c", detector_indices=[11], pixel_indices=[8], **UNCORRECTED)
     assert_allclose(sel[:, 0, 0, :], stored[:, 9, 6, :])
-    total, *_ = cpd_partial.get_data(vtype="c", detector_indices=[[0, 31]], pixel_indices=[[0, 11]])
+    total, *_ = cpd_partial.get_data(vtype="c", detector_indices=[[0, 31]], pixel_indices=[[0, 11]], **UNCORRECTED)
     assert_allclose(total[:, 0, 0, :], stored.sum(axis=(1, 2)))
 
 
@@ -308,7 +296,7 @@ def test_get_data_full_layout_comp_comp_err():
         np.ones((nt, 12), dtype=int),
         err_name="counts_comp_comp_err",
     )
-    counts, errors, *_ = prod.get_data(vtype="c")
+    counts, errors, *_ = prod.get_data(vtype="c", **UNCORRECTED)
     assert counts.shape == errors.shape == (nt, 32, 12, 3)
     assert np.all(errors[:, 0] == 0)
     assert np.all(errors[:, 1:] > 0)
@@ -320,7 +308,7 @@ def test_get_data_full_layout_changing_detector_mask():
     dmasks[1, 5] = 0
     prod = _make_product(CompressedPixelData, np.ones((nt, 31, 12, 3)), dmasks, np.ones((nt, 12), dtype=int))
     with pytest.raises(ValueError, match="detector mask changes"):
-        prod.get_data()
+        prod.get_data(**UNCORRECTED)
 
 
 def test_get_data_full_layout_shape_mismatch():
@@ -331,7 +319,7 @@ def test_get_data_full_layout_shape_mismatch():
         CompressedPixelData, np.ones((nt, 30, 12, 3)), np.tile(dmask, (nt, 1)), np.ones((nt, 12), dtype=int)
     )
     with pytest.raises(ValueError, match="does not match the masks"):
-        prod.get_data()
+        prod.get_data(**UNCORRECTED)
 
 
 def test_get_data_full_layout_summed_unchanged():
@@ -341,7 +329,7 @@ def test_get_data_full_layout_summed_unchanged():
         pmask[i, i::4] = 1
     counts = np.arange(nt * 32 * 4 * 3, dtype=float).reshape(nt, 32, 4, 3)
     prod = _make_product(SummedCompressedPixelData, counts, np.ones((nt, 32), dtype=int), np.tile(pmask, (nt, 1, 1)))
-    out, *_ = prod.get_data(vtype="c")
+    out, *_ = prod.get_data(vtype="c", **UNCORRECTED)
     assert_allclose(out, counts * u.ct)
 
 
@@ -351,7 +339,7 @@ def test_get_data_full_layout_spectrogram_unchanged():
     dmask = np.ones(32, dtype=int)
     dmask[[9, 10]] = 0
     prod = _make_product(Spectrogram, counts, dmask[None, :], np.zeros((nt, 12), dtype=int))
-    out, *_ = prod.get_data(vtype="c")
+    out, *_ = prod.get_data(vtype="c", **UNCORRECTED)
     assert_allclose(out, counts.reshape(nt, 1, 1, 3) * u.ct)
 
 
@@ -361,3 +349,20 @@ def test_plot_pixels_full_layout(cpd_partial):
     assert np.isnan(plotter.counts[:, [9, 10]]).all()
     assert np.isnan(plotter.counts[:, :, [3, 7]]).all()
     assert_allclose(plotter.counts[0, 11, 8, :].value, cpd_partial.data["counts"][0, 9, 6, :].value)
+
+
+def test_get_data_returns_selected_data(cpd_partial):
+    data = cpd_partial.get_data(vtype="c", time_indices=[[0, 1], [2, 2]], **UNCORRECTED)
+    assert isinstance(data, SelectedData)
+    assert data.counts is data[0]
+    assert data.counts.shape == (2, 32, 12, 4)
+    assert data.livefrac is None
+    assert data.elut_cor_fac is None
+    # one RCR state per summed time range
+    assert data.rcr.shape == (2,)
+
+
+def test_plot_spectrogram_all_energies(cpd_partial):
+    im = cpd_partial.plot_spectrogram()
+    # every energy bin get_data returns is plotted
+    assert im.get_array().shape == (4, 3)

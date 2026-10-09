@@ -1,4 +1,3 @@
-import warnings
 from pathlib import Path
 
 import numpy as np
@@ -94,11 +93,10 @@ def _to_value(array):
 
 
 def _get_summed_counts(cpd, *, detector_indices, elut_correction, pixel_indices=None):
-    """Call get_data in tuple mode and reduce to (n_time, n_energy).
+    """Call get_data and reduce to (n_time, n_energy).
 
-    get_data returns (counts, counts_err, ...) with (n_time, n_detector,
-    n_pixel, n_energy) arrays; axes 1 and 2 are summed away here, errors in
-    quadrature.
+    get_data returns counts and counts_err as (n_time, n_detector, n_pixel,
+    n_energy) arrays; axes 1 and 2 are summed away here, errors in quadrature.
     """
     kwargs = {
         "vtype": "cr",
@@ -109,26 +107,10 @@ def _get_summed_counts(cpd, *, detector_indices, elut_correction, pixel_indices=
     if pixel_indices is not None:
         kwargs["pixel_indices"] = pixel_indices
 
-    # Two warnings are expected here and both are suppressed at the call site
-    # rather than in the global pytest config, so the suppression stays scoped
-    # to this one get_data call and nothing in the reductions or assertions
-    # below is covered by it:
-    #
-    #  - A NumPy DeprecationWarning ("Conversion of an array with ndim > 0 to
-    #    a scalar is deprecated") on the single-detector/pixel-subset path used
-    #    by the bkgdet selection. This one is an upstream bug worth fixing in
-    #    stixpy, not a test problem.
-    #  - A stixpy UserWarning noting that with livetime_correction=True the
-    #    livetime is averaged across detectors to match the IDL behaviour.
-    #    That averaging is exactly what the reference values were generated
-    #    with, so the warning is informational here.
-    with warnings.catch_warnings():
-        warnings.filterwarnings("ignore", category=DeprecationWarning)
-        warnings.filterwarnings("ignore", category=UserWarning)
-        cpd_spec = cpd.get_data(**kwargs)
+    cpd_spec = cpd.get_data(**kwargs)
 
-    counts = np.nansum(cpd_spec[0], axis=(1, 2))
-    counts_err = np.sqrt(np.nansum(cpd_spec[1] ** 2, axis=(1, 2)))
+    counts = np.nansum(cpd_spec.counts, axis=(1, 2))
+    counts_err = np.sqrt(np.nansum(cpd_spec.counts_err**2, axis=(1, 2)))
     return counts, counts_err
 
 

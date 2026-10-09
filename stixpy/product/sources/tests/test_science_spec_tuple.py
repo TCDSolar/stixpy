@@ -1,4 +1,3 @@
-import warnings
 from pathlib import Path
 
 import numpy as np
@@ -62,34 +61,15 @@ def _to_value(array):
 
 
 def _get_summed_counts(spec_prod):
-    """Call get_data in tuple mode and reduce to (n_time, n_energy).
+    """Call get_data and reduce to (n_time, n_energy).
 
     No detector_indices or pixel_indices are passed: a spectrogram is already
-    summed over detectors and pixels onboard, and _indices_check discards them
-    for level-4 data with a warning.
-
-    Both warnings are suppressed at the call site rather than in the global
-    pytest config, so the suppression stays scoped to this one get_data call and
-    nothing in the reductions or assertions below is covered by it:
-
-      - A NumPy DeprecationWarning ("Conversion of an array with ndim > 0 to a
-        scalar is deprecated") on the spectrogram path. An upstream bug worth
-        fixing in stixpy, not a test problem.
-      - A stixpy UserWarning noting that the livetime is averaged across
-        detectors to match the IDL behaviour, and that detector/pixel indices
-        are ignored for level-4 data.
+    summed over detectors and pixels onboard.
     """
-    with warnings.catch_warnings():
-        warnings.filterwarnings("ignore", category=DeprecationWarning)
-        warnings.filterwarnings("ignore", category=UserWarning)
-        spec = spec_prod.get_data(
-            vtype="cr",
-            elut_correction=True,
-            livetime_correction=True,
-        )
+    spec = spec_prod.get_data(vtype="cr", elut_correction=True, livetime_correction=True)
 
-    counts = np.nansum(spec[0], axis=(1, 2))
-    counts_err = np.sqrt(np.nansum(spec[1] ** 2, axis=(1, 2)))
+    counts = np.nansum(spec.counts, axis=(1, 2))
+    counts_err = np.sqrt(np.nansum(spec.counts_err**2, axis=(1, 2)))
     return counts, counts_err
 
 

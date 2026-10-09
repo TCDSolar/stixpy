@@ -1,6 +1,6 @@
-import warnings
 from itertools import product
 from pathlib import Path
+from typing import NamedTuple
 
 import numpy as np
 from matplotlib import pyplot as plt
@@ -9,7 +9,7 @@ from matplotlib.dates import ConciseDateFormatter, DateFormatter, HourLocator
 from matplotlib.widgets import Slider
 
 import astropy.units as u
-from astropy.table import vstack
+from astropy.table import QTable, vstack
 from astropy.time import Time
 from astropy.utils.masked import Masked
 from astropy.visualization import quantity_support
@@ -36,6 +36,7 @@ from stixpy.visualisation.plotters import PixelPlotter
 
 __all__ = [
     "ScienceData",
+    "SelectedData",
     "RawPixelData",
     "CompressedPixelData",
     "SummedCompressedPixelData",
@@ -169,6 +170,37 @@ def _selected_active(product, detector_indices, pixel_indices, time_indices, sum
     if sum_all_times and active.shape[0] > 1:
         active = np.any(active, axis=0, keepdims=True)
     return active
+
+
+class SelectedData(NamedTuple):
+    r"""
+    The data selected by `ScienceData.get_data`.
+
+    Access the fields by name, e.g. ``data.counts``. Fields may be added in later versions, so code that unpacks
+    every field by position may break.
+    """
+
+    counts: u.Quantity
+    """Counts, shape ``(time, detector, pixel, energy)``, normalised as requested by ``vtype``."""
+    counts_err: u.Quantity
+    """1-sigma uncertainty of `counts`, same shape and unit, including the livetime uncertainty when corrected."""
+    t_norm: u.Quantity
+    """Duration of each time bin in seconds, shape ``(time, 1, 1, 1)``."""
+    e_norm: u.Quantity
+    """Width of each energy bin in keV, shape ``(1, 1, 1, energy)``."""
+    livefrac: np.ndarray | None
+    """Livetime fraction, shape ``(time, detector, 1, 1)``, or None without the livetime correction."""
+    livefrac_error: u.Quantity | None
+    """Livetime uncertainty in counts, or None without the livetime correction."""
+    elut_cor_fac: np.ndarray | None
+    """ELUT correction factor applied to the counts, broadcastable against them, or None without the ELUT
+    correction."""
+    times: Time
+    """Centre of each time bin."""
+    energies: QTable
+    """Energy table with ``e_low`` and ``e_high`` columns, one row per energy bin."""
+    rcr: np.ndarray
+    """RCR (attenuator) state of each time bin, aligned to the jumps in the counts as STIX-GSW does."""
 
 
 def _expand(indices):
@@ -382,7 +414,7 @@ class SpectrogramPlotMixin:
                     raise ValueError("Spectrogram plots can only one sum detector or summed over a number of detectors")
                 pid = pixel_indices
 
-        counts, errors, timedeltas, _, _, _, _, times, energies, _ = self.get_data(
+        data = self.get_data(
             vtype=vtype,
             detector_indices=did,
             pixel_indices=pid,
@@ -391,18 +423,18 @@ class SpectrogramPlotMixin:
             livetime_correction=False,
             elut_correction=False,
         )
-        timedeltas = timedeltas.to(u.s)
+        times, energies = data.times, data.energies
+        timedeltas = data.t_norm.to(u.s).reshape(-1)
 
+        # get_data has already removed the 0 keV bottom and open top energy bins
         e_edges = np.hstack([energies["e_low"], energies["e_high"][-1]]).value
-        t_edges = Time(
-            np.concatenate([times - timedeltas.reshape(-1) / 2, times[-1] + timedeltas.reshape(-1)[-1:] / 2])
-        )
+        t_edges = Time(np.concatenate([times - timedeltas / 2, times[-1] + timedeltas[-1:] / 2]))
 
-        counts = np.nansum(counts, axis=(1, 2), keepdims=True)  # one summed spectrogram
+        counts = np.nansum(data.counts, axis=(1, 2), keepdims=True)  # one summed spectrogram
 
         pcolor_kwargs = {"norm": LogNorm(), "shading": "flat"}
         pcolor_kwargs.update(plot_kwargs)
-        im = axes.pcolormesh(t_edges.datetime, e_edges[1:-1], counts[:, 0, 0, 1:-1].T.value, **pcolor_kwargs)  # noqa
+        im = axes.pcolormesh(t_edges.datetime, e_edges, counts[:, 0, 0, :].T.value, **pcolor_kwargs)
 
         # axes.colorbar(im).set_label(format(counts.unit))
         axes.xaxis_date()
@@ -486,7 +518,7 @@ class TimesSeriesPlotMixin:
         if sum_pixels:
             pixel_indices = None
 
-        counts, errors, timedeltas, _, _, _, _, times, energies, _ = self.get_data(
+        data = self.get_data(
             vtype=vtype,
             detector_indices=detector_indices,
             pixel_indices=pixel_indices,
@@ -495,6 +527,7 @@ class TimesSeriesPlotMixin:
             livetime_correction=False,
             elut_correction=False,
         )
+        counts, errors, times, energies = data.counts, data.counts_err, data.times, data.energies
 
         sum_axes = tuple(axis for axis, summed in ((1, sum_detectors), (2, sum_pixels)) if summed)
         if sum_axes:
@@ -669,7 +702,7 @@ class ScienceData(L1Product):
             "livetime_correction": livetime_correction,
             "elut_correction": elut_correction,
         }
-        self._rcr_shifted = np.asarray(self.get_data(vtype="c", **settings)[9])
+        self._rcr_shifted = np.asarray(self.get_data(vtype="c", **settings).rcr)
         self._rcr_settings = settings
         return self._rcr_shifted
 
@@ -727,12 +760,12 @@ class ScienceData(L1Product):
 
         Returns
         -------
-        tuple
-            ``(counts, counts_var, t_norm, e_norm, livefrac, livefrac_error,
-            elut_cor_fac, times, energies, rcr)``, with `counts` and `counts_var`
-            normalised according to `vtype`. `counts_var` holds the 1-sigma
-            uncertainty, not the variance. Inactive detector and pixel positions
-            are masked in both returned quantities.
+        SelectedData
+            Named tuple with the selected ``counts`` and ``counts_err`` (normalised
+            according to `vtype`), ``t_norm``, ``e_norm``, ``livefrac``,
+            ``livefrac_error``, ``elut_cor_fac``, ``times``, ``energies`` and
+            ``rcr``. Inactive detector and pixel positions are masked in both
+            quantities. Access the fields by name, as more may be added.
 
         Raises
         ------
@@ -741,6 +774,24 @@ class ScienceData(L1Product):
             detector label is not recognised, if ``detector_indices="bkg"`` is given
             with pixels other than [2, 5], if a time range spans an RCR change, or
             if `vtype` is not 'c', 'cr' or 'dcr'.
+
+        Notes
+        -----
+        The 0 keV bottom energy bin and the open top energy bin are never returned.
+
+        With `livetime_correction`, the livetime is corrected as in STIX-GSW: the
+        counts of each detector are scaled to the mean livetime fraction of the
+        detectors they are combined with (all selected detectors for flat indices,
+        each range for [start, end] pairs, every detector that is on for no
+        selection), the pixels are summed, so the pixel axis has length 1, and the
+        rates (`vtype` 'cr' and 'dcr') are divided by that livetime. With
+        ``vtype='c'`` the counts are not divided by the livetime. The livetime
+        uncertainty is added to ``counts_err``.
+
+        With `elut_correction`, each energy bin is scaled by the ratio of its
+        science width to its calibrated (ELUT) width, averaged over the selected
+        detectors and pixels that are on, so one factor per energy bin is applied
+        to every detector.
         """
         energy_indices = _energy_indices_format(energy_indices, self.energies)
         if time_indices is not None:
@@ -791,21 +842,10 @@ class ScienceData(L1Product):
                 bins, bins_actual, True, pixel_indices_elut, detector_indices_elut, is_spectrogram
             )
 
-            warnings.warn(
-                "ELUT correction factor is always averaged over the used pixels"
-                "but can be given detector-wise or detector averaged.",
-                stacklevel=2,
-            )
-
         else:
             elut_cor_fac = None
 
         if livetime_correction:
-            warnings.warn(
-                "If livetime_correction=True livetime is applied averaged across detectors to be consistent with IDL approach.",
-                stacklevel=2,
-            )
-
             livefrac, livefrac_error = _livefrac(self, counts, elut_cor_fac, checked_pixels)
 
         else:
@@ -827,7 +867,7 @@ class ScienceData(L1Product):
             n_detectors=n_det_spectrogram,
         )
 
-        counts, counts_var, t_norm, e_norm, livefrac, livefrac_error, elut_cor_fac, times, energies, rcr = sci_data
+        counts, counts_err, t_norm, e_norm, livefrac, livefrac_error, elut_cor_fac, times, energies, rcr = sci_data
 
         e_norm = e_norm[np.newaxis, np.newaxis, np.newaxis, :]
         t_norm = t_norm[:, np.newaxis, np.newaxis, np.newaxis].to(u.s)
@@ -853,17 +893,27 @@ class ScienceData(L1Product):
             raise ValueError("vtype must be one of 'c', 'cr', 'dcr'.")
 
         counts = counts * norm
-        counts_var = counts_var * norm
-
+        counts_err = counts_err * norm
         active = _selected_active(
             self, detector_indices, pixel_indices, time_indices, sum_all_times, livetime_correction
         )
         if active is not None and not np.all(active):
             mask = np.broadcast_to(~active[..., np.newaxis], counts.shape)
             counts = Masked(counts, mask=mask)
-            counts_var = Masked(counts_var, mask=mask)
+            counts_err = Masked(counts_err, mask=mask)
 
-        return counts, counts_var, t_norm, e_norm, livefrac, livefrac_error, elut_cor_fac, times, energies, rcr
+        return SelectedData(
+            counts=counts,
+            counts_err=counts_err,
+            t_norm=t_norm,
+            e_norm=e_norm,
+            livefrac=livefrac,
+            livefrac_error=livefrac_error,
+            elut_cor_fac=elut_cor_fac,
+            times=times,
+            energies=energies,
+            rcr=rcr,
+        )
 
     def concatenate(self, others):
         """

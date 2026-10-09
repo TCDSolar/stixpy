@@ -337,15 +337,17 @@ def _elut_correction_sort(bins, bins_actual, detector_sum, pixel_indices, detect
         The ELUT correction factor, broadcastable against the counts.
     """
 
+    # np.mean rather than np.nanmean: the calibrated width of the open top bin is NaN for every detector and
+    # pixel, so it stays NaN (that bin is never returned) without nanmean's "Mean of empty slice" warning
     pixel_indices = np.asarray(pixel_indices)
     detector_indices = np.asarray(detector_indices)
 
     if spec_file:
-        bins = np.nanmean(bins[:, :, pixel_indices, :], axis=2, keepdims=True)
-        bins_actual = np.nanmean(bins_actual[:, :, pixel_indices, :], axis=2, keepdims=True)
+        bins = np.mean(bins[:, :, pixel_indices, :], axis=2, keepdims=True)
+        bins_actual = np.mean(bins_actual[:, :, pixel_indices, :], axis=2, keepdims=True)
 
-        bins = np.nanmean(bins[:, detector_indices, :, :], axis=1, keepdims=True)
-        bins_actual = np.nanmean(bins_actual[:, detector_indices, :, :], axis=1, keepdims=True)
+        bins = np.mean(bins[:, detector_indices, :, :], axis=1, keepdims=True)
+        bins_actual = np.mean(bins_actual[:, detector_indices, :, :], axis=1, keepdims=True)
 
         elut_cor_fac = bins / bins_actual
 
@@ -353,16 +355,16 @@ def _elut_correction_sort(bins, bins_actual, detector_sum, pixel_indices, detect
         if pixel_indices.ndim == 2:
             pixel_indices = _indices_expand_ranges(pixel_indices, nest=False)
 
-        bins = np.nanmean(bins[:, :, pixel_indices, :], axis=2, keepdims=True)
-        bins_actual = np.nanmean(bins_actual[:, :, pixel_indices, :], axis=2, keepdims=True)
+        bins = np.mean(bins[:, :, pixel_indices, :], axis=2, keepdims=True)
+        bins_actual = np.mean(bins_actual[:, :, pixel_indices, :], axis=2, keepdims=True)
 
         if detector_sum:
             if detector_indices.ndim == 2:
                 detector_indices = _indices_expand_ranges(detector_indices, nest=False)
 
-            bins = np.nanmean(bins[:, detector_indices, :, :], axis=1, keepdims=True)
+            bins = np.mean(bins[:, detector_indices, :, :], axis=1, keepdims=True)
 
-            bins_actual = np.nanmean(bins_actual[:, detector_indices, :, :], axis=1, keepdims=True)
+            bins_actual = np.mean(bins_actual[:, detector_indices, :, :], axis=1, keepdims=True)
 
             elut_cor_fac = bins / bins_actual
 
@@ -480,7 +482,7 @@ def _data_select(
             energy_indices = np.asarray(energy_indices) - 1
         if elut_cor_fac is not None:
             elut_cor_fac = elut_cor_fac[..., 1:]
-        if livefrac is not None:
+        if livefrac_error is not None:
             livefrac_error = livefrac_error[..., 1:]
 
     if np.isnan(energies["e_high"][-1].value):
@@ -490,7 +492,7 @@ def _data_select(
         e_norm = e_norm[:-1]
         if elut_cor_fac is not None:
             elut_cor_fac = elut_cor_fac[..., :-1]
-        if livefrac is not None:
+        if livefrac_error is not None:
             livefrac_error = livefrac_error[..., :-1]
 
     if elut_cor_fac is not None:
@@ -713,7 +715,8 @@ def _data_select(
             times = Time(new_times)
 
             counts = np.vstack([np.sum(counts[tl : th + 1, ...], axis=0, keepdims=True) for tl, th in time_indices])
-            rcr = np.vstack([np.mean(rcr[tl : th + 1, ...], axis=0, keepdims=True) for tl, th in time_indices])
+            # _handle_nested_pairs has checked that the RCR state does not change within a range
+            rcr = np.array([rcr[tl] for tl, th in time_indices])
 
             if livefrac is not None:
                 dur = t_norm.to_value(u.s).reshape((-1,) + (1,) * (livefrac.ndim - 1))

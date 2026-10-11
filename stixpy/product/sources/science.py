@@ -1,4 +1,3 @@
-import warnings
 from itertools import product
 from pathlib import Path
 from typing import NamedTuple
@@ -20,7 +19,7 @@ from sunpy.util import deprecated
 from stixpy.calibration.elut import get_elut_correction
 from stixpy.io.readers import read_subc_params
 from stixpy.product.product import L1Product
-from stixpy.product.sources._background import _bkg_indices_check, _bkg_sub, _energies_bkg_sub
+from stixpy.product.sources._background import _bkg_check, _bkg_indices_check, _bkg_sub, _energies_bkg_sub
 from stixpy.product.sources._corrections import (
     _data_select,
     _elut_correction_sort,
@@ -147,7 +146,8 @@ class SelectedData(NamedTuple):
     livefrac: np.ndarray | None
     """Livetime fraction, shape ``(time, detector, 1, 1)``, or None without the livetime correction."""
     livefrac_error: u.Quantity | None
-    """Livetime uncertainty in counts, or None without the livetime correction."""
+    """Livetime uncertainty in counts, or None without the livetime correction. Also None with a background
+    subtracted, as it is then already included in `counts_err`."""
     elut_cor_fac: np.ndarray | None
     """ELUT correction factor applied to the counts, broadcastable against them, or None without the ELUT
     correction."""
@@ -714,12 +714,17 @@ class ScienceData(L1Product):
         sum_all_times : bool, optional
             If True, sum the selected time bins into one. Default False.
         livetime_correction : bool, optional
-            Apply the livetime correction. Default True; forced to True when `bkg`
-            is given.
+            Apply the livetime correction. Default True. Must be True when `bkg` is
+            given.
         elut_correction : bool, optional
             Apply the ELUT correction. Default True.
         bkg : ScienceData, optional
-            Background product to subtract.
+            Background product to subtract, e.g. a STIX background (BKG) file. It
+            must be pixel data (sci-xray-rpd or sci-xray-cpd) with a single time
+            bin, every energy bin of this product, and every detector and pixel
+            used here switched on. A spectrogram (sci-xray-spec) is subtracted
+            with the detectors and pixels summed on board. Default None, no
+            background subtraction.
 
         Returns
         -------
@@ -731,11 +736,15 @@ class ScienceData(L1Product):
 
         Raises
         ------
+        TypeError
+            If `bkg` is not a `ScienceData` product.
         ValueError
             If a selection is outside the file or the product's energy table, if a
             detector label is not recognised, if ``detector_indices="bkg"`` is given
             with pixels other than [2, 5], if a time range spans an RCR change, or
-            if `vtype` is not 'c', 'cr' or 'dcr'.
+            if `vtype` is not 'c', 'cr' or 'dcr'. With `bkg`, also if
+            `livetime_correction` is False, or the background does not match this
+            product (see `bkg`).
 
         Notes
         -----
@@ -754,6 +763,17 @@ class ScienceData(L1Product):
         science width to its calibrated (ELUT) width, averaged over the selected
         detectors and pixels that are on, so one factor per energy bin is applied
         to every detector.
+
+        With `bkg`, as in STIX-GSW's ``stx_convert_pixel_data`` and
+        ``stx_convert_spectrogram``, the science and background counts are both
+        livetime corrected, and ELUT corrected with this product's factor. The
+        background is converted to a count rate over its time bin, scaled to the
+        duration of each science time bin and subtracted, and the result is scaled
+        back by the mean livetime fraction of the detectors combined into each
+        spectrum. The background uncertainty and both livetime uncertainties are
+        added to ``counts_err`` in quadrature, so ``livefrac_error`` is None.
+        Counts whose total over the detectors and pixels is negative are set to
+        zero. The pixels are summed, as with the livetime correction alone.
         """
         energy_indices = _energy_indices_format(energy_indices, self.energies)
         if time_indices is not None:
@@ -807,8 +827,8 @@ class ScienceData(L1Product):
         else:
             elut_cor_fac = None
 
-        if bkg:
-            livetime_correction = True
+        if bkg is not None:
+            _bkg_check(self, bkg, checked_detectors, checked_pixels, livetime_correction)
 
             energy_indices_bkg = _energies_bkg_sub(self, bkg)
 
@@ -817,7 +837,7 @@ class ScienceData(L1Product):
         if livetime_correction:
             livefrac, livefrac_error = _livefrac(self, counts, elut_cor_fac, checked_pixels)
 
-            if bkg and isinstance(bkg, ScienceData):
+            if bkg is not None:
                 counts_bkg = _full_layout(bkg.data["counts"], bkg.detector_masks, bkg.pixel_masks, name="counts")
                 err_name_bkg = "counts_comp_err" if "counts_comp_err" in bkg.data.colnames else "counts_comp_comp_err"
                 counts_err_bkg = _full_layout(
@@ -831,7 +851,7 @@ class ScienceData(L1Product):
             livefrac = None
             livefrac_error = None
 
-        if not bkg:
+        if bkg is None:
             sci_data = _data_select(
                 self,
                 counts,
@@ -848,11 +868,6 @@ class ScienceData(L1Product):
             )
 
         else:
-            warnings.warn(
-                "For background subtraction livetime_correction set as True.",
-                stacklevel=2,
-            )
-
             sci_data_all = _bkg_sub(
                 self,
                 bkg,
@@ -874,13 +889,12 @@ class ScienceData(L1Product):
             )
             counts_sub, counts_var_sub, _, _, livefrac_sub, _, elut_cor_fac_sub, _, _, _ = sci_data_all
 
-            # the background is subtracted from every detector and pixel on the grid, so select the ones in use
             sci_data = _data_select(
                 self,
                 counts_sub,
                 counts_var_sub,
-                checked_detectors,
-                checked_pixels,
+                detector_indices,
+                pixel_indices,
                 energy_indices,
                 time_indices,
                 livefrac_sub,

@@ -12,6 +12,108 @@ from stixpy.product.sources._selection import _on_indices
 __all__ = []
 
 
+def _bkg_check(product, bkg, detector_indices, pixel_indices, livetime_correction):
+    """
+    Check that a background product can be subtracted from a science product.
+
+    Parameters
+    ----------
+    product : ScienceData
+        Science product, pixel data or a spectrogram.
+    bkg : ScienceData
+        Background product.
+    detector_indices : numpy.ndarray or None
+        Science detector selection from `_indices_check`, flat or [start, end]
+        pairs. None for spectrogram products.
+    pixel_indices : numpy.ndarray or None
+        Science pixel selection from `_indices_check`, flat or [start, end]
+        pairs. None for spectrogram products.
+    livetime_correction : bool
+        The ``livetime_correction`` given to ``get_data``.
+
+    Raises
+    ------
+    TypeError
+        If `bkg` is not a `ScienceData` product.
+    ValueError
+        If `livetime_correction` is False; if the science product holds summed
+        pixels; if the background is not pixel data with one time bin and one
+        detector and pixel mask; if a science energy bin is not in the
+        background; or if a detector or pixel used by the science data is off in
+        the background.
+    """
+    from stixpy.product.sources.science import ScienceData  # here, as science imports this module
+
+    if not isinstance(bkg, ScienceData):
+        raise TypeError(f"bkg must be a STIX science product (ScienceData), got {type(bkg).__name__}.")
+
+    if not livetime_correction:
+        raise ValueError(
+            "Background subtraction needs the livetime correction, as the science and background counts are "
+            "livetime corrected before the background is subtracted. Leave livetime_correction=True with bkg."
+        )
+
+    is_spectrogram = product.data["counts"].ndim < 4
+    if not is_spectrogram and np.ndim(product.pixel_masks.masks) != 2:
+        raise ValueError(
+            "Background subtraction is not supported for summed pixel data, as the summed pixels can not be "
+            "matched to the background pixels."
+        )
+
+    if bkg.data["counts"].ndim != 4 or np.ndim(bkg.pixel_masks.masks) != 2:
+        raise ValueError(f"The background must be pixel data (sci-xray-rpd or sci-xray-cpd), got {type(bkg).__name__}.")
+    if len(bkg.data["time"]) != 1:
+        raise ValueError(
+            f"The background must have a single time bin, but it has {len(bkg.data['time'])}. Use a STIX "
+            "background (BKG) file, which integrates the background over one long time bin."
+        )
+    if len(bkg.pixel_masks.masks) != 1:
+        raise ValueError("The background pixel mask changes within the file.")
+
+    # every science energy bin must be in the background, with the same edges
+    sci_low, sci_high = product.energies["e_low"].to_value(u.keV), product.energies["e_high"].to_value(u.keV)
+    bkg_low, bkg_high = bkg.energies["e_low"].to_value(u.keV), bkg.energies["e_high"].to_value(u.keV)
+    missing = []
+    for low, high in zip(sci_low, sci_high):
+        match = np.flatnonzero(np.isclose(bkg_low, low))
+        if match.size != 1 or not np.isclose(bkg_high[match[0]], high, equal_nan=True):
+            missing.append(f"{low:g}-{high:g}")
+    if missing:
+        raise ValueError(
+            f"The science energy bins {missing} keV are not in the background, so it can not be subtracted. Use "
+            "a background with the same energy binning as the science data."
+        )
+
+    # every detector and pixel the science data use must be on in the background
+    if is_spectrogram:
+        detectors = _on_indices(product.detector_masks.masks)
+        pixels = _on_indices(product.pixel_masks.masks)
+        used = "were summed on board into the spectrogram"
+    else:
+        detectors = np.intersect1d(
+            np.asarray(_indices_expand_ranges(detector_indices, nest=False))
+            if np.ndim(detector_indices) == 2
+            else np.ravel(detector_indices),
+            _on_indices(product.detector_masks.masks),
+        )
+        pixels = np.intersect1d(
+            np.asarray(_indices_expand_ranges(pixel_indices, nest=False))
+            if np.ndim(pixel_indices) == 2
+            else np.ravel(pixel_indices),
+            _on_indices(product.pixel_masks.masks),
+        )
+        used = "are selected"
+    missing_dets = np.setdiff1d(detectors, _on_indices(bkg.detector_masks.masks))
+    missing_pix = np.setdiff1d(pixels, _on_indices(bkg.pixel_masks.masks))
+    if missing_dets.size or missing_pix.size:
+        raise ValueError(
+            f"Detectors {missing_dets.tolist()} and pixels {missing_pix.tolist()} {used} but are off in the "
+            "background, so they can not be background subtracted. Detectors on in the background: "
+            f"{_on_indices(bkg.detector_masks.masks).tolist()}, pixels on in the background: "
+            f"{_on_indices(bkg.pixel_masks.masks).tolist()}."
+        )
+
+
 def _bkg_sub(
     product,
     bkg,
@@ -44,7 +146,10 @@ def _bkg_sub(
     The result is then scaled back from livetime-corrected counts:
 
     - spectrogram products: by the science livetime fraction;
-    - pixel data: by the mean livetime fraction of the selected detectors.
+    - pixel data: by the mean livetime fraction of the detectors combined into
+      each output spectrum (all selected detectors for flat indices, each range
+      for [start, end] pairs), as `_apply_livetime` does without a background.
+      Detectors and pixels that are not selected are set to zero.
 
     The 0 keV bottom bin and the open top bin are removed from the counts,
     uncertainties, `e_norm`, `livefrac_error` and ELUT factor, but not from the
@@ -103,10 +208,10 @@ def _bkg_sub(
         with the pixel axis already summed, and `energies` is the full,
         untrimmed table.
 
-    Raises
-    ------
-    ValueError
-        If a requested science detector or pixel is not in the background product.
+    Notes
+    -----
+    The background must already have been checked against the science product
+    with `_bkg_check`.
     """
 
     e_norm = product.dE
@@ -132,22 +237,22 @@ def _bkg_sub(
             pix = np.asarray(_indices_expand_ranges(pix, nest=False))
         pix = np.asarray(pix, dtype=int)
 
+        detectors_on = _on_indices(product.detector_masks.masks)
         dets = np.asarray(detector_indices)
         if dets.ndim == 2:
-            # [start, end] ranges may span detectors that are off, which add nothing
-            dets = np.intersect1d(_indices_expand_ranges(dets, nest=False), _on_indices(product.detector_masks.masks))
+            # [start, end] ranges may span detectors that are off, which add nothing; each range shares one livetime
+            detector_groups = [np.intersect1d(np.arange(dl, dh + 1), detectors_on) for dl, dh in dets]
+            dets = np.concatenate(detector_groups)
+        else:
+            dets = dets.ravel()
+            detector_groups = [dets]
         if np.asarray(pixel_indices).ndim == 2:
             pix = np.intersect1d(pix, _on_indices(product.pixel_masks.masks))
 
-        # every selected detector and pixel must be on in both files
-        missing_dets = np.setdiff1d(dets, detector_indices_bkg)
-        missing_pix = np.setdiff1d(pix, pixel_indices_bkg)
-        if missing_dets.size or missing_pix.size:
-            raise ValueError(
-                f"Detectors {missing_dets.tolist()} and pixels {missing_pix.tolist()} are selected but are not "
-                "on in both the science and background files, so they can not be background subtracted. "
-                f"Detectors on in both: {list(detector_indices_bkg)}, pixels on in both: {list(pixel_indices_bkg)}."
-            )
+        # the background is only subtracted where science data are selected, so the other detectors and pixels
+        # stay zero, as they are without a background
+        selected = np.zeros((1, 32, 12, 1), dtype=bool)
+        selected[0, dets[:, None], pix, 0] = True
 
         counts_var_bkg = counts_var_bkg[:, :, pix, :]
         if livefrac_error_bkg.shape[2] != 1:
@@ -242,16 +347,14 @@ def _bkg_sub(
         counts_var = spec_in_err_final
 
     else:
-        detector_indices = dets
+        # scale each group of detectors back by its mean livetime fraction, as `_apply_livetime` does without a
+        # background
+        eff_livefrac = np.array(livefrac, dtype=float)  # detectors in no group keep their own
+        for group in detector_groups:
+            eff_livefrac[:, group] = np.nanmean(livefrac[:, group, :, :], axis=1, keepdims=True)
 
-        eff_livefrac = np.nanmean(livefrac[:, detector_indices, :, :], axis=1, keepdims=True)
-
-        spec_in_final = spec_in_corr * eff_livefrac
-        spec_in_err_final = spec_in_err * eff_livefrac
-
-        counts = spec_in_final
-
-        counts_var = spec_in_err_final
+        counts = np.where(selected, spec_in_corr * eff_livefrac, 0 * spec_in_corr.unit)
+        counts_var = np.where(selected.any(axis=2, keepdims=True), spec_in_err * eff_livefrac, 0 * spec_in_err.unit)
 
         livefrac = np.broadcast_to(eff_livefrac, counts.shape)
 

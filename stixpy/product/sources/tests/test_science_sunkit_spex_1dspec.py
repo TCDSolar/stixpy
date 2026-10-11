@@ -1,16 +1,16 @@
-import warnings
 from pathlib import Path
 
 import numpy as np
 import pytest
 from numpy.testing import assert_allclose
-from sunkit_spex.spectrum.spectrum import Spectrum
 
 import astropy.units as u
 from astropy.io import fits
 
 from stixpy.imaging.flare_location import estimate_flare_location
 from stixpy.product import Product
+
+Spectrum = pytest.importorskip("sunkit_spex.spectrum.spectrum").Spectrum
 
 # Each selection uses its own integration window. The reference files bear this
 # out: the top24 file stores EXPTIME ~4.00 s (the 5 s window below) while the
@@ -98,9 +98,14 @@ def bkg_2024_03_10():
 
 
 @pytest.fixture(scope="module")
-def flare_location():
+def flare_estimate():
     t_range = ["2024-03-10T12:05:50", "2024-03-10T12:06:00"]
     return estimate_flare_location(CPD_URL, t_range, plot=False)
+
+
+@pytest.fixture(scope="module")
+def flare_location(flare_estimate):
+    return flare_estimate["stx"]
 
 
 @pytest.fixture(scope="module")
@@ -130,19 +135,7 @@ def _get_spectrum(cpd, flare_location, *, time_indices, detector_indices, elut_c
     }
     if pixel_indices is not None:
         kwargs["pixel_indices"] = pixel_indices
-    # stixpy emits a NumPy DeprecationWarning ("Conversion of an array with
-    # ndim > 0 to a scalar is deprecated") on the single-detector/pixel-subset
-    # path used by the bkgdet selection. pytest >= 8 re-emits any warning that
-    # `pytest.warns` didn't match, so with `filterwarnings = error` in the
-    # pytest config that warning escalates and turns *fixture setup* into an
-    # ERROR for every test depending on the fixture. Suppress it here so the
-    # suppression stays scoped to this one call rather than going in the global
-    # config - it's an upstream bug worth fixing in stixpy, not a test problem.
-    with warnings.catch_warnings():
-        warnings.filterwarnings("ignore", category=DeprecationWarning)
-        warnings.filterwarnings("ignore", category=UserWarning)
-        with pytest.warns(UserWarning, match="sunkit_spex_spectrum = True"):
-            return cpd.get_data(**kwargs)
+    return cpd.get_data(**kwargs)
 
 
 # ---------------------------------------------------------------------------
@@ -212,6 +205,7 @@ def spec_bkgdet_bkgsub_elut(cpd_2024_03_10, bkg_2024_03_10, flare_location):
         flare_location,
         time_indices=T_RANGE_BKGDET,
         detector_indices="bkg",
+        pixel_indices=[2, 5],
         elut_correction=True,
         bkg=bkg_2024_03_10,
     )
@@ -224,6 +218,7 @@ def spec_bkgdet_bkgsub_noelut(cpd_2024_03_10, bkg_2024_03_10, flare_location):
         flare_location,
         time_indices=T_RANGE_BKGDET,
         detector_indices="bkg",
+        pixel_indices=[2, 5],
         elut_correction=False,
         bkg=bkg_2024_03_10,
     )
@@ -236,6 +231,7 @@ def spec_bkgdet_nobkgsub_elut(cpd_2024_03_10, flare_location):
         flare_location,
         time_indices=T_RANGE_BKGDET,
         detector_indices="bkg",
+        pixel_indices=[2, 5],
         elut_correction=True,
         bkg=None,
     )
@@ -248,6 +244,7 @@ def spec_bkgdet_nobkgsub_noelut(cpd_2024_03_10, flare_location):
         flare_location,
         time_indices=T_RANGE_BKGDET,
         detector_indices="bkg",
+        pixel_indices=[2, 5],
         elut_correction=False,
         bkg=None,
     )
@@ -474,3 +471,69 @@ def test_exposure_time_bkgdet_nobkgsub_noelut(spec_bkgdet_nobkgsub_noelut, expec
 @pytest.mark.remote_data
 def test_counts_bkgdet_nobkgsub_noelut(spec_bkgdet_nobkgsub_noelut, expected_bkgdet):
     _assert_counts(spec_bkgdet_nobkgsub_noelut, expected_bkgdet, _VARIANTS[("noelut", "nobkgsub")])
+
+
+# ---------------------------------------------------------------------------
+# Flare location and the other output shapes
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.remote_data
+def test_flare_location_hpc_matches_stx(cpd_2024_03_10, flare_estimate, spec_top24_nobkgsub_elut):
+    # the helioprojective position is transformed to the STIX frame, so it gives the same response
+    spec = _get_spectrum(
+        cpd_2024_03_10,
+        flare_estimate["hpc"],
+        time_indices=T_RANGE_TOP24,
+        detector_indices="top24",
+        elut_correction=True,
+        bkg=None,
+    )
+    # the STIX position from estimate_flare_location is for the imaging time range, and the helioprojective one
+    # is transformed back at its centre, so the spacecraft pointing differs very slightly
+    assert_allclose(spec.meta["srm"], spec_top24_nobkgsub_elut.meta["srm"], rtol=1e-4)
+    assert_allclose(spec.meta["angle"], spec_top24_nobkgsub_elut.meta["angle"], atol=0.01 * u.deg)
+
+
+@pytest.mark.remote_data
+def test_flare_angle(spec_top24_nobkgsub_elut):
+    angle = spec_top24_nobkgsub_elut.meta["angle"]
+    assert angle.unit == u.deg
+    assert 0 <= angle.value < 90
+
+
+@pytest.mark.remote_data
+def test_flare_angle_given(cpd_2024_03_10):
+    spec = cpd_2024_03_10.get_data(
+        time_indices=T_RANGE_TOP24, detector_indices="top24", sunkit_spex_spectrum=True, flare_angle=30 * u.deg
+    )
+    assert spec.meta["angle"] == 30 * u.deg
+
+
+@pytest.mark.remote_data
+def test_detector_expand_and_sequence(cpd_2024_03_10):
+    ndcube = pytest.importorskip("ndcube")
+
+    # without the ELUT correction, which is per detector when they are not summed
+    per_detector = cpd_2024_03_10.get_data(
+        time_indices=[[0, 3]],
+        detector_indices=[0, 1, 2],
+        sunkit_spex_spectrum=True,
+        sunkit_spex_detector_sum=False,
+        elut_correction=False,
+    )
+    assert isinstance(per_detector, ndcube.NDCollection)
+    assert list(per_detector.keys()) == ["0", "1", "2"]
+    assert all(isinstance(spec, Spectrum) for spec in per_detector.values())
+
+    sequence = cpd_2024_03_10.get_data(
+        time_indices=[[0, 3], [4, 6]], detector_indices=[0, 1, 2], sunkit_spex_spectrum=True
+    )
+    assert isinstance(sequence, ndcube.NDCubeSequence)
+    assert len(sequence.data) == 2
+
+    summed = cpd_2024_03_10.get_data(
+        time_indices=[[0, 3]], detector_indices=[0, 1, 2], sunkit_spex_spectrum=True, elut_correction=False
+    )
+    # summing the per-detector spectra gives the detector-summed one
+    assert_allclose(sum(np.asarray(spec.data) for spec in per_detector.values()), summed.data, rtol=1e-6)

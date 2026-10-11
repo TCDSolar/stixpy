@@ -1,4 +1,3 @@
-import warnings
 from itertools import product
 from pathlib import Path
 from typing import NamedTuple
@@ -10,6 +9,7 @@ from matplotlib.dates import ConciseDateFormatter, DateFormatter, HourLocator
 from matplotlib.widgets import Slider
 
 import astropy.units as u
+from astropy.coordinates import SkyCoord
 from astropy.table import QTable, vstack
 from astropy.time import Time
 from astropy.visualization import quantity_support
@@ -33,7 +33,6 @@ from stixpy.product.sources._selection import (
     _on_indices,
     _time_indices_format,
 )
-from stixpy.product.sources._spectrum import _get_sunkit_spex_spectrum
 from stixpy.visualisation.plotters import PixelPlotter
 
 __all__ = [
@@ -696,7 +695,8 @@ class ScienceData(L1Product):
             Normalisation of the returned counts and uncertainties: counts ('c'),
             count rate in ct/s ('cr'), or differential count rate in ct/(s keV)
             ('dcr', default). With `livetime_correction`, the rates are also divided
-            by the livetime fraction. Ignored if `sunkit_spex_spectrum` is True.
+            by the livetime fraction. Ignored if `sunkit_spex_spectrum` is True, as
+            the spectra always hold counts.
         time_indices : list, numpy.ndarray or astropy.time.Time, optional
             Flat integer indices keep those time bins, and [start, end] integer
             pairs sum each range. Strings or `~astropy.time.Time` are accepted as
@@ -709,8 +709,8 @@ class ScienceData(L1Product):
             (`energies`), which only holds the bins in the energy mask. Energies can
             also be given as a Quantity, either flat edges (``[4, 10, 28] * u.keV``)
             or [start, end] ranges (``[[4, 10], [15, 28]] * u.keV``); each range
-            takes the bins whose centres lie inside it. Ignored, with a warning, if
-            `sunkit_spex_spectrum` is True.
+            takes the bins whose centres lie inside it. Can not be used with
+            `sunkit_spex_spectrum`.
         detector_indices : list, numpy.ndarray or str, optional
             Flat indices keep those detectors, and [start, end] pairs sum each
             range. Two labels are accepted: "top24", the 24 imaging detectors used
@@ -738,13 +738,25 @@ class ScienceData(L1Product):
             with the detectors and pixels summed on board. Default None, no
             background subtraction.
         sunkit_spex_spectrum : bool, optional
-            Return `sunkit_spex` spectra instead of arrays. The data are then
-            returned as counts regardless of `vtype`. Default False.
-        flare_location : dict, optional
-            Flare position with keys 'stx' and 'hpc', used for the spectral
-            response when `sunkit_spex_spectrum` is True.
+            Return `sunkit_spex` spectra instead of arrays. The spectra hold counts
+            whatever `vtype` is, with the live time as their exposure time, so
+            `livetime_correction` must be True. Every energy bin is used, so
+            `energy_indices` can not be given. Needs sunkit-spex, installed with
+            ``pip install 'stixpy[spectroscopy]'``. Default False.
+        flare_location : `~astropy.coordinates.SkyCoord`, optional
+            Flare position, used for the grid transmission in the spectral
+            response and for the flare angle when `sunkit_spex_spectrum` is True.
+            A `~stixpy.coordinates.frames.STIXImaging` coordinate (which must have
+            an ``obstime``) is used as it is; any other frame, e.g.
+            `~sunpy.coordinates.Helioprojective`, is transformed to the STIX frame
+            at its own ``obstime``, or for this product's time range if it has
+            none. The ``stx`` or ``hpc`` entry of
+            `~stixpy.imaging.flare_location.estimate_flare_location` can be used.
+            Default None, on-axis.
         flare_angle : astropy.units.Quantity, optional
-            Flare angle. If None and `flare_location` is given, it is computed.
+            Heliocentric angle of the flare as seen from Solar Orbiter, stored in
+            the spectrum metadata. If None and `flare_location` is given, it is
+            computed from the flare position.
         sunkit_spex_systematic_error : bool, optional
             Add an energy-dependent systematic uncertainty: 7% below 7 keV, 5% from
             7 to 10 keV and 3% from 10 keV. Default False.
@@ -770,14 +782,18 @@ class ScienceData(L1Product):
         Raises
         ------
         TypeError
-            If `bkg` is not a `ScienceData` product.
+            If `bkg` is not a `ScienceData` product, or `flare_location` is not a
+            `~astropy.coordinates.SkyCoord`.
+        ImportError
+            If `sunkit_spex_spectrum` is True and sunkit-spex is not installed.
         ValueError
             If a selection is outside the file or the product's energy table, if a
             detector label is not recognised, if ``detector_indices="bkg"`` is given
             with pixels other than [2, 5], if a time range spans an RCR change, or
             if `vtype` is not 'c', 'cr' or 'dcr'. With `bkg`, also if
             `livetime_correction` is False, or the background does not match this
-            product (see `bkg`). With `sunkit_spex_spectrum`, also if the CFL
+            product (see `bkg`). With `sunkit_spex_spectrum`, also if
+            `energy_indices` is given, `livetime_correction` is False, the CFL
             detector is selected or the BKG detector is combined with other
             detectors.
 
@@ -817,12 +833,26 @@ class ScienceData(L1Product):
         elif srm_e_min is not None:
             srm_e_min = float(srm_e_min) * u.keV
 
-        if energy_indices is not None and sunkit_spex_spectrum:
-            energy_indices = None
-            warnings.warn(
-                "sunkit_spex_spectrum == True and so energy_indices set to None",
-                stacklevel=2,
-            )
+        if sunkit_spex_spectrum:
+            try:
+                from stixpy.product.sources._spectrum import _get_sunkit_spex_spectrum
+            except ImportError as e:
+                raise ImportError(
+                    "sunkit_spex_spectrum=True needs sunkit-spex, which can be installed with "
+                    "pip install 'stixpy[spectroscopy]'."
+                ) from e
+            if energy_indices is not None:
+                raise ValueError(
+                    "energy_indices can not be used with sunkit_spex_spectrum=True, as the spectra and their "
+                    "response matrices use every energy bin. Select the fitting range in sunkit-spex instead."
+                )
+            if not livetime_correction:
+                raise ValueError(
+                    "sunkit_spex_spectrum=True needs livetime_correction=True, as the exposure time of each "
+                    "spectrum is its live time."
+                )
+            if flare_location is not None and not isinstance(flare_location, SkyCoord):
+                raise TypeError(f"flare_location must be a SkyCoord, not {type(flare_location).__name__}.")
 
         energy_indices = _energy_indices_format(energy_indices, self.energies)
         if time_indices is not None:
@@ -965,12 +995,6 @@ class ScienceData(L1Product):
             )
 
         if sunkit_spex_spectrum:
-            warnings.warn(
-                "As sunkit_spex_spectrum = True, all data will be output as counts."
-                "Normalisation selection (vtype) will not be taken into account.",
-                stacklevel=2,
-            )
-
             return _get_sunkit_spex_spectrum(
                 self,
                 detector_indices,

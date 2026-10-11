@@ -420,7 +420,7 @@ def _data_select(
 
     1. ELUT correction, except on the background path, where `_bkg_sub` has
        already applied it.
-    2. Pixel selection.
+    2. Pixel selection; on the background path the pixels are then summed.
     3. Energy selection; for ranges, `e_norm` and the energy table are rebuilt.
     4. Livetime correction by detector group (see `_apply_livetime`), then a sum
        over pixels. Only when a livetime fraction is available and this is not
@@ -577,6 +577,13 @@ def _data_select(
                     ],
                     axis=2,
                 )
+
+    if bkg:
+        # _bkg_sub has summed the uncertainty over the pixels, so sum the counts too, as the livetime correction
+        # does without a background
+        counts = np.nansum(counts, axis=2, keepdims=True)
+        if livefrac is not None:
+            livefrac = np.nanmean(livefrac, axis=2, keepdims=True)
 
     counts_rcr = np.nansum(counts, axis=-1, keepdims=True)
 

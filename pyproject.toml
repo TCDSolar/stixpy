@@ -19,9 +19,7 @@ dependencies = [
     "intervaltree>=3.0.2",
     "roentgen>=2.2.0,<=2.4",
     "matplotlib>=3.8.0",
-    "xrayvisim~=0.2.1",
-    "ndcube>=2.3.0",
-    "sunkit-spex @ git+https://github.com/sunpy/sunkit-spex.git"
+    "xrayvisim~=0.2.1"
 ]
 dynamic = ["version"]
 keywords = ["solar physics", "solar", "sun", "x-rays"]
@@ -57,7 +55,10 @@ docs = [
     "sphinxext-opengraph>=0.6.0",
     "pydata-sphinx-theme>=0.16.0"
 ]
-dev = ["stixpy[tests,docs]"]
+spectroscopy = [
+    "sunkit-spex>=0.5.0"
+]
+dev = ["stixpy[tests,docs,spectroscopy]"]
 
 [project.urls]
 Homepage = "https://stixpy.readthedocs.io"

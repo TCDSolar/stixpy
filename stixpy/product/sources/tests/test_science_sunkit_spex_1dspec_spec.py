@@ -1,22 +1,22 @@
-import warnings
 from pathlib import Path
 
 import numpy as np
 import pytest
 from numpy.testing import assert_allclose
-from sunkit_spex.spectrum.spectrum import Spectrum
 
 import astropy.units as u
 from astropy.io import fits
 
 from stixpy.product import Product
 
+Spectrum = pytest.importorskip("sunkit_spex.spectrum.spectrum").Spectrum
+
 # Integration window for the spectrum selection. The reference file stores
 # EXPTIME ~4.05 s, consistent with a ~5 s window.
 T_RANGE = ["2024-03-10T12:05:50", "2024-03-10T12:05:55"]
 
 # TODO: point this at the spectrogram (sci-xray-spec) file covering the window
-# above. This is NOT the CPD file used by test_science_sunkit-spex-1dspec.py.
+# above. This is NOT the CPD file used by test_science_sunkit_spex_1dspec.py.
 SPEC_URL = "https://pub099.cs.technik.fhnw.ch/fits/L1/2024/03/10/SCI/solo_L1_stix-sci-xray-spec_20240310T073505-20240310T134008_V02_2403103995-60712.fits"
 
 # Background must be pixel data (sci-xray-cpd), as stx_convert_spectrogram
@@ -44,7 +44,7 @@ BKG_URL = "https://pub099.cs.technik.fhnw.ch/fits/L1/2024/03/08/SCI/solo_L1_stix
 DATA_DIR = Path(__file__).parent / "data"
 EXPECTED_VALUES_PATH = DATA_DIR / "expected_values_spec_sum.fits.gz"
 
-# See the note in test_science_sunkit-spex-1dspec.py: GEOAREA is stored rounded
+# See the note in test_science_sunkit_spex_1dspec.py: GEOAREA is stored rounded
 # to ~6 significant figures, so rtol=1e-6 fails on geo area alone.
 GEO_AREA_RTOL = 1e-4
 
@@ -102,14 +102,6 @@ def _get_spectrum(spec_prod, *, time_indices, elut_correction, bkg):
     No detector_indices or pixel_indices are passed: a spectrogram is already
     summed over detectors and pixels onboard, and _indices_check discards them
     (with a warning) for level-4 data regardless.
-
-    stixpy emits a NumPy DeprecationWarning ("Conversion of an array with
-    ndim > 0 to a scalar is deprecated") on this path. pytest >= 8 re-emits any
-    warning `pytest.warns` didn't match, so with `filterwarnings = error` in the
-    pytest config that warning escalates and turns *fixture setup* into an ERROR
-    for every test depending on the fixture. Suppress it here so the suppression
-    stays scoped to this one call rather than going in the global config - it's
-    an upstream bug worth fixing in stixpy, not a test problem.
     """
     kwargs = {
         "time_indices": time_indices,
@@ -123,11 +115,7 @@ def _get_spectrum(spec_prod, *, time_indices, elut_correction, bkg):
         # False keeps the SRM untrimmed and the stored shape valid.
         "srm_e_min": False,
     }
-    with warnings.catch_warnings():
-        warnings.filterwarnings("ignore", category=DeprecationWarning)
-        warnings.filterwarnings("ignore", category=UserWarning)
-        with pytest.warns(UserWarning, match="sunkit_spex_spectrum = True"):
-            return spec_prod.get_data(**kwargs)
+    return spec_prod.get_data(**kwargs)
 
 
 # ---------------------------------------------------------------------------

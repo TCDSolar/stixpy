@@ -8,12 +8,13 @@ from sunkit_spex.spectrum.spectrum import SpectralAxis, Spectrum
 from sunkit_spex.spectrum.uncertainty import PoissonUncertainty
 
 import astropy.units as u
+from astropy.coordinates import SkyCoord
 from astropy.time import Time
 
-from sunpy.coordinates import HeliographicStonyhurst
+from sunpy.coordinates import Helioprojective
 
 from stixpy.calibration.srm import get_srm
-from stixpy.coordinates.transforms import get_hpc_info
+from stixpy.coordinates.frames import STIXImaging
 from stixpy.coordinates.utils import heliocentric_angle
 from stixpy.product.sources._corrections import _indices_expand_ranges
 
@@ -254,12 +255,13 @@ def _get_sunkit_spex_spectrum(
         Pixel selection, flat or [start, end] pairs.
     sci_data : tuple
         The 10-element tuple from `_data_select`.
-    flare_location : dict or None
-        Flare position with keys 'stx' (STIX-frame Tx/Ty) and 'hpc'. If None,
-        no flare angle is computed and the SRM gets no flare position.
+    flare_location : astropy.coordinates.SkyCoord or None
+        Flare position in any frame that can be transformed to
+        `~stixpy.coordinates.frames.STIXImaging` (see `_flare_location_stix`).
+        If None, the SRM is built on-axis and no flare angle is computed.
     flare_angle : astropy.units.Quantity or None
-        Flare angle. If None and `flare_location` is given, it is computed with
-        `_flare_angle`.
+        Flare angle stored in the metadata. If None and `flare_location` is
+        given, it is computed with `_flare_angle`.
     systematic : bool
         Not used; the systematic uncertainty is added in `_data_select`.
     detector_sum : bool, optional
@@ -281,12 +283,11 @@ def _get_sunkit_spex_spectrum(
     counts, counts_uncertainity, t_norm, e_norm, livefrac, _, elut_cor_fac, times_full, energies, rcr = sci_data
 
     if flare_location is not None:
-        flare_location_stx = u.Quantity([flare_location["stx"].Tx, flare_location["stx"].Ty])
+        flare_location_stx = _flare_location_stix(product, flare_location)
         if flare_angle is None:
-            flare_angle = _flare_angle(product, flare_location)
+            flare_angle = _flare_angle(flare_location_stx)
     else:
         flare_location_stx = None
-        flare_angle = None
 
     distance = (product.meta["DSUN_OBS"] * u.m).to(u.AU)
     rcr_unique = np.unique(rcr)
@@ -501,30 +502,64 @@ def _get_sunkit_spex_spectrum(
             return spec_collection
 
 
-def _flare_angle(product, flare_location):
+def _flare_location_stix(product, flare_location):
     """
-    Compute the flare angle for the product.
-
-    Solar Orbiter's position is taken at the start of the product's time range
-    and passed, with the flare position, to `heliocentric_angle`.
+    Return the flare position in the STIX imaging frame.
 
     Parameters
     ----------
     product : ScienceData
-        Product whose time range sets the spacecraft position.
-    flare_location : dict
-        Flare position, with key 'hpc' holding its helioprojective coordinate.
+        Product whose time range sets the STIX frame when `flare_location` is
+        in another frame and has no ``obstime``.
+    flare_location : astropy.coordinates.SkyCoord
+        Flare position. A coordinate in the
+        `~stixpy.coordinates.frames.STIXImaging` frame is used as it is, and
+        must have an ``obstime``. Any other frame, e.g.
+        `~sunpy.coordinates.Helioprojective` from another observer, is
+        transformed to the STIX frame at its own ``obstime``, or for the
+        product's time range if it has none.
+
+    Returns
+    -------
+    astropy.coordinates.SkyCoord
+        The flare position in the STIX imaging frame.
+    """
+    if isinstance(flare_location.frame, STIXImaging):
+        if flare_location.obstime is None:
+            raise ValueError("flare_location in the STIXImaging frame must have an obstime.")
+        return flare_location
+
+    if flare_location.obstime is not None:
+        stix_frame = STIXImaging(obstime=flare_location.obstime)
+    else:
+        stix_frame = STIXImaging(obstime=product.time_range.start, obstime_end=product.time_range.end)
+    # transform the frame, not the SkyCoord, so the input's observer is not carried over to the STIX frame
+    return SkyCoord(flare_location.frame.transform_to(stix_frame))
+
+
+def _flare_angle(flare_location_stx):
+    """
+    Compute the heliocentric angle of the flare as seen from Solar Orbiter.
+
+    The STIX coordinate is transformed to helioprojective coordinates with
+    Solar Orbiter as the observer. The spacecraft position and the observation
+    time both come from the coordinate's STIX frame: the middle of
+    ``obstime``-``obstime_end``, or ``obstime`` alone.
+
+    Parameters
+    ----------
+    flare_location_stx : astropy.coordinates.SkyCoord
+        Flare position in the `~stixpy.coordinates.frames.STIXImaging` frame.
 
     Returns
     -------
     astropy.units.Quantity
-        The angle returned by `heliocentric_angle`.
+        The angle returned by `~stixpy.coordinates.utils.heliocentric_angle`,
+        NaN deg (with a warning) if the flare is off the limb.
     """
-
-    _, solo_xyz, _ = get_hpc_info(product.time_range.start, product.time_range.start)
-
-    solo = HeliographicStonyhurst(*solo_xyz, obstime=product.time_range.center, representation_type="cartesian")
-
-    flare_angle = heliocentric_angle(flare_location["hpc"], observer=solo)
-
-    return flare_angle
+    frame = flare_location_stx.frame
+    obstime = frame.obstime if frame.obstime_end is None else frame.obstime + (frame.obstime_end - frame.obstime) / 2
+    # with no observer given, the STIX to helioprojective transform uses Solar Orbiter's position at obstime; the
+    # frame is transformed, not the SkyCoord, so no other observer is carried over from it
+    flare_hpc = SkyCoord(flare_location_stx.frame.transform_to(Helioprojective(obstime=obstime)))
+    return heliocentric_angle(flare_hpc)

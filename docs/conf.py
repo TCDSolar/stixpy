@@ -1,4 +1,3 @@
-#
 # Configuration file for the Sphinx documentation builder.
 #
 # This file does only contain a selection of the most common options. For a
@@ -6,21 +5,48 @@
 # http://www.sphinx-doc.org/en/master/config
 
 
-# -- Project information -----------------------------------------------------
-
-project = "STIXpy"
-copyright = "2020, STIX Team"
-author = "STIX Team"
-
+import datetime
 from pathlib import Path
+
+from packaging.version import Version
+
+# -- Project information -----------------------------------------------------
 
 # The full version, including alpha/beta/rc tags
 from stixpy import __version__
 
-release = __version__
-is_development = ".dev" in release
+_version = Version(__version__)
+version = release = str(_version)
+# Avoid "post" appearing in version string in rendered docs
+if _version.is_postrelease:
+    version = release = _version.base_version
+# Avoid long githashes in rendered Sphinx docs
+elif _version.is_devrelease:
+    version = release = f"{_version.base_version}.dev{_version.dev}"
+is_development = _version.is_devrelease
+is_release = not (_version.is_prerelease or _version.is_devrelease)
+
+project = "STIXpy"
+author = "Shane Maloney"
+copyright = f"{datetime.datetime.now().year}, {author}"  # noqa: A001
 
 # -- General configuration ---------------------------------------------------
+
+from docutils.parsers.rst import roles
+
+# Define it early so 'sphinx-autodoc-typehints' sees it immediately
+if "mpltype" not in roles._roles:
+    roles.register_local_role("mpltype", roles.generic_custom_role)
+
+# Optional: Add specific anchors or URLs to ignore if they remain flaky
+linkcheck_ignore = [
+    r"https://anaconda.org",
+    r"https://doi.org/10.1051/0004-6361/201937154",
+    # r"https://github.com/.*#.*", # GitHub anchors are notoriously broken in linkcheck
+]
+
+# Wrap large function/method signatures
+maximum_signature_line_length = 80
 
 # Add any Sphinx extension module names here, as strings. They can be
 # extensions coming with Sphinx (named 'sphinx.ext.*') or your custom
@@ -44,32 +70,27 @@ extensions = [
 ]
 
 # Add any paths that contain templates here, relative to this directory.
-# templates_path = ['_templates']
+# templates_path = ["_templates"]
 
 # List of patterns, relative to source directory, that match files and
 # directories to ignore when looking for source files.
 # This pattern also affects html_static_path and html_extra_path.
-exclude_patterns = ["_build", "Thumbs.db", ".DS_Store", "*.fits"]
+exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
 
 # The suffix(es) of source filenames.
-# You can specify multiple suffix as a list of string:
-source_suffix = ".rst"
+source_suffix = {".rst": "restructuredtext"}
 
 # The master toctree document.
 master_doc = "index"
 
-# The reST default role (used for this markup: `text`) to use for all
-# documents. Set to the "smart" one.
+# Treat everything in single ` as a Python reference.
 default_role = "obj"
 
 # Disable having a separate return type row
 napoleon_use_rtype = False
 
-# Disable google style docstrings
-napoleon_google_docstring = False
-
-# until sphinx-gallery / sphinx is fixed https://github.com/sphinx-doc/sphinx/issues/12300
-suppress_warnings = ["config.cache"]
+suppress_warnings = ["ref.doc"]
+nitpick_ignore_regex = [(".*", r".*mpltype.*")]
 
 # -- Options for intersphinx extension ---------------------------------------
 
@@ -81,6 +102,7 @@ intersphinx_mapping = {
     "matplotlib": ("https://matplotlib.org/", (None, "http://data.astropy.org/intersphinx/matplotlib.inv")),
     "astropy": ("http://docs.astropy.org/en/stable/", None),
     "sunpy": ("https://docs.sunpy.org/en/stable/", None),
+    "xrayvision": ("https://xrayvision.readthedocs.io/en/stable/", None),
 }
 
 # -- Options for HTML output -------------------------------------------------
@@ -88,16 +110,13 @@ intersphinx_mapping = {
 # The theme to use for HTML and HTML Help pages.  See the documentation for
 # a list of builtin themes.
 
+# The theme to use for HTML and HTML Help pages.  See the documentation for
+# a list of builtin themes.
 html_theme = "pydata_sphinx_theme"
 
 html_theme_options = {
     "logo": {"text": "stixpy"},
 }
-
-# Add any paths that contain custom static files (such as style sheets) here,
-# relative to this directory. They are copied after the builtin static files,
-# so a file named "default.css" will overwrite the builtin "default.css".
-# html_static_path = ['_static']
 
 # Render inheritance diagrams in SVG
 graphviz_output_format = "svg"
@@ -110,6 +129,22 @@ graphviz_dot_args = [
     "-Gfontsize=10",
     "-Gfontname=Helvetica Neue, Helvetica, Arial, sans-serif",
 ]
+
+# Add any paths that contain custom static files (such as style sheets) here,
+# relative to this directory. They are copied after the builtin static files,
+# so a file named "default.css" will overwrite the builtin "default.css".
+# html_static_path = ["_static"]
+
+# By default, when rendering docstrings for classes, sphinx.ext.autodoc will
+# make docs with the class-level docstring and the class-method docstrings,
+# but not the __init__ docstring, which often contains the parameters to
+# class constructors across the scientific Python ecosystem. The option below
+# will append the __init__ docstring to the class-level docstring when rendering
+# the docs. For more options, see:
+# https://www.sphinx-doc.org/en/master/usage/extensions/autodoc.html#confval-autoclass_content
+autoclass_content = "both"
+
+# -- Other options ----------------------------------------------------------
 
 # -- Options for the Sphinx gallery -------------------------------------------
 path = Path.cwd()

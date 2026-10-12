@@ -1,10 +1,12 @@
 import pathlib
 from urllib.request import Request
 
-import astropy.io.fits
 import numpy as np
+
+import astropy.io.fits
 from astropy.io import fits
 from astropy.table import QTable
+
 from sunpy.data import cache
 from sunpy.util import expand_list
 from sunpy.util.datatype_factory_base import (
@@ -164,10 +166,10 @@ class ProductFactory(BasicRegistrationFactory):
         while i < nargs:
             arg = args[i]
             if isinstance(arg, str) and is_url(arg):
-                # Repalce URL string with a Request object to dispatch on later
+                # Replace URL string with a Request object to dispatch on later
                 args[i] = Request(arg)
             elif possibly_a_path(arg):
-                # Repalce path strings with Path objects
+                # Replace path strings with Path objects
                 args[i] = pathlib.Path(arg)
             i += 1
 
@@ -244,7 +246,7 @@ class ProductFactory(BasicRegistrationFactory):
         as `memmap` for FITS files.
         """
         meta_control_data_dicts = self._parse_args(*args, silence_errors=silence_errors, **kwargs)
-        new_products = list()
+        new_products = []
 
         # Loop over each registered type and check to see if WidgetType
         # matches the arguments.  If it does, use that type.
@@ -270,7 +272,7 @@ class ProductFactory(BasicRegistrationFactory):
         return new_products
 
     def _check_registered_widgets(self, *, meta, control, data, **kwargs):
-        candidate_widget_types = list()
+        candidate_widget_types = []
 
         for key in self.registry:
             # Call the registered validation function for each registered class

@@ -1,9 +1,10 @@
 from pathlib import Path
 from unittest import mock
 
+from numpy.testing import assert_equal
+
 import astropy.units as u
 from astropy.table import Table
-from numpy.testing import assert_equal
 
 from stixpy.io.readers import read_elut, read_elut_index, read_sci_energy_channels
 
@@ -24,10 +25,10 @@ def test_read_elut_index(moc_table):
     elut_index = read_elut_index(elut_path)
 
     assert len(elut_index) == 3
-    for trow, iv in zip(t.iterrows(), elut_index.items()):
-        trow[1] == iv[0].isoformat()
-        trow[2] == iv[1].isoformat()
-        trow[3] == iv[2].name
+    for trow, iv in zip(t.iterrows(), sorted(elut_index.items())):
+        assert trow[1] == iv[0].isoformat()
+        assert trow[2] == iv[1].isoformat() or iv[1].isoformat() == "2100-01-01T00:00:00"
+        assert trow[3] == iv[2].name
 
 
 def test_read_elut():

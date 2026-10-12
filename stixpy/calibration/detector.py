@@ -1,8 +1,10 @@
-from types import SimpleNamespace
 from pathlib import Path
+from types import SimpleNamespace
+
+import numpy as np
 
 import astropy.units as u
-import numpy as np
+
 from sunpy.io.special import read_genx
 
 from stixpy.calibration.transmission import Transmission

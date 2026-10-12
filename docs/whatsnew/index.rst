@@ -1,6 +1,10 @@
+.. _whatsnew:
+
 ***************
 Release History
 ***************
+
+This page documents the releases for STIXpy
 
 .. toctree::
    :maxdepth: 1

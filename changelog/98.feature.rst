@@ -1,1 +1,0 @@
-Merged `stixpy.calibration.get_visibility_info_giordano` and `stixpy.calibration.get_visibility_info` into `stixpy.calibration.get_uv_points_data` and removed `stixpy.calibration.correct_phase_projection`.

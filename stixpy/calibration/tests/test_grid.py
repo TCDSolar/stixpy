@@ -1,16 +1,19 @@
-import astropy.units as u
 import numpy as np
 import pytest
 
+import astropy.units as u
+from astropy.coordinates import SkyCoord
+
 from stixpy.calibration.grid import get_grid_transmission
+from stixpy.coordinates.frames import STIXImaging
 
 
 # Output values taken from IDL routine
 @pytest.mark.parametrize(
-    "input,out",
+    "coords,transmission",
     [
         (
-            [0, 0] * u.arcsec,
+            SkyCoord(*[0, 0] * u.arcsec, frame=STIXImaging),
             [
                 [
                     0.38359416,
@@ -49,7 +52,7 @@ from stixpy.calibration.grid import get_grid_transmission
             ],
         ),
         (
-            [0, 500.0] * u.arcsec,
+            SkyCoord(*[0, 500.0] * u.arcsec, frame=STIXImaging),
             [
                 0.38119361,
                 0.23916472,
@@ -87,6 +90,6 @@ from stixpy.calibration.grid import get_grid_transmission
         ),
     ],
 )
-def test_grid_transmission(input, out):
-    grid_transmission = get_grid_transmission(input)
-    assert np.allclose(grid_transmission, np.array(out))
+def test_grid_transmission(coords, transmission):
+    grid_transmission = get_grid_transmission(coords)
+    assert np.allclose(grid_transmission, np.array(transmission))

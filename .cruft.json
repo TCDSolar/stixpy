@@ -1,0 +1,43 @@
+{
+  "template": "https://github.com/sunpy/package-template",
+  "commit": "55170fd2032878eb5d446e27f0b1811847cc122f",
+  "checkout": null,
+  "context": {
+    "cookiecutter": {
+      "package_name": "STIXpy",
+      "module_name": "stixpy",
+      "short_description": "An open-source Python analysis library for the Spectrometer Telescope for Imaging X-rays (STIX) instrument on Solar Obriter.",
+      "author_name": "Shane Maloney",
+      "author_email": "shane.maloney@dias.ie",
+      "project_url": "ttps://stixpy.readthedocs.io",
+      "github_repo": "TCDSolar/stixpy",
+      "sourcecode_url": "https://github.com/TCDSolar/stixpy",
+      "download_url": "https://pypi.org/project/stixpy",
+      "documentation_url": "https://stixpy.readthedocs.io",
+      "changelog_url": "https://stixpy.readthedocs.io/en/latest/whatsnew/changelog.html",
+      "issue_tracker_url": "https://github.com/TCDSolar/stixpy/issues/",
+      "license": "BSD 3-Clause",
+      "minimum_python_version": "3.12",
+      "use_compiled_extensions": "n",
+      "enable_dynamic_dev_versions": "y",
+      "include_example_code": "n",
+      "include_cruft_update_github_workflow": "y",
+      "use_pat_in_cruft_update_workflow": "y",
+      "use_extended_ruff_linting": "y",
+      "matrix_room_id": "",
+      "extra_ci_jobs": "online",
+      "use_sunpy_pr_template": "n",
+      "_sphinx_theme": "sunpy",
+      "_parent_project": "",
+      "_install_requires": "",
+      "_copy_without_render": [
+        "docs/_templates",
+        "docs/_static",
+        ".github/workflows/zizmor.yml"
+      ],
+      "_template": "https://github.com/sunpy/package-template",
+      "_commit": "55170fd2032878eb5d446e27f0b1811847cc122f"
+    }
+  },
+  "directory": null
+}

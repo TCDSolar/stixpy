@@ -1,8 +1,9 @@
-import astropy.units as u
 import numpy as np
 import pytest
-from astropy.time import Time
 from numpy.testing import assert_equal
+
+import astropy.units as u
+from astropy.time import Time
 
 from stixpy.utils.time import times_to_indices
 

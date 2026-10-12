@@ -1,10 +1,11 @@
-from pathlib import Path
 from collections import OrderedDict
+from pathlib import Path
+
+import numpy as np
+from roentgen.absorption.material import Material, Stack
 
 import astropy.units as u
-import numpy as np
 from astropy.table.table import Table
-from roentgen.absorption.material import Material, Stack
 
 from stixpy.io.readers import read_sci_energy_channels
 
@@ -99,12 +100,11 @@ class Transmission:
             The SolarBlack composition to use.
         """
         if solarblack not in ["solarblack_oxygen", "solarblack_carbon"]:
-            raise ValueError("solarblack must be either 'solarblack_oxygen' or " "'solarblack_carbon'.")
+            raise ValueError("solarblack must be either 'solarblack_oxygen' or 'solarblack_carbon'.")
 
         self.solarblack = solarblack
         self.materials = MATERIALS
-        self.components = COMPONENTS
-        self.components = dict()
+        self.components = {}
         self.energies = ENERGY_CHANNELS[1:32]["Elower"]
 
         for name, layers in COMPONENTS.items():
@@ -189,8 +189,8 @@ class Transmission:
         `dict`
             Entries are materials with the total thickness for that material.
         """
-        material_thickness = dict()
-        for name, layers in COMPONENTS.items():
+        material_thickness = {}
+        for layers in COMPONENTS.values():
             for material_name, thickness in layers:
                 if material_name == "solarblack":
                     material_name = self.solarblack
@@ -215,7 +215,7 @@ def generate_transmission_tables():
     datetime.now().strftime("%Y%m%d")
     trans = Transmission()
 
-    energies = np.linspace(2, 150, 1001) * u.keV
+    energies = np.hstack([np.arange(2, 20, 0.01), np.arange(20, 160, 0.1)]) * u.keV
 
     norm_sci_energies = trans.get_transmission()
     norm_sci_energies.write(f"stix_transmission_sci_energies_{cur_date}.csv")
@@ -224,12 +224,10 @@ def generate_transmission_tables():
 
     comps = trans.get_transmission_by_component()
 
-    comps_sci_energies = Table(
-        [c.transmission(trans.energies) for c in comps.values()], names=[k for k in comps.keys()]
-    )
+    comps_sci_energies = Table([c.transmission(trans.energies) for c in comps.values()], names=list(comps.keys()))
     comps_sci_energies["energy"] = trans.energies
     comps_sci_energies.write(f"stix_transmission_by_component_sci_energies_{cur_date}.csv")
 
-    comps_highres = Table([c.transmission(energies) for c in comps.values()], names=[k for k in comps.keys()])
+    comps_highres = Table([c.transmission(energies) for c in comps.values()], names=list(comps.keys()))
     comps_highres["energy"] = energies
     comps_highres.write(f"stix_transmission_by_component_highres_{cur_date}.csv")

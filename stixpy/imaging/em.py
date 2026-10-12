@@ -1,13 +1,25 @@
+from collections.abc import Sequence
 from pathlib import Path
 
-import astropy.units as apu
 import numpy as np
-from astropy.table.table import Table
 from xrayvision.transform import generate_xy
+from xrayvision.visibility import Visibilities
 
+import astropy.units as apu
+from astropy.coordinates import SkyCoord
+from astropy.table.table import Table
+from astropy.units import Quantity
+
+from sunpy.coordinates import HeliographicStonyhurst
+from sunpy.time import TimeRange
+
+from stixpy.coordinates.frames import STIXImaging
+from stixpy.coordinates.transforms import get_hpc_info
 from stixpy.utils.logging import get_logger
 
 logger = get_logger(__name__, level="DEBUG")
+
+__all__ = ["get_transmission_matrix", "em"]
 
 
 def get_transmission_matrix(u, v, shape=[64, 64] * apu.pix, pixel_size=[4.0, 4.0] * apu.arcsec, *, center, pixel_sum):
@@ -58,12 +70,9 @@ def get_transmission_matrix(u, v, shape=[64, 64] * apu.pix, pixel_size=[4.0, 4.0
     idx = [6, 28, 0, 24, 4, 22, 5, 29, 1, 14, 26, 30, 23, 7, 27, 20, 25, 3, 15, 13, 31, 2, 19, 21]
     phase_cor = phase_cor[idx]
 
-    m, n = shape.to_value("pix")
+    x = generate_xy(shape[0], pixel_size=pixel_size[0], phase_center=center[0])
+    y = generate_xy(shape[1], pixel_size=pixel_size[1], phase_center=center[1])
 
-    # center = center - [26.1, 58.2] * apu.arcsec
-
-    y = generate_xy(m, pixel_size=pixel_size[1], center=center[1])
-    x = generate_xy(n, pixel_size=pixel_size[0], center=center[0])
     x, y = np.meshgrid(x, y)
     # Check apu are correct for exp need to be dimensionless and then remove apu for speed
     if (u[0] * x[0, 0]).unit == apu.dimensionless_unscaled and (v[0] * y[0, 0]).unit == apu.dimensionless_unscaled:
@@ -88,33 +97,57 @@ def get_transmission_matrix(u, v, shape=[64, 64] * apu.pix, pixel_size=[4.0, 4.0
         raise ValueError("Units dont match")
 
 
-def em(countrates, vis, shape, pixel_size, maxiter=5000, tolerance=0.001, *, flare_xy, idx):
+@apu.quantity_input
+def em(
+    countrates: dict,
+    vis: Visibilities,
+    *,
+    shape: Quantity[apu.pix],
+    pixel_size: Quantity[apu.arcsec / apu.pix],
+    flare_location: SkyCoord,
+    maxiter: int = 5000,
+    tolerance: float = 0.001,
+    idx: Sequence[int] | None = None,
+):
     r"""
     Count-based expectation maximisation imaging algorithm.
 
-
     Parameters
     ----------
-    countrates :
-        Meta pixel counts rates
-    vis
-        Visiblty
-    shape
-
-    pixel_size
-    maxiter
-    tolerance
-    flare_xy
-    idx
-
+    countrates : `dict`
+        Count rate data
+    vis :
+        Visibilities use for meta data
+    shape : `Quantity[apu.pix]`
+        Shape of the image
+    pixel_size : `Quantity[apu.arcsec/apu.pix]`
+        Size of the pixels
+    maxiter : `int`
+        Maximum number of iterations.
+    tolerance : `float`
+        Tolerance for convergence
+    flare_location : `SkyCoord`
+        Center of image
+    idx : `Sequence[int]`
+        The indices to use defaults to 10-2
     Returns
     -------
 
     """
 
     # temp
-    idx = [6, 28, 0, 24, 4, 22, 5, 29, 1, 14, 26, 30, 23, 7, 27, 20, 25, 3, 15, 13, 31, 2, 19, 21]
-    ii = np.array([np.argwhere(vis.isc - 1 == i).ravel() for i in idx]).ravel()
+    if idx is not None:
+        idx = [6, 28, 0, 24, 4, 22, 5, 29, 1, 14, 26, 30, 23, 7, 27, 20, 25, 3, 15, 13, 31, 2, 19, 21]
+    ii = np.array([np.argwhere(vis.meta["isc"] - 1 == i).ravel() for i in idx]).ravel()
+
+    tr = TimeRange(vis.meta.time_range)
+
+    if not isinstance(flare_location, STIXImaging) and flare_location.obstime != tr.center:
+        roll, solo_heeq, stix_pointing = get_hpc_info(vis.meta.time_range[0], vis.meta.time_range[1])
+        solo_coord = HeliographicStonyhurst(solo_heeq, representation_type="cartesian", obstime=tr.center)
+        flare_location = flare_location.transform_to(STIXImaging(obstime=tr.center, observer=solo_coord))
+
+    flare_xy = np.array([flare_location.Tx.value, flare_location.Ty.value]) * apu.arcsec
 
     H = get_transmission_matrix(vis.u[ii], vis.v[ii], shape=shape, pixel_size=pixel_size, center=flare_xy, pixel_sum=1)
     y = countrates[idx, ...]
@@ -153,6 +186,5 @@ def em(countrates, vis, shape, pixel_size, maxiter=5000, tolerance=0.001, *, fla
                 break
     m, n = shape.to_value("pix").astype(int)
     # Note the order keyword here to match `y.flatten(order='F')` above at line 108
-    # TODO investigate why .T is needed probably because of fortran ordering
-    x_im = x.reshape(m, n, order="F").T
-    return x_im
+    x_im = x.reshape(m, n, order="F")
+    return x_im.T

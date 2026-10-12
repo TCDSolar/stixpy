@@ -1,2 +1,0 @@
-Add a custom coordinate frame :class:`stixpy.coordinate.frames.STIXImaging` and the associated transformations (`~stixpy.coordinates.transforms.stixim_to_hpc`, `~stixpy.coordinates.transforms.hpc_to_stixim`) to and from `~sunpy.coordinates.frames.Helioprojective`.
-Also add a `stixpy.map.stix.STIXMap` for `~sunpy.map.Map` source which properly displays the :class:`stixpy.coordinate.frames.STIXImaging` coordinate frame.

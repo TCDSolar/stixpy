@@ -1,1 +1,0 @@
-Update :func:`~stixpy.coordinates.transforms.get_hpc_info` to use mean or interpolate pointing and location data based on number of data points in given timerange. Add function cache for aux data frequenly needed during coordinate transforms.

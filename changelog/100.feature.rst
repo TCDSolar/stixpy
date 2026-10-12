@@ -1,1 +1,0 @@
-Update livetime correction parameter `eta`, `tau` and  add code to calculate pileup 'beta' :func:`stixpy.calibration.livetime.pileup_correction_factor`.

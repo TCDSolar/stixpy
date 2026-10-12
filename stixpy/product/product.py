@@ -46,14 +46,23 @@ class GenericProduct(BaseProduct):
 
     @property
     def service_type(self):
+        r"""
+        Service type
+        """
         return self.meta.get("stype")
 
     @property
-    def servie_subtype(self):
+    def service_subtype(self):
+        r"""
+        Service subtype
+        """
         return self.meta.get("stype")
 
     @property
-    def ssid(self):
+    def ssid(self) -> int:
+        r"""
+        Science Structure ID for product
+        """
         return self.meta.get("ssid")
 
 

@@ -1,0 +1,12 @@
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    cooldown:
+      default-days: 14  # Most updates should be from the package template
+    groups:
+      actions:
+        patterns:
+          - "*"

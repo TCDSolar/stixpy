@@ -1,11 +1,12 @@
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
 
-import astropy.units as u
 import numpy as np
-from astropy.table import QTable, Table
 from dateutil.parser import parse
 from intervaltree import IntervalTree
+
+import astropy.units as u
+from astropy.table import QTable, Table
 
 
 def read_energy_channel_index(echan_index_file):
@@ -22,7 +23,7 @@ def read_energy_channel_index(echan_index_file):
     """
     echans = Table.read(echan_index_file)
     echan_it = IntervalTree()
-    for i, start, end, file in echans.iterrows():
+    for _i, start, end, file in echans.iterrows():
         date_start = parse(start)
         date_end = parse(end) if end != "none" else datetime(2100, 1, 1)
         echan_it.addi(date_start, date_end, echan_index_file.parent / file)
@@ -66,7 +67,7 @@ def read_sci_energy_channels(path):
 
 
 def read_subc_params(path=None):
-    """Read the configuration of the sub-collimator from the configuration file.
+    """Reads the configuration of the sub-collimator from the configuration file.
 
     Parameters
     ----------
@@ -83,10 +84,46 @@ def read_subc_params(path=None):
     return Table.read(path, format="ascii.ecsv")
 
 
+def read_pixel_params(path=None):
+    """Reads the configuration of the detector pixels from the configuration file.
+
+    Parameters
+    ----------
+    path : `pathlib.Path`
+        path to the config file
+
+    Returns
+    -------
+    `Table`
+        params for all 12 pixels - assuming equal for all 32 sub-collimators
+    """
+    if path is None:
+        path = Path(__file__).parent.parent / "config" / "data" / "detector" / "stx_det_pixels.csv"
+    return Table.read(path, format="ascii.ecsv")
+
+
+def read_det_adc_mapping(path=None):
+    """Reads the mapping configuration form detectors to ADC pairs from the configuration file.
+
+    Parameters
+    ----------
+    path : `pathlib.Path`
+        path to the config file
+
+    Returns
+    -------
+    `Table`
+        params for all 32 sub-collimators
+    """
+    if path is None:
+        path = Path(__file__).parent.parent / "config" / "data" / "detector" / "stx_det_adc.csv"
+    return Table.read(path, format="ascii.ecsv")
+
+
 def read_elut_index(elut_index):
     elut = Table.read(elut_index)
     elut_it = IntervalTree()
-    for i, start, end, file in elut.iterrows():
+    for _i, start, end, file in elut.iterrows():
         date_start = parse(start)
         date_end = parse(end) if end != "none" else datetime(2100, 1, 1)
         elut_it.addi(date_start, date_end, elut_index.parent / file)
@@ -96,10 +133,12 @@ def read_elut_index(elut_index):
 def read_elut(elut_file, sci_channels):
     elut_table = Table.read(elut_file, header_start=2)
 
-    elut = type("ELUT", (object,), dict())
+    elut = type("ELUT", (object,), {})
     elut.file = elut_file.name
-    elut.offset = elut_table["Offset"].reshape(32, 12)
-    elut.gain = elut_table["Gain keV/ADC"].reshape(32, 12)
+    offset_col = [col for col in elut_table.colnames if "offset" in col.casefold()][0]
+    gain_col = [col for col in elut_table.colnames if "gain" in col.casefold()][0]
+    elut.offset = elut_table[offset_col].reshape(32, 12)
+    elut.gain = elut_table[gain_col].reshape(32, 12)
     elut.pixel = elut_table["Pixel"].reshape(32, 12)
     elut.detector = elut_table["Detector"].reshape(32, 12)
     adc = np.vstack(list(elut_table.columns[4:].values())).reshape(31, 32, 12)

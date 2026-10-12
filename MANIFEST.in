@@ -1,19 +1,24 @@
-include README.rst
-include CHANGES.rst
-include setup.cfg
-include LICENSE.rst
-include pyproject.toml
-include stixpy/data/test_data.tar.gz
-recursive-include stixpy/config/data *.*
+# Exclude specific files
+# All files which are tracked by git and not explicitly excluded here are included by setuptools_scm
+exclude .codecov.yaml
+exclude .coveragerc
+exclude .cruft.json
+exclude .gitignore
+exclude .isort.cfg
+exclude .pre-commit-config.yaml
+exclude .readthedocs.yaml
+exclude .rtd-environment.yaml
+exclude .ruff.toml
 
-recursive-include stixpy *.pyx *.c *.pxd
-recursive-include docs *
-recursive-include licenses *
-recursive-include cextern *
-recursive-include scripts *
-
+# Prune folders
+prune .github
 prune build
-prune docs/_build
-prune docs/api
-
+prune changelog
 global-exclude *.pyc *.o
+# This subpackage is only used in development checkouts
+# and should not be included in built tarballs
+prune stixpy/_dev
+
+# test data
+recursive-include stixpy/config/data *.*
+recursive-include stixpy/net/tests/data *.*

@@ -60,10 +60,10 @@ def compress(values, *, s, k, m):
     Examples
     --------
     >>> comp = compress(12345, s=0, k=5, m=3)
-    >>> int(comp)
+    >>> int(comp[0])
     92
     >>> comp = compress(-1984, s=1, k=3, m=4)
-    >>> int(comp)
+    >>> int(comp[0])
     255
     """
     values = np.atleast_1d(np.array(values))
@@ -72,7 +72,7 @@ def compress(values, *, s, k, m):
 
     total = s + k + m
     if total > 8:
-        raise CompressionSchemeParameterError(f"Invalid s={s}, k={k}, m={m} " f"must sum to less than 8 not {total}")
+        raise CompressionSchemeParameterError(f"Invalid s={s}, k={k}, m={m} must sum to less than 8 not {total}")
 
     max_value = 2 ** (2**k - 2) * (2 ** (m + 1)) - 1
     abs_range = [0, max_value] if s == 0 else [-1 * max_value, 1 * max_value]
@@ -122,10 +122,10 @@ def decompress(values, *, s, k, m, return_variance=False):
     Examples
     --------
     >>> decomp = decompress(92, s=0, k=5, m=3)
-    >>> int(decomp)
+    >>> int(decomp[0])
     12799
     >>> decomp = decompress(255, s=1, k=3, m=4)
-    >>> int(decomp)
+    >>> int(decomp[0])
     -2015
     """
     values = np.atleast_1d(np.array(values))
@@ -136,7 +136,7 @@ def decompress(values, *, s, k, m, return_variance=False):
 
     total = s + k + m
     if total > 8:
-        raise CompressionSchemeParameterError(f"Invalid s={s}, k={k}, m={m} " f"must sum to less than 8 not {total}")
+        raise CompressionSchemeParameterError(f"Invalid s={s}, k={k}, m={m} must sum to less than 8 not {total}")
 
     if values.min() < 0 or values.max() > 255:
         raise CompressionRangeError("Compressed values must be in the range 0 to 255")

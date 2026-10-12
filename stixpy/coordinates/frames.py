@@ -3,7 +3,8 @@ import astropy.coordinates as coord
 import astropy.units as u
 from astropy.coordinates import QuantityAttribute
 from astropy.wcs import WCS
-from sunpy.coordinates.frameattributes import ObserverCoordinateAttribute
+
+from sunpy.coordinates.frameattributes import ObserverCoordinateAttribute, TimeFrameAttributeSunPy
 from sunpy.coordinates.frames import HeliographicStonyhurst, SunPyBaseCoordinateFrame
 from sunpy.sun.constants import radius as _RSUN
 
@@ -53,6 +54,8 @@ class STIXImaging(SunPyBaseCoordinateFrame):
 
     """
 
+    obstime_end = TimeFrameAttributeSunPy()
+
     observer = ObserverCoordinateAttribute(HeliographicStonyhurst)
     rsun = QuantityAttribute(default=_RSUN, unit=u.km)
 
@@ -67,6 +70,20 @@ class STIXImaging(SunPyBaseCoordinateFrame):
             coord.RepresentationMapping("lat", "Ty", u.arcsec),
         ],
     }
+
+    @property
+    def obstime_avg(self):
+        r"""Average time of the observation 'mean(obstime, obstime_end)'."""
+        return self.obstime + (self.obstime_end - self.obstime) / 2
+
+    def __init__(self, *args, **kwargs):
+        # If `obstime_end` isn't provided, default it to `obstime`.
+        if "obstime_end" not in kwargs and "obstime" in kwargs:
+            kwargs["obstime_end"] = kwargs["obstime"]
+        super().__init__(*args, **kwargs)
+        if self.obstime is not None and self.obstime_end is not None:
+            if self.obstime.shape != self.obstime_end.shape:
+                raise ValueError("Both 'obstime' and 'obstime_end' must be either scaler or 1d array of the same size.")
 
 
 def stix_wcs_to_frame(wcs):
@@ -89,7 +106,9 @@ def stix_wcs_to_frame(wcs):
     if set(wcs.wcs.ctype) != {STIX_X_CTYPE, STIX_Y_CTYPE}:
         return None
 
-    dateobs = wcs.wcs.dateobs
+    datebeg = wcs.wcs.datebeg
+    dateavg = wcs.wcs.dateavg
+    dateend = wcs.wcs.dateend
 
     rsun = wcs.wcs.aux.rsun_ref
     if rsun is not None:
@@ -100,10 +119,10 @@ def stix_wcs_to_frame(wcs):
     hgs_distance = wcs.wcs.aux.dsun_obs
 
     observer = HeliographicStonyhurst(
-        lat=hgs_latitude * u.deg, lon=hgs_longitude * u.deg, radius=hgs_distance * u.m, obstime=dateobs, rsun=rsun
+        lat=hgs_latitude * u.deg, lon=hgs_longitude * u.deg, radius=hgs_distance * u.m, obstime=dateavg, rsun=rsun
     )
 
-    frame_args = {"obstime": dateobs, "observer": observer, "rsun": rsun}
+    frame_args = {"obstime": datebeg, "obstime_end": dateend, "observer": observer, "rsun": rsun}
 
     return STIXImaging(**frame_args)
 
@@ -140,7 +159,10 @@ def stix_frame_to_wcs(frame, projection="TAN"):
     wcs.wcs.aux.hglt_obs = obs_frame.lat.to_value(u.deg)
     wcs.wcs.aux.dsun_obs = obs_frame.radius.to_value(u.m)
 
-    wcs.wcs.dateobs = frame.obstime.utc.iso
+    wcs.wcs.datebeg = frame.obstime.utc.iso
+    wcs.wcs.dateend = frame.obstime_end.utc.iso
+    wcs.wcs.dateavg = frame.obstime_avg.utc.iso
+    wcs.wcs.dateobs = frame.obstime_avg.utc.iso
     wcs.wcs.cunit = ["arcsec", "arcsec"]
     wcs.wcs.ctype = [STIX_X_CTYPE, STIX_Y_CTYPE]
 

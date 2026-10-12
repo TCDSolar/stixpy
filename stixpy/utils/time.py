@@ -1,7 +1,8 @@
-import astropy.units as u
 import numpy as np
-from astropy.time import Time
 from numpy.testing import assert_equal
+
+import astropy.units as u
+from astropy.time import Time
 
 
 def times_to_indices(in_times, obs_times, unit=u.ms, decimals=3):

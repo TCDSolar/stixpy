@@ -1,17 +1,21 @@
 from itertools import product
-from collections import defaultdict
+from pathlib import Path
+
+import numpy as np
+from matplotlib import pyplot as plt
+from matplotlib.colors import LogNorm
+from matplotlib.dates import ConciseDateFormatter, DateFormatter, HourLocator
+from matplotlib.widgets import Slider
 
 import astropy.units as u
-import numpy as np
 from astropy.table import QTable, vstack
 from astropy.time import Time
 from astropy.visualization import quantity_support
-from matplotlib import pyplot as plt
-from matplotlib.colors import LogNorm
-from matplotlib.dates import DateFormatter, HourLocator
-from matplotlib.widgets import Slider
-from sunpy.time.timerange import TimeRange
 
+from sunpy.time.timerange import TimeRange
+from sunpy.util import deprecated
+
+from stixpy.io.readers import read_subc_params
 from stixpy.product.product import L1Product
 
 __all__ = [
@@ -31,8 +35,14 @@ __all__ = [
     "EnergyEdgeMasks",
 ]
 
+from stixpy.visualisation.plotters import PixelPlotter
 
 quantity_support()
+
+
+SubCollimatorConfig = read_subc_params(
+    Path(__file__).parent.parent.parent / "config" / "data" / "detector" / "stx_subc_params.csv"
+)
 
 
 class PPrintMixin:
@@ -76,8 +86,7 @@ class IndexMasks(PPrintMixin):
         text = f"{self.__class__.__name__}\n"
         for m, i in zip(self.masks, self.indices):
             text += (
-                f'    {self._pprint_indices(i)}: '
-                f'[{",".join(np.where(m, np.arange(m.size), np.full(m.size, "_")))}]\n'
+                f"    {self._pprint_indices(i)}: [{','.join(np.where(m, np.arange(m.size), np.full(m.size, '_')))}]\n"
             )
         return text
 
@@ -128,7 +137,7 @@ class PixelMasks(PPrintMixin):
     def __repr__(self):
         text = f"{self.__class__.__name__}\n"
         for m, i in zip(self.masks, self.indices):
-            text += f'    {self._pprint_indices(i)}: ' f'[{str(np.where(m.shape[0], m, np.full(m.shape, "_")))}]\n'
+            text += f"    {self._pprint_indices(i)}: [{str(np.where(m.shape[0], m, np.full(m.shape, '_')))}]\n"
         return text
 
 
@@ -140,6 +149,7 @@ class SpectrogramPlotMixin:
     def plot_spectrogram(
         self,
         axes=None,
+        vtype="dcr",
         time_indices=None,
         energy_indices=None,
         detector_indices="all",
@@ -153,10 +163,23 @@ class SpectrogramPlotMixin:
         ----------
         axes : optional `matplotlib.axes`
             The axes the plot the spectrogram.
+        vtype : str
+           Type of value to return control the default normalisation:
+               * 'c' - count [c]
+               * 'cr' - count rate [c/s]
+               * 'dcr' - differential count rate [c/(s keV)]
         time_indices : `list` or `numpy.ndarray`
             If an 1xN array will be treated as mask if 2XN array will sum data between given
             indices. For example `time_indices=[0, 2, 5]` would return only the first, third and
             sixth times while `time_indices=[[0, 2],[3, 5]]` would sum the data between.
+        pixel_indices : `list` or `numpy.ndarray`
+            If an 1xN array will be treated as mask if 2XN array will sum data between given
+            indices. For example `pixel_indices=[0, 2, 5]` would return only the first, third and
+            sixth pixels while `pixel_indices=[[0, 2],[3, 5]]` would sum the data between.
+        detector_indices : `list` or `numpy.ndarray`
+            If an 1xN array will be treated as mask if 2XN array will sum data between given
+            indices. For example `detector_indices=[0, 2, 5]` would return only the first, third and
+            sixth detectors while `detector_indices=[[0, 2],[3, 5]]` would sum the data between.
         energy_indices : `list` or `numpy.ndarray`
             If an 1xN array will be treated as mask if 2XN array will sum data between given
             indices. For example `energy_indices=[0, 2, 5]` would return only the first, third and
@@ -167,7 +190,17 @@ class SpectrogramPlotMixin:
         Returns
         -------
         `matplotlib.axes`
+
+        Notes
+        -----
+        The units of the plotted data are determined by the `vtype` parameter:
+        - 'c': counts
+        - 'cr': counts per second
+        - 'dcr': counts per second per keV
         """
+        if axes is None:
+            fig, axes = plt.subplots()
+
         counts_shape = self.data["counts"].shape
         if len(counts_shape) != 4:
             # if spectrogram can't do anything with pixel or detector indices
@@ -187,9 +220,7 @@ class SpectrogramPlotMixin:
                         "detector or summed over a number of detectors"
                     )
                 elif det_idx_arr.ndim == 2 and det_idx_arr.shape[0] != 1:
-                    raise ValueError(
-                        "Spectrogram plots can only one sum " "detector or summed over a number of detectors"
-                    )
+                    raise ValueError("Spectrogram plots can only one sum detector or summed over a number of detectors")
                 did = detector_indices
 
             if pixel_indices == "all":
@@ -202,24 +233,22 @@ class SpectrogramPlotMixin:
                         "detector or summed over a number of detectors"
                     )
                 elif pix_idx_arr.ndim == 2 and pix_idx_arr.shape[0] != 1:
-                    raise ValueError(
-                        "Spectrogram plots can only one sum " "detector or summed over a number of detectors"
-                    )
+                    raise ValueError("Spectrogram plots can only one sum detector or summed over a number of detectors")
                 pid = pixel_indices
 
         counts, errors, times, timedeltas, energies = self.get_data(
-            detector_indices=did, pixel_indices=pid, time_indices=time_indices, energy_indices=energy_indices
+            vtype=vtype,
+            detector_indices=did,
+            pixel_indices=pid,
+            time_indices=time_indices,
+            energy_indices=energy_indices,
         )
+        timedeltas = timedeltas.to(u.s)
 
-        e_edges = np.hstack([energies["e_low"], energies["e_high"][-1]])
+        e_edges = np.hstack([energies["e_low"], energies["e_high"][-1]]).value
         t_edges = Time(
             np.concatenate([times - timedeltas.reshape(-1) / 2, times[-1] + timedeltas.reshape(-1)[-1:] / 2])
         )
-
-        if axes is None:
-            fig, axes = plt.subplots()
-        else:
-            fig = axes.get_figure()  # noqa
 
         pcolor_kwargs = {"norm": LogNorm(), "shading": "flat"}
         pcolor_kwargs.update(plot_kwargs)
@@ -234,8 +263,12 @@ class SpectrogramPlotMixin:
         axes.xaxis.set_major_formatter(DateFormatter("%d %H:%M"))
         # fig.autofmt_xdate()
         # fig.tight_layout()
+        for i in plt.get_fignums():
+            if axes in plt.figure(i).axes:
+                plt.sca(axes)
+                plt.sci(im)
 
-        return axes
+        return im
 
 
 class TimesSeriesPlotMixin:
@@ -245,6 +278,7 @@ class TimesSeriesPlotMixin:
 
     def plot_timeseries(
         self,
+        vtype="dcr",
         time_indices=None,
         energy_indices=None,
         detector_indices="all",
@@ -258,8 +292,11 @@ class TimesSeriesPlotMixin:
 
         Parameters
         ----------
-        axes : optional `matplotlib.axes`
-            The axes the plot the spectrogram.
+        vtype : str
+           Type of value to return control the default normalisation:
+               * 'c' - count [c]
+               * 'cr' - count rate [c/s]
+               * 'dcr' - differential count rate [c/(s keV)]
         time_indices : `list` or `numpy.ndarray`
             If an 1xN array will be treated as mask if 2XN array will sum data between given
             indices. For example `time_indices=[0, 2, 5]` would return only the first, third and
@@ -276,6 +313,8 @@ class TimesSeriesPlotMixin:
             If an 1xN array will be treated as mask if 2XN array will sum data between given
             indices. For example `pixel_indices=[0, 2, 5]` would return only the first, third and
             sixth pixels while `pixel_indices=[[0, 2],[3, 5]]` would sum the data between.
+        axes : optional `matplotlib.axes`
+            The matplotlib axes on which to plot the time series.
         error_bar : optional `bool`
             Add error bars to plot.
         **plot_kwargs : `dict`
@@ -288,8 +327,6 @@ class TimesSeriesPlotMixin:
         """
         if axes is None:
             fig, axes = plt.subplots()
-        else:
-            fig = axes.get_figure()
 
         if detector_indices == "all":
             detector_indices = [[0, 31]]
@@ -298,13 +335,14 @@ class TimesSeriesPlotMixin:
             pixel_indices = [[0, 11]]
 
         counts, errors, times, timedeltas, energies = self.get_data(
+            vtype=vtype,
             detector_indices=detector_indices,
             pixel_indices=pixel_indices,
             time_indices=time_indices,
             energy_indices=energy_indices,
         )
 
-        labels = [f"{el.value} - {eh.value}" for el, eh in energies["e_low", "e_high"]]
+        labels = [f"{el.value} - {eh.value} keV" for el, eh in energies["e_low", "e_high"]]
 
         n_time, n_det, n_pix, n_energy = counts.shape
 
@@ -321,9 +359,7 @@ class TimesSeriesPlotMixin:
                 lines = axes.plot(times.to_datetime(), counts[:, did, pid, eid], label=labels[eid], **plot_kwarg)
 
         axes.set_yscale("log")
-        axes.xaxis.set_major_formatter(DateFormatter("%d %H:%M"))
-        fig.autofmt_xdate()
-        fig.tight_layout()
+        axes.xaxis.set_major_formatter(ConciseDateFormatter(axes.xaxis.get_major_locator()))
 
         return lines
 
@@ -333,119 +369,10 @@ class PixelPlotMixin:
     Pixel plot mixin providing pixel plotting for pixel data.
     """
 
-    def plot_pixels(self, time_indices=None, energy_indices=None, fig=None):
-        """
-        Plot individual pixel data for each detector.
-
-        Parameters
-        ----------
-        time_indices : `list` or `numpy.ndarray`
-            If an 1xN array will be treated as mask if 2XN array will sum data between given
-            indices. For example `time_indices=[0, 2, 5]` would return only the first, third and
-            sixth times while `time_indices=[[0, 2],[3, 5]]` would sum the data between.
-        energy_indices : `list` or `numpy.ndarray`
-            If an 1xN array will be treated as mask if 2XN array will sum data between given
-            indices. For example `energy_indices=[0, 2, 5]` would return only the first, third and
-            sixth times while `energy_indices=[[0, 2],[3, 5]]` would sum the data between.
-        fig : optional `matplotlib.figure`
-            The figure where to which the pixel plot will be added.
-
-        Returns
-        -------
-        `matplotlib.figure`
-            The figure
-        """
-
-        if fig:
-            axes = fig.subplots(nrows=4, ncols=8, sharex=True, sharey=True, figsize=(10, 5))
-        else:
-            fig, axes = plt.subplots(nrows=4, ncols=8, sharex=True, sharey=True, figsize=(10, 5))
-
-        counts, count_err, times, dt, energies = self.get_data(time_indices=time_indices, energy_indices=energy_indices)
-
-        def timeval(val):
-            return times[val].isot
-
-        def energyval(val):
-            return f"{energies[val]['e_low'].value}-{energies[val]['e_high']}"
-
-        axcolor = "lightgoldenrodyellow"
-        axenergy = plt.axes([0.15, 0.05, 0.55, 0.03], facecolor=axcolor)
-        senergy = SliderCustomValue(
-            axenergy, "Energy", 0, len(energies) - 1, format_func=energyval, valinit=0, valstep=1
-        )
-        axetime = plt.axes([0.15, 0.01, 0.55, 0.03], facecolor=axcolor)
-        stime = SliderCustomValue(axetime, "Time", 0, counts.shape[0] - 1, format_func=timeval, valinit=0, valstep=1)
-
-        if counts.shape[2] == 4:
-            pixel_ids = [slice(0, 4)]
-        elif counts.shape[2] == 8:
-            pixel_ids = [slice(0, 4), slice(4, 8)]
-        elif counts.shape[2] == 12:
-            pixel_ids = [slice(0, 4), slice(4, 8), slice(8, 12)]
-        else:
-            raise ValueError("Invalid number of pixels")
-
-        containers = defaultdict(list)
-
-        for detector_id in range(32):
-            row, col = divmod(detector_id, 8)
-            for pixel_id in pixel_ids:
-                errbar_cont = axes[row, col].errorbar(
-                    (0.5, 1.5, 2.5, 3.5),
-                    counts[0, detector_id, pixel_id, 0],
-                    yerr=count_err[0, detector_id, pixel_id, 0],
-                    xerr=0.5,
-                    ls="",
-                )
-
-                containers[row, col].append(errbar_cont)
-                axes[row, col].set_xlim(0, 4)
-                axes[row, col].set_title(f"Det {detector_id}")
-                axes[row, col].set_xticks([])
-                if col != 0:
-                    # axs[row, col].set_yticks([])
-                    axes[row, col].set_ylabel("")
-
-        def update(_):
-            energy_index = senergy.val
-            time_index = stime.val
-            pids_ = [slice(0, 4), slice(4, 8), slice(8, 12)]
-            if counts.shape[2] == 4:
-                pids_ = [slice(0, 4)]
-
-            imaging_mask = np.ones(32, bool)
-            imaging_mask[8:10] = False
-
-            for did in range(32):
-                r, c = divmod(did, 8)
-                axes[r, c].set_ylim(0, counts[time_index, imaging_mask, :, energy_index].max() * 1.2)
-
-                for i, pid in enumerate(pids_):
-                    lines, caps, bars = containers[r, c][i]
-                    lines.set_ydata(counts[time_index, did, pid, energy_index])
-
-                    # horizontal bars at value
-                    segs = np.array(bars[0].get_segments())
-                    segs[:, 0, 0] = [0.0, 1.0, 2.0, 3.0]
-                    segs[:, 1, 0] = [1.0, 2.0, 3.0, 4.0]
-                    segs[:, 0, 1] = counts[time_index, did, pid, energy_index]
-                    segs[:, 1, 1] = counts[time_index, did, pid, energy_index]
-                    bars[0].set_segments(segs)
-                    # vertical bars at +/- error
-                    segs = np.array(bars[1].get_segments())
-                    segs[:, 0, 0] = [0.5, 1.5, 2.5, 3.5]
-                    segs[:, 1, 0] = [0.5, 1.5, 2.5, 3.5]
-                    segs[:, 0, 1] = (
-                        counts[time_index, did, pid, energy_index] - count_err[time_index, did, pid, energy_index]
-                    )
-                    segs[:, 1, 1] = (
-                        counts[time_index, did, pid, energy_index] + count_err[time_index, did, pid, energy_index]
-                    )
-                    bars[1].set_segments(segs)
-
-        senergy.on_changed(update)
-        stime.on_changed(update)
+    def plot_pixels(self, *, kind="pixel", time_indices=None, energy_indices=None, fig=None, cmap=None, **kwargs):
+        pixel_plotter = PixelPlotter(self, time_indices=time_indices, energy_indices=energy_indices)
+        pixel_plotter.plot(kind=kind, fig=fig, cmap=cmap, **kwargs)
+        return pixel_plotter
 
 
 class ScienceData(L1Product):
@@ -458,7 +385,7 @@ class ScienceData(L1Product):
 
         Parameters
         ----------
-        header : `astropy.fits.Header`
+        meta : `astropy.fits.Header`
             Fits header
         control : `astropy.table.QTable`
             Fits file control extension
@@ -516,22 +443,42 @@ class ScienceData(L1Product):
         return self.data["time"]
 
     @property
-    def durtaion(self):
+    @deprecated(name="duration", since="0.2", message="Use `durations` instead", warning_type=DeprecationWarning)
+    def duration(self):
         """
-        An `astropy.units.Quantiy` array giving the duration or integration time
+        An `astropy.units.Quantity` array giving the duration or integration time
+        """
+        return self.data["timedel"]
+
+    @property
+    def durations(self):
+        """
+        An `astropy.units.Quantity` array giving the duration or integration time
         """
         return self.data["timedel"]
 
     def get_data(
-        self, time_indices=None, energy_indices=None, detector_indices=None, pixel_indices=None, sum_all_times=False
+        self,
+        *,
+        vtype="dcr",
+        time_indices=None,
+        energy_indices=None,
+        detector_indices=None,
+        pixel_indices=None,
+        sum_all_times=False,
     ):
-        """
+        r"""
         Return the counts, errors, times, durations and energies for selected data.
 
         Optionally summing in time and or energy.
 
         Parameters
         ----------
+        vtype : str
+            Type of value to return (vtype) controls the normalisation:
+                * 'c' - count [c]
+                * 'cr' - count rate [c/s]
+                * 'dcr' - differential count rate [c/(s keV)]
         time_indices : `list` or `numpy.ndarray`
             If an 1xN array will be treated as mask if 2XN array will sum data between given
             indices. For example `time_indices=[0, 2, 5]` would return only the first, third and
@@ -592,8 +539,9 @@ class ScienceData(L1Product):
             if pixel_indices.ndim == 1:
                 pixel_mask = np.full(12, False)
                 pixel_mask[pixel_indices] = True
-                counts = counts[..., pixel_mask, :]
-                counts_var = counts_var[..., pixel_mask, :]
+                num_pixels = counts.shape[2]
+                counts = counts[..., pixel_mask[:num_pixels], :]
+                counts_var = counts_var[..., pixel_mask[:num_pixels], :]
             elif pixel_indices.ndim == 2:
                 counts = np.concatenate(
                     [np.sum(counts[..., pl : ph + 1, :], axis=2, keepdims=True) for pl, ph in pixel_indices], axis=2
@@ -667,14 +615,25 @@ class ScienceData(L1Product):
                     counts_var = np.sum(counts_var, axis=0, keepdims=True)
                     t_norm = np.sum(dt)
 
+        t_norm = t_norm.to("s")
+
         if e_norm.size != 1:
             e_norm = e_norm.reshape(1, 1, 1, -1)
 
         if t_norm.size != 1:
-            t_norm = t_norm.reshape(-1, 1, 1, 1)
+            t_norm = t_norm.reshape(-1, 1, 1, 1).to("s")
 
-        counts_err = np.sqrt(counts * u.ct + counts_var) / (e_norm * t_norm)
-        counts = counts / (e_norm * t_norm)
+        if vtype == "c":
+            norm = 1
+        elif vtype == "cr":
+            norm = 1 / t_norm
+        elif vtype == "dcr":
+            norm = 1 / (e_norm * t_norm)
+        else:
+            raise ValueError("vtype must be one of 'c', 'cr', 'dcr'.")
+
+        counts_err = np.sqrt(counts * u.ct + counts_var) * norm
+        counts = counts * norm
 
         return counts, counts_err, times, t_norm, energies
 
@@ -693,7 +652,7 @@ class ScienceData(L1Product):
             The concatenated science products
         """
         others = others if isinstance(others, list) else [others]
-        if all([isinstance(o, type(self)) for o in others]):
+        if all(isinstance(o, type(self)) for o in others):
             control = self.control[:]
             data = self.data[:]
             for other in others:
@@ -957,7 +916,7 @@ class Spectrogram(ScienceData, TimesSeriesPlotMixin, SpectrogramPlotMixin):
 
     Parameters
     ----------
-    header : `astropy.fits.Header`
+    meta : `astropy.fits.Header`
     control : `astropy.table.QTable`
     data : `astropy.table.QTable`
     energies : `astropy.table.QTable`
@@ -993,7 +952,7 @@ class Spectrogram(ScienceData, TimesSeriesPlotMixin, SpectrogramPlotMixin):
 
         Parameters
         ----------
-        header : astropy.fits.Header
+        meta : astropy.fits.Header
         control : astropy.table.QTable
         data : astropy.table.QTable
         energies : astropy.table.QTable

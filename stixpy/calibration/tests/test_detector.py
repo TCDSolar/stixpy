@@ -1,9 +1,10 @@
 from datetime import datetime
 
-import astropy.units as u
 import pytest
-from astropy.table import QTable
 from numpy.testing import assert_equal
+
+import astropy.units as u
+from astropy.table import QTable
 
 from stixpy.calibration.detector import get_sci_channels, get_srm
 

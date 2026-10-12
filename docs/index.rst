@@ -54,3 +54,12 @@ The documentation is broken down into four keys areas.
 
 .. toctree::
     :maxdepth: 1
+
+    citation
+
+Indices and tables
+==================
+
+* :ref:`genindex`
+* :ref:`modindex`
+* :ref:`search`

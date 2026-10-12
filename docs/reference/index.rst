@@ -10,10 +10,12 @@ Reference
    calibration
    coordinates
    data
+   imaging
    map
+   net
    product
-   science
    timeseries
    visualisation
+   instrument
 
    ../whatsnew/index

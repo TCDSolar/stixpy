@@ -1,1 +1,0 @@
-Update imaging demo to use images and construct `~sunpy.map.Map` using `~stixpy.coordinates.frames.STIXImaging` and `~sunpy.map.header_helper.make_fitswcs_header`.

@@ -11,6 +11,9 @@ This example uses `~stixpy.product.sources.science.ScienceData.get_data` with
 ``stx_convert_pixel_data`` and ``stx_convert_spectrogram2ospex`` in STIX-GSW, so the result
 can be compared directly with an OSPEX analysis.
 
+The spectra are `sunkit_spex` objects, so this example needs the optional ``spectroscopy``
+dependencies, installed with ``pip install 'stixpy[spectroscopy]'``.
+
 Imports
 """
 
@@ -24,7 +27,8 @@ from stixpy.imaging.flare_location import estimate_flare_location
 from stixpy.product import Product
 
 #############################################################################
-# Read the science file and a background file as Products
+# Read the science file and a background file as Products. The background file is a
+# long pixel data observation taken when no flare was in progress, earlier on the same day.
 
 cpd_sci = Product(
     "http://pub099.cs.technik.fhnw.ch/fits/L1/2021/09/23/SCI/solo_L1_stix-sci-xray-cpd_20210923T152015-20210923T152639_V02_2109230030-62447.fits"
@@ -47,12 +51,15 @@ plt.legend()
 #############################################################################
 # The SRM includes the transmission of the grids, which depends on where the flare is, so
 # estimate the flare location first (see the flare location example for more detail).
+# ``get_data`` takes the location as a single `~astropy.coordinates.SkyCoord`, so use the
+# helioprojective (``"hpc"``) entry of the result.
 #
 # Requested times must lie inside the file, which covers 15:20:16 to 15:26:39.
 
 time_range = ["2021-09-23T15:20:30", "2021-09-23T15:23:30"]
 
 flare_location = estimate_flare_location(cpd_sci, time_range=time_range, energy_range=[6, 15] * u.keV)["hpc"]
+flare_location
 
 #############################################################################
 # Make the spectrum. The counts are summed over the top 24 detectors and the time range,
@@ -77,8 +84,9 @@ spec
 
 #############################################################################
 # The spectrum holds the counts and their uncertainty, with the count energy bin edges as
-# the spectral axis. Everything needed to fit it is in the metadata: the exposure time, the
-# SRM with its photon energy edges, the geometric area and the Sun-spacecraft distance.
+# the spectral axis. Everything needed to fit it is in the metadata: the exposure time
+# (the live time), the SRM with its photon energy edges, the geometric area and the
+# Sun-spacecraft distance.
 
 print(spec.meta["exposure_time"])
 print(spec.meta["geo_area"])
@@ -86,15 +94,21 @@ print(spec.meta["distance"])
 print(spec.meta["srm"].shape, spec.meta["ph_axis"].shape)
 
 #############################################################################
+# The plots below show count rates, so define a small helper that turns a spectrum into
+# its energy bin edges and the count rate and uncertainty per keV.
+
+
+def count_rate(spectrum):
+    edges = spectrum.spectral_axis.bin_edges
+    norm = spectrum.unit / spectrum.meta["exposure_time"] / np.diff(edges)
+    return edges, spectrum.data * norm, spectrum.uncertainty.array * norm
+
+
+#############################################################################
 # Plot the background-subtracted count rate spectrum.
 
-ct_edges = spec.spectral_axis.bin_edges
-ct_width = np.diff(ct_edges)
-exposure = spec.meta["exposure_time"]
-
-rate = spec.data / exposure / ct_width
-rate_err = spec.uncertainty.array / exposure / ct_width
-ct_mid = ct_edges[:-1] + ct_width / 2
+ct_edges, rate, rate_err = count_rate(spec)
+ct_mid = ct_edges[:-1] + np.diff(ct_edges) / 2
 
 fig, ax = plt.subplots()
 ax.stairs(rate.value, ct_edges.value, label="Top 24 detectors")
@@ -125,6 +139,9 @@ fig.colorbar(mesh, label="Counts / photon")
 # Giving several time ranges returns one spectrum per range as an
 # `~ndcube.NDCubeSequence`. Each spectrum has the SRM for its own attenuator (RCR) state,
 # so a sequence can cross an attenuator insertion, but a single range can not.
+#
+# Compare the top 24 detectors with the BKG detector, which is selected with
+# ``detector_indices="bkg"`` and its two small-aperture pixels.
 
 time_ranges = [
     ["2021-09-23T15:20:30", "2021-09-23T15:21:30"],
@@ -143,6 +160,7 @@ spec_seq = cpd_sci.get_data(
 spec_seq_bkg = cpd_sci.get_data(
     time_indices=time_ranges,
     detector_indices="bkg",
+    pixel_indices=[2, 5],
     bkg=cpd_bkg,
     flare_location=flare_location,
     sunkit_spex_spectrum=True,
@@ -158,8 +176,7 @@ for seq, name, colours, ls in [
     (spec_seq_bkg, "BKG", oranges, "--"),
 ]:
     for s, (start, end), c in zip(seq.data, time_ranges, colours):
-        edges = s.spectral_axis.bin_edges
-        s_rate = s.data / s.meta["exposure_time"] / np.diff(edges)
+        edges, s_rate, _ = count_rate(s)
         ax.stairs(
             s_rate.value,
             edges.value,
@@ -171,11 +188,14 @@ for seq, name, colours, ls in [
 ax.set_xscale("log")
 ax.set_yscale("log")
 ax.set_xlabel("Energy [keV]")
-ax.set_ylabel("Count rate [ct / (keV s)]")
+ax.set_ylabel(f"Count rate [{s_rate.unit}]")
 ax.legend(fontsize="small", ncol=2)
 
-
-time_range = ["2021-09-23T15:20:30", "2021-09-23T15:23:30"]
+#############################################################################
+# To see how much the background matters, make the spectrum for the full time range with
+# and without the background subtracted, and plot them with their ratio. For this flare the
+# background is a small correction below about 25 keV, but above that, including the
+# 31 keV line of the on-board calibration source, it is a large part of the counts.
 
 spec_sub = cpd_sci.get_data(
     time_indices=time_range,
@@ -192,14 +212,9 @@ spec_nosub = cpd_sci.get_data(
     sunkit_spex_spectrum=True,
 )
 
-edges = spec_sub.spectral_axis.bin_edges
-ct_width = np.diff(edges)
-ct_mid = edges[:-1] + ct_width / 2
-
-rate_sub = spec_sub.data * spec_sub.unit / spec_sub.meta["exposure_time"] / ct_width
-err_sub = spec_sub.uncertainty.array * spec_sub.unit / spec_sub.meta["exposure_time"] / ct_width
-rate_nosub = spec_nosub.data * spec_nosub.unit / spec_nosub.meta["exposure_time"] / ct_width
-err_nosub = spec_nosub.uncertainty.array * spec_nosub.unit / spec_nosub.meta["exposure_time"] / ct_width
+edges, rate_sub, err_sub = count_rate(spec_sub)
+_, rate_nosub, err_nosub = count_rate(spec_nosub)
+ct_mid = edges[:-1] + np.diff(edges) / 2
 
 with np.errstate(divide="ignore", invalid="ignore"):
     ratio = np.where(rate_nosub > 0, rate_sub / rate_nosub, np.nan).to(u.one)
@@ -256,13 +271,17 @@ spec_dets = cpd_sci.get_data(
 
 fig, ax = plt.subplots()
 for det, s in spec_dets.items():
-    edges = s.spectral_axis.bin_edges
-    s_rate = s.data / s.meta["exposure_time"] / np.diff(edges)
+    edges, s_rate, _ = count_rate(s)
     ax.stairs(s_rate.value, edges.value, label=f"Detector {det}")
 ax.set_xscale("log")
 ax.set_yscale("log")
 ax.set_xlabel("Energy [keV]")
-ax.set_ylabel("Count rate [ct / (keV s)]")
+ax.set_ylabel(f"Count rate [{s_rate.unit}]")
 ax.legend()
 
 plt.show()
+
+#############################################################################
+# The spectrum and its metadata can now be passed to ``sunkit-spex`` for fitting. To get
+# the corrected counts as plain arrays instead, for example for a light curve, call
+# ``get_data`` without ``sunkit_spex_spectrum``; see :ref:`get-data-corrections`.

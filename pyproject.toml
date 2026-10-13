@@ -53,7 +53,8 @@ docs = [
     "sphinx-design>=0.2.0",
     "sphinx-gallery>=0.13.0",
     "sphinxext-opengraph>=0.6.0",
-    "pydata-sphinx-theme>=0.16.0"
+    "pydata-sphinx-theme>=0.16.0",
+    "sunkit-spex>=0.5.0"
 ]
 spectroscopy = [
     "sunkit-spex>=0.5.0"

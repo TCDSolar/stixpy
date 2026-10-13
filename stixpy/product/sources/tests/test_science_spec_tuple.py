@@ -10,6 +10,8 @@ from astropy.io import fits
 from stixpy.product import Product
 
 SPEC_URL = "https://pub099.cs.technik.fhnw.ch/fits/L1/2024/03/10/SCI/solo_L1_stix-sci-xray-spec_20240310T073505-20240310T134008_V02_2403103995-60712.fits"
+# A pixel-data background, as in STIX-GSW's stx_convert_spectrogram
+BKG_URL = "https://pub099.cs.technik.fhnw.ch/fits/L1/2024/03/08/SCI/solo_L1_stix-sci-xray-cpd_20240308T193915-20240308T203235_V02_2403087339-57240.fits"
 
 EXPECTED_VALUES_PATH = Path(__file__).parent / "data" / "expected_values_spec_tuple.fits.gz"
 
@@ -19,7 +21,7 @@ EXPECTED_VALUES_PATH = Path(__file__).parent / "data" / "expected_values_spec_tu
 RTOL = 1e-6
 ATOL = 5e-4
 
-_LABELS = ("WITHOUT_BKGSUB",)
+_LABELS = ("WITH_BKGSUB", "WITHOUT_BKGSUB")
 
 
 def _read_expected_values(path):
@@ -49,6 +51,11 @@ def spec_product():
 
 
 @pytest.fixture(scope="module")
+def bkg_product():
+    return Product(BKG_URL)
+
+
+@pytest.fixture(scope="module")
 def expected_values():
     return _read_expected_values(EXPECTED_VALUES_PATH)
 
@@ -60,17 +67,22 @@ def _to_value(array):
     return np.asarray(array)
 
 
-def _get_summed_counts(spec_prod):
+def _get_summed_counts(spec_prod, bkg=None):
     """Call get_data and reduce to (n_time, n_energy).
 
     No detector_indices or pixel_indices are passed: a spectrogram is already
     summed over detectors and pixels onboard.
     """
-    spec = spec_prod.get_data(vtype="cr", elut_correction=True, livetime_correction=True)
+    spec = spec_prod.get_data(vtype="cr", elut_correction=True, livetime_correction=True, bkg=bkg)
 
     counts = np.nansum(spec.counts, axis=(1, 2))
     counts_err = np.sqrt(np.nansum(spec.counts_err**2, axis=(1, 2)))
     return counts, counts_err
+
+
+@pytest.fixture(scope="module")
+def spec_bkgsub(spec_product, bkg_product):
+    return _get_summed_counts(spec_product, bkg_product)
 
 
 @pytest.fixture(scope="module")
@@ -99,6 +111,21 @@ def _assert_counts_err(result, expected, label):
     assert np.all(counts_err >= 0)
     if expected is not None:
         assert_allclose(counts_err, expected[label]["counts_err"], rtol=RTOL, atol=ATOL)
+
+
+# ---------------------------------------------------------------------------
+# bkg=<bkg product>
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.remote_data
+def test_counts_bkgsub(spec_bkgsub, expected_values):
+    _assert_counts(spec_bkgsub, expected_values, "WITH_BKGSUB")
+
+
+@pytest.mark.remote_data
+def test_counts_err_bkgsub(spec_bkgsub, expected_values):
+    _assert_counts_err(spec_bkgsub, expected_values, "WITH_BKGSUB")
 
 
 # ---------------------------------------------------------------------------

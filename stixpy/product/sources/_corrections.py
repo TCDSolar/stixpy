@@ -128,7 +128,7 @@ def _apply_livetime(counts, counts_var, livefrac, groups):
     return counts_out, counts_var_out, new_livefrac
 
 
-def _livefrac(product, counts, elut_cor_fac, pixel_indices):
+def _livefrac(product, counts, elut_cor_fac, pixel_indices, energy_indices=None):
     """
     Compute the livetime fraction and its uncertainty from the trigger counts.
 
@@ -161,6 +161,10 @@ def _livefrac(product, counts, elut_cor_fac, pixel_indices):
     pixel_indices : numpy.ndarray or None
         Pixels to compute the uncertainty over, flat or [start, end] pairs, or
         None for all pixels. Ignored for spectrogram products.
+    energy_indices : numpy.ndarray, optional
+        Energy bins of the counts to keep before applying `elut_cor_fac`, for
+        when the factor was computed for another product's bins (the
+        background case). Only used if `elut_cor_fac` is given.
 
     Returns
     -------
@@ -168,7 +172,8 @@ def _livefrac(product, counts, elut_cor_fac, pixel_indices):
         Livetime fraction, shape (time, detector, 1, 1) for pixel data or
         (time, 1, 1, 1) for spectrogram products.
     livefrac_error : astropy.units.Quantity
-        Livetime uncertainty in counts, with the same shape as `counts`.
+        Livetime uncertainty in counts, with the same shape as `counts` after
+        any energy selection.
     """
 
     trigger_to_detector = STIX_INSTRUMENT.subcol_adc_mapping
@@ -215,7 +220,10 @@ def _livefrac(product, counts, elut_cor_fac, pixel_indices):
         livefrac_upper = livefrac_upper.reshape(livefrac_upper.shape + (1, 1))
 
     if elut_cor_fac is not None:
-        counts = counts * elut_cor_fac
+        if energy_indices is not None:
+            counts = counts[..., energy_indices] * elut_cor_fac
+        else:
+            counts = counts * elut_cor_fac
 
     # ---- resolve the pixel summation group ------------------------------
 
@@ -392,14 +400,17 @@ def _data_select(
     elut_cor_fac,
     sum_all_times,
     n_detectors=None,
+    bkg=False,
 ):
     """
     Apply the requested detector, pixel, energy and time selection to the data.
 
-    The count uncertainty starts as ``sqrt(counts + compression_error**2)``.
+    `counts` are either the product's counts or the background-subtracted counts
+    returned by `_bkg_sub` (``bkg=True``). On the product path the count
+    uncertainty starts as ``sqrt(counts + compression_error**2)``.
 
-    The 0 keV bottom energy bin and the open top bin (upper edge NaN) are
-    removed first. Energy indices number the rows of the product's energy
+    In both cases the 0 keV bottom energy bin and the open top bin (upper edge
+    NaN) are removed first. Energy indices number the rows of the product's energy
     table, so they are shifted down by one when the bottom bin is removed and
     then clipped into the remaining range.
 
@@ -407,16 +418,20 @@ def _data_select(
     inclusive range into one bin (counts summed, uncertainties in quadrature,
     livetime values averaged). The steps run in this order:
 
-    1. ELUT correction.
-    2. Pixel selection.
+    1. ELUT correction, except on the background path, where `_bkg_sub` has
+       already applied it.
+    2. Pixel selection; on the background path the pixels are then summed.
     3. Energy selection; for ranges, `e_norm` and the energy table are rebuilt.
     4. Livetime correction by detector group (see `_apply_livetime`), then a sum
-       over pixels. Only when a livetime fraction is available. With no
-       detector selection all detectors that are on form one group, a flat
-       selection forms one group, and each [start, end] range is its own group.
+       over pixels. Only when a livetime fraction is available and this is not
+       the background path. With no detector selection all detectors that are
+       on form one group, a flat selection forms one group, and each
+       [start, end] range is its own group.
     5. Detector selection.
-    6. RCR alignment (see `_rcr_shift`).
-    7. Time selection, and optionally a sum over all time bins.
+    6. On the background path, counts are set to zero wherever their total over
+       the detectors and pixels is negative.
+    7. RCR alignment (see `_rcr_shift`).
+    8. Time selection, and optionally a sum over all time bins.
 
     Parameters
     ----------
@@ -427,7 +442,8 @@ def _data_select(
         data on the full detector and pixel grid (see ``_full_layout``) and
         spectrogram counts reshaped to (time, 1, 1, energy).
     counts_err : astropy.units.Quantity
-        The compression error of `counts`, same shape.
+        The compression error of `counts`, same shape. On the background path,
+        the 1-sigma uncertainty from `_bkg_sub`.
     detector_indices : numpy.ndarray or None
         Flat detector indices or [start, end] pairs. Detector labels such as
         "top24" must already have been resolved by `_indices_check`. Ignored
@@ -452,6 +468,10 @@ def _data_select(
     n_detectors : int, optional
         Number of detectors summed on board, for spectrogram products. Used to
         scale the RCR jump signal.
+    bkg : bool, optional
+        True when `counts` come from `_bkg_sub`. They are then already trimmed,
+        livetime corrected and ELUT corrected, so only the energy table is
+        trimmed and those corrections are not repeated.
 
     Returns
     -------
@@ -467,13 +487,27 @@ def _data_select(
         detector_indices = None
         pixel_indices = None
 
-    counts_var = np.sqrt(counts.value + counts_err.value**2) * u.ct
-
     t_norm = product.data["timedel"]
     times = product.times
     energies = product.energies
 
-    if energies["e_low"][0].value == 0:
+    if bkg:
+        counts_var = counts_err
+
+        if energies["e_low"][0].value == 0:
+            energies = energies[1:]
+            e_norm = e_norm[1:]
+            if energy_indices is not None:
+                energy_indices = np.asarray(energy_indices) - 1
+
+        if np.isnan(energies["e_high"][-1].value):
+            energies = energies[:-1]
+            e_norm = e_norm[:-1]
+
+    else:
+        counts_var = np.sqrt(counts.value + counts_err.value**2) * u.ct
+
+    if not bkg and energies["e_low"][0].value == 0:
         counts = counts[..., 1:]
         counts_var = counts_var[..., 1:]
         energies = energies[1:]
@@ -485,7 +519,7 @@ def _data_select(
         if livefrac_error is not None:
             livefrac_error = livefrac_error[..., 1:]
 
-    if np.isnan(energies["e_high"][-1].value):
+    if not bkg and np.isnan(energies["e_high"][-1].value):
         counts = counts[..., :-1]
         counts_var = counts_var[..., :-1]
         energies = energies[:-1]
@@ -495,7 +529,7 @@ def _data_select(
         if livefrac_error is not None:
             livefrac_error = livefrac_error[..., :-1]
 
-    if elut_cor_fac is not None:
+    if not bkg and elut_cor_fac is not None:
         counts = counts * elut_cor_fac
         counts_var = counts_var * elut_cor_fac
 
@@ -509,23 +543,25 @@ def _data_select(
             pixel_mask[pixel_indices] = True
             num_pixels = counts.shape[2]
             counts = counts[..., pixel_mask[:num_pixels], :]
-            counts_var = counts_var[..., pixel_mask[:num_pixels], :]
-            if livefrac is not None and livefrac.shape[2] != 1:
+            if not bkg:
+                counts_var = counts_var[..., pixel_mask[:num_pixels], :]
+            if not bkg and livefrac is not None and livefrac.shape[2] != 1:
                 livefrac = livefrac[:, :, pixel_mask[:num_pixels], :]
-            if livefrac_error is not None and livefrac_error.shape[2] != 1:
+            if not bkg and livefrac_error is not None and livefrac_error.shape[2] != 1:
                 livefrac_error = livefrac_error[:, :, pixel_mask[:num_pixels], :]
 
         if pixel_indices.ndim == 2:
             counts = np.concatenate(
                 [np.sum(counts[..., pl : ph + 1, :], axis=2, keepdims=True) for pl, ph in pixel_indices], axis=2
             )
-            counts_var = np.concatenate(
-                [
-                    np.sqrt(np.sum(counts_var[..., pl : ph + 1, :] ** 2, axis=2, keepdims=True))
-                    for pl, ph in pixel_indices
-                ],
-                axis=2,
-            )
+            if not bkg:
+                counts_var = np.concatenate(
+                    [
+                        np.sqrt(np.sum(counts_var[..., pl : ph + 1, :] ** 2, axis=2, keepdims=True))
+                        for pl, ph in pixel_indices
+                    ],
+                    axis=2,
+                )
 
             if livefrac is not None and livefrac.shape[2] != 1:
                 livefrac = np.concatenate(
@@ -542,6 +578,13 @@ def _data_select(
                     axis=2,
                 )
 
+    if bkg:
+        # _bkg_sub has summed the uncertainty over the pixels, so sum the counts too, as the livetime correction
+        # does without a background
+        counts = np.nansum(counts, axis=2, keepdims=True)
+        if livefrac is not None:
+            livefrac = np.nanmean(livefrac, axis=2, keepdims=True)
+
     counts_rcr = np.nansum(counts, axis=-1, keepdims=True)
 
     if energy_indices is not None:
@@ -556,6 +599,10 @@ def _data_select(
 
             if elut_cor_fac is not None:
                 elut_cor_fac = elut_cor_fac[..., energy_mask]
+
+            if bkg:
+                if livefrac is not None:
+                    livefrac = livefrac[..., energy_mask]
 
             if livefrac_error is not None:
                 livefrac_error = livefrac_error[..., energy_mask]
@@ -581,6 +628,12 @@ def _data_select(
                     axis=-1,
                 )
 
+            if bkg and livefrac is not None and livefrac.shape[-1] != 1:
+                livefrac = np.concatenate(
+                    [np.mean(livefrac[..., el : eh + 1], axis=-1, keepdims=True) for el, eh in energy_indices],
+                    axis=-1,
+                )
+
             if livefrac_error is not None:
                 # scales with the counts and shares one livetime across all energies,
                 # so the bins in a band are fully correlated: add them linearly
@@ -594,7 +647,7 @@ def _data_select(
             )
             energies = QTable(energies * u.keV, names=["e_low", "e_high"])
 
-    if livefrac is not None and detector_indices is None:
+    if not bkg and livefrac is not None and detector_indices is None:
         n_det = counts.shape[1]
         # every detector of a spectrogram, or every detector that is on for pixel data on the full grid
         groups = [np.arange(n_det)] if n_det == 1 else [_on_indices(product.detector_masks.masks)]
@@ -609,7 +662,9 @@ def _data_select(
         detector_indices = np.asarray(detector_indices)  # "top24" must already be resolved to indices upstream
 
         # ---- livetime -------------------------------------------------------
-        if livefrac is not None:
+        # Skipped on the bkgsub path: _bkg_sub has already applied the livetime
+        # correction and collapsed counts_var's pixel axis.
+        if not bkg and livefrac is not None:
             if detector_indices.ndim == 1:
                 groups = [detector_indices]  # all selected -> one spectrum
             else:  # ndim == 2 : each (dl, dh) range -> one output spectrum, of the detectors that are on
@@ -670,6 +725,10 @@ def _data_select(
                     ],
                     axis=1,
                 )
+
+    if bkg:
+        total = np.nansum(counts, axis=(1, 2), keepdims=True)
+        counts = np.where(total < 0, 0, counts.value) * counts.unit
 
     if detector_indices is None:
         # no detector selection: a spectrogram (summed on board over n_detectors)

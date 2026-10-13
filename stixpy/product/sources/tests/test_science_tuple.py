@@ -9,8 +9,9 @@ from astropy.io import fits
 
 from stixpy.product import Product
 
-# Same remote file as the sunkit-spex spectrum tests.
+# Same remote files as the sunkit-spex spectrum tests.
 CPD_URL = "https://pub099.cs.technik.fhnw.ch/fits/L1/2024/03/10/SCI/solo_L1_stix-sci-xray-cpd_20240310T115906-20240310T121540_V02_2403109216-57290.fits"
+BKG_URL = "https://pub099.cs.technik.fhnw.ch/fits/L1/2024/03/08/SCI/solo_L1_stix-sci-xray-cpd_20240308T193915-20240308T203235_V02_2403087339-57240.fits"
 
 # Unlike the 1D-spectrum tests there is no time selection and no flare
 # location here: get_data is called without time_indices, so every time bin in
@@ -22,10 +23,12 @@ EXPECTED_SHAPE = (1325, 30)
 # Reference values live in a single FITS file next to this test module, with
 # one (COUNTS_<label>, COUNTS_ERR_<label>) extension pair per variation:
 #
-#   COUNTS[_ERR]_WITHOUT_BKGSUB               elut_correction=True
-#   COUNTS[_ERR]_WITHOUT_BKGSUB_NOELUT        elut_correction=False
+#   COUNTS[_ERR]_WITH_BKGSUB                  bkg=<bkg product>, elut_correction=True
+#   COUNTS[_ERR]_WITH_BKGSUB_NOELUT           bkg=<bkg product>, elut_correction=False
+#   COUNTS[_ERR]_WITHOUT_BKGSUB               bkg=None,          elut_correction=True
+#   COUNTS[_ERR]_WITHOUT_BKGSUB_NOELUT        bkg=None,          elut_correction=False
 #
-# and the same again prefixed BKGDET_ for the detector_indices=[9],
+# and the same four again prefixed BKGDET_ for the detector_indices=[9],
 # pixel_indices=[2, 5] selection. Each array is the reduction
 #
 #   counts     = np.nansum(cpd_spec[0], axis=(1, 2))
@@ -41,6 +44,8 @@ EXPECTED_VALUES_PATH = DATA_DIR / "expected_values_top24_tuple.fits.gz"
 # COUNTS_ERR_BKGDET_WITHOUT_BKGSUB_NOELUT is far past the 8-char limit on
 # FITS keyword *names*; EXTNAME values have no such limit.
 _VARIANTS = {
+    ("elut", "bkgsub"): "WITH_BKGSUB",
+    ("noelut", "bkgsub"): "WITH_BKGSUB_NOELUT",
     ("elut", "nobkgsub"): "WITHOUT_BKGSUB",
     ("noelut", "nobkgsub"): "WITHOUT_BKGSUB_NOELUT",
 }
@@ -81,6 +86,11 @@ def cpd_2024_03_10():
 
 
 @pytest.fixture(scope="module")
+def bkg_2024_03_10():
+    return Product(BKG_URL)
+
+
+@pytest.fixture(scope="module")
 def expected_values():
     return _read_expected_values(EXPECTED_VALUES_PATH)
 
@@ -92,7 +102,7 @@ def _to_value(array):
     return np.asarray(array)
 
 
-def _get_summed_counts(cpd, *, detector_indices, elut_correction, pixel_indices=None):
+def _get_summed_counts(cpd, *, detector_indices, elut_correction, bkg=None, pixel_indices=None):
     """Call get_data and reduce to (n_time, n_energy).
 
     get_data returns counts and counts_err as (n_time, n_detector, n_pixel,
@@ -103,6 +113,7 @@ def _get_summed_counts(cpd, *, detector_indices, elut_correction, pixel_indices=
         "elut_correction": elut_correction,
         "livetime_correction": True,
         "detector_indices": detector_indices,
+        "bkg": bkg,
     }
     if pixel_indices is not None:
         kwargs["pixel_indices"] = pixel_indices
@@ -120,11 +131,31 @@ def _get_summed_counts(cpd, *, detector_indices, elut_correction, pixel_indices=
 
 
 @pytest.fixture(scope="module")
+def counts_top24_bkgsub_elut(cpd_2024_03_10, bkg_2024_03_10):
+    return _get_summed_counts(
+        cpd_2024_03_10,
+        detector_indices="top24",
+        elut_correction=True,
+        bkg=bkg_2024_03_10,
+    )
+
+
+@pytest.fixture(scope="module")
 def counts_top24_nobkgsub_elut(cpd_2024_03_10):
     return _get_summed_counts(
         cpd_2024_03_10,
         detector_indices="top24",
         elut_correction=True,
+    )
+
+
+@pytest.fixture(scope="module")
+def counts_top24_bkgsub_noelut(cpd_2024_03_10, bkg_2024_03_10):
+    return _get_summed_counts(
+        cpd_2024_03_10,
+        detector_indices="top24",
+        elut_correction=False,
+        bkg=bkg_2024_03_10,
     )
 
 
@@ -143,12 +174,34 @@ def counts_top24_nobkgsub_noelut(cpd_2024_03_10):
 
 
 @pytest.fixture(scope="module")
+def counts_bkgdet_bkgsub_elut(cpd_2024_03_10, bkg_2024_03_10):
+    return _get_summed_counts(
+        cpd_2024_03_10,
+        detector_indices=[9],
+        pixel_indices=[2, 5],
+        elut_correction=True,
+        bkg=bkg_2024_03_10,
+    )
+
+
+@pytest.fixture(scope="module")
 def counts_bkgdet_nobkgsub_elut(cpd_2024_03_10):
     return _get_summed_counts(
         cpd_2024_03_10,
         detector_indices=[9],
         pixel_indices=[2, 5],
         elut_correction=True,
+    )
+
+
+@pytest.fixture(scope="module")
+def counts_bkgdet_bkgsub_noelut(cpd_2024_03_10, bkg_2024_03_10):
+    return _get_summed_counts(
+        cpd_2024_03_10,
+        detector_indices=[9],
+        pixel_indices=[2, 5],
+        elut_correction=False,
+        bkg=bkg_2024_03_10,
     )
 
 
@@ -185,8 +238,18 @@ def _assert_counts_err(result, expected, label):
 
 
 # ---------------------------------------------------------------------------
-# top24: counts + counts_err, per elut combo
+# top24: counts + counts_err, per elut/bkgsub combo
 # ---------------------------------------------------------------------------
+
+
+@pytest.mark.remote_data
+def test_counts_top24_bkgsub_elut(counts_top24_bkgsub_elut, expected_values):
+    _assert_counts(counts_top24_bkgsub_elut, expected_values, _top24_label(("elut", "bkgsub")))
+
+
+@pytest.mark.remote_data
+def test_counts_err_top24_bkgsub_elut(counts_top24_bkgsub_elut, expected_values):
+    _assert_counts_err(counts_top24_bkgsub_elut, expected_values, _top24_label(("elut", "bkgsub")))
 
 
 @pytest.mark.remote_data
@@ -200,6 +263,16 @@ def test_counts_err_top24_nobkgsub_elut(counts_top24_nobkgsub_elut, expected_val
 
 
 @pytest.mark.remote_data
+def test_counts_top24_bkgsub_noelut(counts_top24_bkgsub_noelut, expected_values):
+    _assert_counts(counts_top24_bkgsub_noelut, expected_values, _top24_label(("noelut", "bkgsub")))
+
+
+@pytest.mark.remote_data
+def test_counts_err_top24_bkgsub_noelut(counts_top24_bkgsub_noelut, expected_values):
+    _assert_counts_err(counts_top24_bkgsub_noelut, expected_values, _top24_label(("noelut", "bkgsub")))
+
+
+@pytest.mark.remote_data
 def test_counts_top24_nobkgsub_noelut(counts_top24_nobkgsub_noelut, expected_values):
     _assert_counts(counts_top24_nobkgsub_noelut, expected_values, _top24_label(("noelut", "nobkgsub")))
 
@@ -210,8 +283,18 @@ def test_counts_err_top24_nobkgsub_noelut(counts_top24_nobkgsub_noelut, expected
 
 
 # ---------------------------------------------------------------------------
-# bkgdet: counts + counts_err, per elut combo
+# bkgdet: counts + counts_err, per elut/bkgsub combo
 # ---------------------------------------------------------------------------
+
+
+@pytest.mark.remote_data
+def test_counts_bkgdet_bkgsub_elut(counts_bkgdet_bkgsub_elut, expected_values):
+    _assert_counts(counts_bkgdet_bkgsub_elut, expected_values, _bkgdet_label(("elut", "bkgsub")))
+
+
+@pytest.mark.remote_data
+def test_counts_err_bkgdet_bkgsub_elut(counts_bkgdet_bkgsub_elut, expected_values):
+    _assert_counts_err(counts_bkgdet_bkgsub_elut, expected_values, _bkgdet_label(("elut", "bkgsub")))
 
 
 @pytest.mark.remote_data
@@ -222,6 +305,16 @@ def test_counts_bkgdet_nobkgsub_elut(counts_bkgdet_nobkgsub_elut, expected_value
 @pytest.mark.remote_data
 def test_counts_err_bkgdet_nobkgsub_elut(counts_bkgdet_nobkgsub_elut, expected_values):
     _assert_counts_err(counts_bkgdet_nobkgsub_elut, expected_values, _bkgdet_label(("elut", "nobkgsub")))
+
+
+@pytest.mark.remote_data
+def test_counts_bkgdet_bkgsub_noelut(counts_bkgdet_bkgsub_noelut, expected_values):
+    _assert_counts(counts_bkgdet_bkgsub_noelut, expected_values, _bkgdet_label(("noelut", "bkgsub")))
+
+
+@pytest.mark.remote_data
+def test_counts_err_bkgdet_bkgsub_noelut(counts_bkgdet_bkgsub_noelut, expected_values):
+    _assert_counts_err(counts_bkgdet_bkgsub_noelut, expected_values, _bkgdet_label(("noelut", "bkgsub")))
 
 
 @pytest.mark.remote_data

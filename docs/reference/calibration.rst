@@ -11,6 +11,8 @@ The ``calibration`` submodule contains functions for calibrating STIX data.
 
 .. automodapi:: stixpy.calibration.detector
 
+.. automodapi:: stixpy.calibration.elut
+
 .. automodapi:: stixpy.calibration.energy
 
 .. automodapi:: stixpy.calibration.grid

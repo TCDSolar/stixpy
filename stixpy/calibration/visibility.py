@@ -13,7 +13,7 @@ from astropy.units import Quantity
 from sunpy.coordinates import HeliographicStonyhurst
 from sunpy.time import TimeRange
 
-from stixpy.calibration.energy import get_elut
+from stixpy.calibration.elut import get_elut_correction
 from stixpy.calibration.grid import get_grid_transmission
 from stixpy.calibration.livetime import get_livetime_fraction
 from stixpy.config.instrument import STIX_INSTRUMENT, _get_uv_points_data
@@ -202,7 +202,8 @@ def create_meta_pixels(
 
     pixel_data.data["livefrac"] = livefrac
 
-    e_cor_high, e_cor_low = get_elut_correction(e_ind, pixel_data)
+    elut_correction = get_elut_correction(e_ind, pixel_data)
+    e_cor_high, e_cor_low = elut_correction.e_cor_high, elut_correction.e_cor_low
 
     # Get counts and other data.
     idx_pix = _PIXEL_SLICES.get(pixels.lower(), None)
@@ -256,42 +257,6 @@ def create_meta_pixels(
     }
 
     return meta_pixels
-
-
-def get_elut_correction(e_ind, pixel_data):
-    r"""
-    Get ELUT correction factors
-
-    Only correct the low and high energy edges as internal bins are contiguous.
-
-    Parameters
-    ----------
-    e_ind : `np.ndarray`
-        Energy channel indices
-    pixel_data : `~stixpy.products.sources.CompressedPixelData`
-        Pixel data
-
-    Returns
-    -------
-
-    """
-    energy_mask = pixel_data.energy_masks.energy_mask.astype(bool)
-    elut = get_elut(pixel_data.time_range.center)
-    ebin_edges_low = np.zeros((32, 12, 32), dtype=float)
-    ebin_edges_low[..., 1:] = elut.e_actual
-    ebin_edges_low = ebin_edges_low[..., energy_mask]
-    ebin_edges_high = np.zeros((32, 12, 32), dtype=float)
-    ebin_edges_high[..., 0:-1] = elut.e_actual
-    ebin_edges_high[..., -1] = np.nan
-    ebin_edges_high = ebin_edges_high[..., energy_mask]
-    ebin_widths = ebin_edges_high - ebin_edges_low
-    ebin_sci_edges_low = elut.e[..., 0:-1].value
-    ebin_sci_edges_low = ebin_sci_edges_low[..., energy_mask]
-    ebin_sci_edges_high = elut.e[..., 1:].value
-    ebin_sci_edges_high = ebin_sci_edges_high[..., energy_mask]
-    e_cor_low = (ebin_edges_high[..., e_ind[0]] - ebin_sci_edges_low[..., e_ind[0]]) / ebin_widths[..., e_ind[0]]
-    e_cor_high = (ebin_sci_edges_high[..., e_ind[-1]] - ebin_edges_low[..., e_ind[-1]]) / ebin_widths[..., e_ind[-1]]
-    return e_cor_high, e_cor_low
 
 
 def create_visibility(meta_pixels):

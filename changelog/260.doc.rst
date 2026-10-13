@@ -1,0 +1,1 @@
+Add a spectroscopy example showing how to make a background-subtracted count spectrum and its spectral response matrix from STIX pixel data for fitting with sunkit-spex, and a how-to guide on selecting and correcting counts with `~stixpy.product.sources.science.ScienceData.get_data`.

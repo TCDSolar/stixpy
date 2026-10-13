@@ -1,0 +1,1 @@
+Add `~stixpy.coordinates.utils.heliocentric_angle` to calculate the heliocentric angle of a point on the solar surface, such as a flare location, as seen by an observer e.g. Solar Orbiter. By default the observer is taken from the coordinate's frame, and a warning is raised if the observer and coordinate observation times differ by more than a given tolerance.

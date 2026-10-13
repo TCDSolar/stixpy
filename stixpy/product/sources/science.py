@@ -9,6 +9,7 @@ from matplotlib.dates import ConciseDateFormatter, DateFormatter, HourLocator
 from matplotlib.widgets import Slider
 
 import astropy.units as u
+from astropy.coordinates import SkyCoord
 from astropy.table import QTable, vstack
 from astropy.time import Time
 from astropy.visualization import quantity_support
@@ -677,9 +678,16 @@ class ScienceData(L1Product):
         livetime_correction=True,
         elut_correction=True,
         bkg=None,
+        sunkit_spex_spectrum=False,
+        flare_location=None,
+        flare_angle=None,
+        sunkit_spex_systematic_error=False,
+        sunkit_spex_detector_sum=True,
+        srm_e_min=3.5 * u.keV,
     ):
         """
-        Return the selected data, with optional livetime, ELUT and background corrections.
+        Return the selected data, with optional livetime, ELUT and background
+        corrections, as arrays or as `sunkit_spex` spectra.
 
         Parameters
         ----------
@@ -687,7 +695,8 @@ class ScienceData(L1Product):
             Normalisation of the returned counts and uncertainties: counts ('c'),
             count rate in ct/s ('cr'), or differential count rate in ct/(s keV)
             ('dcr', default). With `livetime_correction`, the rates are also divided
-            by the livetime fraction.
+            by the livetime fraction. Ignored if `sunkit_spex_spectrum` is True, as
+            the spectra always hold counts.
         time_indices : list, numpy.ndarray or astropy.time.Time, optional
             Flat integer indices keep those time bins, and [start, end] integer
             pairs sum each range. Strings or `~astropy.time.Time` are accepted as
@@ -700,13 +709,16 @@ class ScienceData(L1Product):
             (`energies`), which only holds the bins in the energy mask. Energies can
             also be given as a Quantity, either flat edges (``[4, 10, 28] * u.keV``)
             or [start, end] ranges (``[[4, 10], [15, 28]] * u.keV``); each range
-            takes the bins whose centres lie inside it.
+            takes the bins whose centres lie inside it. Can not be used with
+            `sunkit_spex_spectrum`.
         detector_indices : list, numpy.ndarray or str, optional
             Flat indices keep those detectors, and [start, end] pairs sum each
             range. Two labels are accepted: "top24", the 24 imaging detectors used
             for spectroscopy in STIX-GSW, and "bkg", the background detector
             (index 9) with its small-aperture pixels [2, 5]. None (default) uses
-            every detector in the product. Ignored for spectrogram products.
+            every detector in the product. Ignored for spectrogram products. With
+            `sunkit_spex_spectrum`, the CFL detector (index 8) can not be used, and
+            the BKG detector only on its own.
         pixel_indices : list or numpy.ndarray, optional
             Flat indices keep those pixels, and [start, end] pairs sum each range.
             None (default) uses every pixel in the product, or [2, 5] with
@@ -725,26 +737,65 @@ class ScienceData(L1Product):
             used here switched on. A spectrogram (sci-xray-spec) is subtracted
             with the detectors and pixels summed on board. Default None, no
             background subtraction.
+        sunkit_spex_spectrum : bool, optional
+            Return `sunkit_spex` spectra instead of arrays. The spectra hold counts
+            whatever `vtype` is, with the live time as their exposure time, so
+            `livetime_correction` must be True. Every energy bin is used, so
+            `energy_indices` can not be given. Needs sunkit-spex, installed with
+            ``pip install 'stixpy[spectroscopy]'``. Default False.
+        flare_location : `~astropy.coordinates.SkyCoord`, optional
+            Flare position, used for the grid transmission in the spectral
+            response and for the flare angle when `sunkit_spex_spectrum` is True.
+            A `~stixpy.coordinates.frames.STIXImaging` coordinate (which must have
+            an ``obstime``) is used as it is; any other frame, e.g.
+            `~sunpy.coordinates.Helioprojective`, is transformed to the STIX frame
+            at its own ``obstime``, or for this product's time range if it has
+            none. The ``stx`` or ``hpc`` entry of
+            `~stixpy.imaging.flare_location.estimate_flare_location` can be used.
+            Default None, on-axis.
+        flare_angle : astropy.units.Quantity, optional
+            Heliocentric angle of the flare as seen from Solar Orbiter, stored in
+            the spectrum metadata. If None and `flare_location` is given, it is
+            computed from the flare position.
+        sunkit_spex_systematic_error : bool, optional
+            Add an energy-dependent systematic uncertainty: 7% below 7 keV, 5% from
+            7 to 10 keV and 3% from 10 keV. Default False.
+        sunkit_spex_detector_sum : bool, optional
+            Sum detectors into one spectrum (True, default), or keep one per
+            detector or detector range (False). Also sets how the ELUT factor and
+            the background livetime are averaged.
+        srm_e_min : astropy.units.Quantity, float, bool or None, optional
+            Lower photon energy limit of the spectral response matrix. A float is
+            taken as keV, True means 3.5 keV and False means None. Default 3.5 keV.
 
         Returns
         -------
         SelectedData
-            Named tuple with the selected ``counts`` and ``counts_err`` (normalised
-            according to `vtype`), ``t_norm``, ``e_norm``, ``livefrac``,
-            ``livefrac_error``, ``elut_cor_fac``, ``times``, ``energies`` and
-            ``rcr``. Access the fields by name, as more may be added.
+            If `sunkit_spex_spectrum` is False: named tuple with the selected
+            ``counts`` and ``counts_err`` (normalised according to `vtype`),
+            ``t_norm``, ``e_norm``, ``livefrac``, ``livefrac_error``,
+            ``elut_cor_fac``, ``times``, ``energies`` and ``rcr``. Access the
+            fields by name, as more may be added.
+        sunkit_spex.spectrum.Spectrum, ndcube.NDCubeSequence or ndcube.NDCollection
+            If `sunkit_spex_spectrum` is True; see `_get_sunkit_spex_spectrum`.
 
         Raises
         ------
         TypeError
-            If `bkg` is not a `ScienceData` product.
+            If `bkg` is not a `ScienceData` product, or `flare_location` is not a
+            `~astropy.coordinates.SkyCoord`.
+        ImportError
+            If `sunkit_spex_spectrum` is True and sunkit-spex is not installed.
         ValueError
             If a selection is outside the file or the product's energy table, if a
             detector label is not recognised, if ``detector_indices="bkg"`` is given
             with pixels other than [2, 5], if a time range spans an RCR change, or
             if `vtype` is not 'c', 'cr' or 'dcr'. With `bkg`, also if
             `livetime_correction` is False, or the background does not match this
-            product (see `bkg`).
+            product (see `bkg`). With `sunkit_spex_spectrum`, also if
+            `energy_indices` is given, `livetime_correction` is False, the CFL
+            detector is selected or the BKG detector is combined with other
+            detectors.
 
         Notes
         -----
@@ -775,6 +826,34 @@ class ScienceData(L1Product):
         Counts whose total over the detectors and pixels is negative are set to
         zero. The pixels are summed, as with the livetime correction alone.
         """
+        if isinstance(srm_e_min, bool):
+            srm_e_min = 3.5 * u.keV if srm_e_min else None
+        elif isinstance(srm_e_min, u.Quantity):
+            srm_e_min = srm_e_min.to(u.keV)
+        elif srm_e_min is not None:
+            srm_e_min = float(srm_e_min) * u.keV
+
+        if sunkit_spex_spectrum:
+            try:
+                from stixpy.product.sources._spectrum import _get_sunkit_spex_spectrum
+            except ImportError as e:
+                raise ImportError(
+                    "sunkit_spex_spectrum=True needs sunkit-spex, which can be installed with "
+                    "pip install 'stixpy[spectroscopy]'."
+                ) from e
+            if energy_indices is not None:
+                raise ValueError(
+                    "energy_indices can not be used with sunkit_spex_spectrum=True, as the spectra and their "
+                    "response matrices use every energy bin. Select the fitting range in sunkit-spex instead."
+                )
+            if not livetime_correction:
+                raise ValueError(
+                    "sunkit_spex_spectrum=True needs livetime_correction=True, as the exposure time of each "
+                    "spectrum is its live time."
+                )
+            if flare_location is not None and not isinstance(flare_location, SkyCoord):
+                raise TypeError(f"flare_location must be a SkyCoord, not {type(flare_location).__name__}.")
+
         energy_indices = _energy_indices_format(energy_indices, self.energies)
         if time_indices is not None:
             time_indices = _time_indices_format(time_indices, self.times, self.data["timedel"])
@@ -789,6 +868,9 @@ class ScienceData(L1Product):
             detector_indices = checked_detectors
         if pixel_indices is not None or bkg_label:
             pixel_indices = checked_pixels
+        if sunkit_spex_spectrum:
+            # the spectra and their SRMs are built for the detectors and pixels actually used
+            detector_indices, pixel_indices = checked_detectors, checked_pixels
 
         is_spectrogram = self.data["counts"].ndim < 4
         n_det_spectrogram = (
@@ -815,13 +897,15 @@ class ScienceData(L1Product):
                 pixel_indices_elut = _on_indices(self.pixel_masks.masks)
             else:
                 # the selected detectors and pixels that are on, as [start, end] ranges may span ones that are off
-                detector_indices_elut = np.intersect1d(
-                    _expand(checked_detectors), _on_indices(self.detector_masks.masks)
+                detector_indices_elut = (
+                    np.intersect1d(_expand(checked_detectors), _on_indices(self.detector_masks.masks))
+                    if sunkit_spex_detector_sum
+                    else checked_detectors
                 )
                 pixel_indices_elut = np.intersect1d(_expand(checked_pixels), _on_indices(self.pixel_masks.masks))
 
             elut_cor_fac = _elut_correction_sort(
-                bins, bins_actual, True, pixel_indices_elut, detector_indices_elut, is_spectrogram
+                bins, bins_actual, sunkit_spex_detector_sum, pixel_indices_elut, detector_indices_elut, is_spectrogram
             )
 
         else:
@@ -865,6 +949,8 @@ class ScienceData(L1Product):
                 elut_cor_fac,
                 sum_all_times,
                 n_detectors=n_det_spectrogram,
+                systematic=sunkit_spex_systematic_error,
+                sunkit_spex_detector_sum=sunkit_spex_detector_sum,
             )
 
         else:
@@ -886,6 +972,7 @@ class ScienceData(L1Product):
                 livefrac_error_bkg,
                 elut_cor_fac,
                 np.asarray(self.data["rcr"]),
+                sunkit_spex_detector_sum=sunkit_spex_detector_sum,
             )
             counts_sub, counts_var_sub, _, _, livefrac_sub, _, elut_cor_fac_sub, _, _, _ = sci_data_all
 
@@ -903,6 +990,23 @@ class ScienceData(L1Product):
                 sum_all_times,
                 n_detectors=n_det_spectrogram,
                 bkg=True,
+                systematic=sunkit_spex_systematic_error,
+                sunkit_spex_detector_sum=sunkit_spex_detector_sum,
+            )
+
+        if sunkit_spex_spectrum:
+            return _get_sunkit_spex_spectrum(
+                self,
+                detector_indices,
+                pixel_indices,
+                sci_data,
+                flare_location,
+                flare_angle,
+                systematic=sunkit_spex_systematic_error,
+                detector_sum=sunkit_spex_detector_sum,
+                rcr=np.asarray(self.data["rcr"]),
+                bkg=bkg is not None,
+                srm_e_min=srm_e_min,
             )
 
         counts, counts_err, t_norm, e_norm, livefrac, livefrac_error, elut_cor_fac, times, energies, rcr = sci_data

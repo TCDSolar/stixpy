@@ -55,7 +55,10 @@ docs = [
     "sphinxext-opengraph>=0.6.0",
     "pydata-sphinx-theme>=0.16.0"
 ]
-dev = ["stixpy[tests,docs]"]
+spectroscopy = [
+    "sunkit-spex>=0.5.0"
+]
+dev = ["stixpy[tests,docs,spectroscopy]"]
 
 [project.urls]
 Homepage = "https://stixpy.readthedocs.io"

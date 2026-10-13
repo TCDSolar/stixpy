@@ -181,9 +181,14 @@ class PixelPlotter:
 
     def _prepare_data(self):
         # Get the necessary data from the product
-        counts, count_err, times, durations, energies = self.prod.get_data(
-            time_indices=self.time_indices, energy_indices=self.energy_indices
+        # per-pixel counts, so without the livetime correction, which sums the pixels
+        data = self.prod.get_data(
+            time_indices=self.time_indices,
+            energy_indices=self.energy_indices,
+            livetime_correction=False,
+            elut_correction=False,
         )
+        counts, count_err, times, energies = data.counts, data.counts_err, data.times, data.energies
 
         nt, ndet, npix, ne = counts.shape
         dmask = self.prod.detector_masks.masks[0].astype(bool)

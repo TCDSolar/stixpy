@@ -1,5 +1,6 @@
 from itertools import product
 from pathlib import Path
+from typing import NamedTuple
 
 import numpy as np
 from matplotlib import pyplot as plt
@@ -15,13 +16,26 @@ from astropy.visualization import quantity_support
 from sunpy.time.timerange import TimeRange
 from sunpy.util import deprecated
 
+from stixpy.calibration.elut import get_elut_correction
 from stixpy.io.readers import read_subc_params
 from stixpy.product.product import L1Product
-from stixpy.product.sources._selection import _energy_indices_format, _indices_check, _time_indices_format
+from stixpy.product.sources._corrections import (
+    _data_select,
+    _elut_correction_sort,
+    _indices_expand_ranges,
+    _livefrac,
+)
+from stixpy.product.sources._selection import (
+    _energy_indices_format,
+    _indices_check,
+    _on_indices,
+    _time_indices_format,
+)
 from stixpy.visualisation.plotters import PixelPlotter
 
 __all__ = [
     "ScienceData",
+    "SelectedData",
     "RawPixelData",
     "CompressedPixelData",
     "SummedCompressedPixelData",
@@ -110,6 +124,47 @@ def _full_layout(values, detector_masks, pixel_masks, name="values"):
         full = full << values.unit
     full[:, dets[:, None], pixs, :] = values
     return full
+
+
+class SelectedData(NamedTuple):
+    r"""
+    The data selected by `ScienceData.get_data`.
+
+    Access the fields by name, e.g. ``data.counts``. Fields may be added in later versions, so code that unpacks
+    every field by position may break.
+    """
+
+    counts: u.Quantity
+    """Counts, shape ``(time, detector, pixel, energy)``, normalised as requested by ``vtype``."""
+    counts_err: u.Quantity
+    """1-sigma uncertainty of `counts`, same shape and unit, including the livetime uncertainty when corrected."""
+    t_norm: u.Quantity
+    """Duration of each time bin in seconds, shape ``(time, 1, 1, 1)``."""
+    e_norm: u.Quantity
+    """Width of each energy bin in keV, shape ``(1, 1, 1, energy)``."""
+    livefrac: np.ndarray | None
+    """Livetime fraction, shape ``(time, detector, 1, 1)``, or None without the livetime correction."""
+    livefrac_error: u.Quantity | None
+    """Livetime uncertainty in counts, or None without the livetime correction."""
+    elut_cor_fac: np.ndarray | None
+    """ELUT correction factor applied to the counts, broadcastable against them, or None without the ELUT
+    correction."""
+    times: Time
+    """Centre of each time bin."""
+    energies: QTable
+    """Energy table with ``e_low`` and ``e_high`` columns, one row per energy bin."""
+    rcr: np.ndarray
+    """RCR (attenuator) state of each time bin, aligned to the jumps in the counts as STIX-GSW does."""
+
+
+def _expand(indices):
+    """
+    Flat indices of a flat or [start, end] pair selection.
+    """
+    indices = np.asarray(indices)
+    if indices.ndim == 2:
+        return np.asarray(_indices_expand_ranges(indices, nest=False), dtype=int)
+    return indices.ravel()
 
 
 class PPrintMixin:
@@ -226,45 +281,55 @@ class SpectrogramPlotMixin:
         """
         Plot a spectrogram for the selected time and energies.
 
+        The data are not corrected for livetime or the ELUT.
+
         Parameters
         ----------
-        axes : optional `matplotlib.axes`
-            The axes the plot the spectrogram.
-        vtype : str
-           Type of value to return control the default normalisation:
-               * 'c' - count [c]
-               * 'cr' - count rate [c/s]
-               * 'dcr' - differential count rate [c/(s keV)]
-        time_indices : `list` or `numpy.ndarray`
-            If an 1xN array will be treated as mask if 2XN array will sum data between given
-            indices. For example `time_indices=[0, 2, 5]` would return only the first, third and
-            sixth times while `time_indices=[[0, 2],[3, 5]]` would sum the data between.
-        pixel_indices : `list` or `numpy.ndarray`
-            If an 1xN array will be treated as mask if 2XN array will sum data between given
-            indices. For example `pixel_indices=[0, 2, 5]` would return only the first, third and
-            sixth pixels while `pixel_indices=[[0, 2],[3, 5]]` would sum the data between.
-        detector_indices : `list` or `numpy.ndarray`
-            If an 1xN array will be treated as mask if 2XN array will sum data between given
-            indices. For example `detector_indices=[0, 2, 5]` would return only the first, third and
-            sixth detectors while `detector_indices=[[0, 2],[3, 5]]` would sum the data between.
-        energy_indices : `list` or `numpy.ndarray`
-            If an 1xN array will be treated as mask if 2XN array will sum data between given
-            indices. For example `energy_indices=[0, 2, 5]` would return only the first, third and
-            sixth times while `energy_indices=[[0, 2],[3, 5]]` would sum the data between.
-        **plot_kwargs : `dict`
-            Any additional arguments are passed to :meth:`~matplotlib.axes.Axes.pcolormesh`.
+        axes : matplotlib.axes.Axes, optional
+            Axes to plot on. A new figure is created if None.
+        vtype : {'c', 'cr', 'dcr'}, optional
+            Normalisation of the plotted values: counts ('c'), count rate in ct/s
+            ('cr'), or differential count rate in ct/(s keV) ('dcr', default).
+        time_indices : list, numpy.ndarray, str or astropy.time.Time, optional
+            Flat indices keep those time bins and [start, end] pairs sum each range,
+            e.g. ``[0, 2, 5]`` or ``[[0, 2], [3, 5]]``. Times are also accepted; see
+            `ScienceData.get_data`.
+        pixel_indices : list or numpy.ndarray, optional
+            A single pixel, e.g. ``[4]``, or one [start, end] range to sum, e.g.
+            ``[[0, 11]]``. Default "all" sums every pixel. Can not be used with a
+            spectrogram product.
+        detector_indices : list or numpy.ndarray, optional
+            A single detector, e.g. ``[5]``, or one [start, end] range to sum, e.g.
+            ``[[0, 31]]``. Default "all" sums every detector. Can not be used with a
+            spectrogram product.
+        energy_indices : list, numpy.ndarray or astropy.units.Quantity, optional
+            Flat indices keep those energy bins (rows of the energy table) and
+            [start, end] pairs sum each range. Energies can also be given in keV,
+            e.g. ``[[6, 10], [25, 100]] * u.keV``; each range takes the bins whose
+            centres lie inside it.
+        **plot_kwargs
+            Passed to :meth:`~matplotlib.axes.Axes.pcolormesh`.
 
         Returns
         -------
-        `matplotlib.axes`
+        matplotlib.axes.Axes
+
+        Raises
+        ------
+        ValueError
+            If more than one detector or pixel (or more than one range of them) is
+            selected, or if detector or pixel indices are given for a spectrogram
+            product.
 
         Notes
         -----
         The units of the plotted data are determined by the `vtype` parameter:
+
         - 'c': counts
         - 'cr': counts per second
         - 'dcr': counts per second per keV
         """
+
         if axes is None:
             fig, axes = plt.subplots()
 
@@ -277,8 +342,8 @@ class SpectrogramPlotMixin:
             pid = None
             did = None
         else:
-            if detector_indices == "all":
-                did = [[0, 31]]
+            if isinstance(detector_indices, str) and detector_indices == "all":
+                did = None  # every detector that is switched on, summed below
             else:
                 det_idx_arr = np.array(detector_indices)
                 if det_idx_arr.ndim == 1 and det_idx_arr.size != 1:
@@ -290,8 +355,8 @@ class SpectrogramPlotMixin:
                     raise ValueError("Spectrogram plots can only one sum detector or summed over a number of detectors")
                 did = detector_indices
 
-            if pixel_indices == "all":
-                pid = [[0, 11]]
+            if isinstance(pixel_indices, str) and pixel_indices == "all":
+                pid = None  # every pixel that is switched on, summed below
             else:
                 pix_idx_arr = np.array(pixel_indices)
                 if pix_idx_arr.ndim == 1 and pix_idx_arr.size != 1:
@@ -303,23 +368,27 @@ class SpectrogramPlotMixin:
                     raise ValueError("Spectrogram plots can only one sum detector or summed over a number of detectors")
                 pid = pixel_indices
 
-        counts, errors, times, timedeltas, energies = self.get_data(
+        data = self.get_data(
             vtype=vtype,
             detector_indices=did,
             pixel_indices=pid,
             time_indices=time_indices,
             energy_indices=energy_indices,
+            livetime_correction=False,
+            elut_correction=False,
         )
-        timedeltas = timedeltas.to(u.s)
+        times, energies = data.times, data.energies
+        timedeltas = data.t_norm.to(u.s).reshape(-1)
 
+        # get_data has already removed the 0 keV bottom and open top energy bins
         e_edges = np.hstack([energies["e_low"], energies["e_high"][-1]]).value
-        t_edges = Time(
-            np.concatenate([times - timedeltas.reshape(-1) / 2, times[-1] + timedeltas.reshape(-1)[-1:] / 2])
-        )
+        t_edges = Time(np.concatenate([times - timedeltas / 2, times[-1] + timedeltas[-1:] / 2]))
+
+        counts = np.nansum(data.counts, axis=(1, 2), keepdims=True)  # one summed spectrogram
 
         pcolor_kwargs = {"norm": LogNorm(), "shading": "flat"}
         pcolor_kwargs.update(plot_kwargs)
-        im = axes.pcolormesh(t_edges.datetime, e_edges[1:-1], counts[:, 0, 0, 1:-1].T.value, **pcolor_kwargs)  # noqa
+        im = axes.pcolormesh(t_edges.datetime, e_edges, counts[:, 0, 0, :].T.value, **pcolor_kwargs)
 
         # axes.colorbar(im).set_label(format(counts.unit))
         axes.xaxis_date()
@@ -395,21 +464,29 @@ class TimesSeriesPlotMixin:
         if axes is None:
             fig, axes = plt.subplots()
 
-        # a spectrogram has no detector or pixel axes to sum over
-        is_spectrogram = self.data["counts"].ndim < 4
-        if detector_indices == "all":
-            detector_indices = None if is_spectrogram else [[0, 31]]
+        # "all" is every detector / pixel that is switched on, summed after get_data
+        sum_detectors = isinstance(detector_indices, str) and detector_indices == "all"
+        sum_pixels = isinstance(pixel_indices, str) and pixel_indices == "all"
+        if sum_detectors:
+            detector_indices = None
+        if sum_pixels:
+            pixel_indices = None
 
-        if pixel_indices == "all":
-            pixel_indices = None if is_spectrogram else [[0, 11]]
-
-        counts, errors, times, timedeltas, energies = self.get_data(
+        data = self.get_data(
             vtype=vtype,
             detector_indices=detector_indices,
             pixel_indices=pixel_indices,
             time_indices=time_indices,
             energy_indices=energy_indices,
+            livetime_correction=False,
+            elut_correction=False,
         )
+        counts, errors, times, energies = data.counts, data.counts_err, data.times, data.energies
+
+        sum_axes = tuple(axis for axis, summed in ((1, sum_detectors), (2, sum_pixels)) if summed)
+        if sum_axes:
+            counts = np.sum(counts, axis=sum_axes, keepdims=True)
+            errors = np.sqrt(np.sum(errors**2, axis=sum_axes, keepdims=True))
 
         labels = [f"{el.value} - {eh.value} keV" for el, eh in energies["e_low", "e_high"]]
 
@@ -533,6 +610,56 @@ class ScienceData(L1Product):
         """
         return self.data["rcr"]
 
+    @property
+    def rcr_shifted(self):
+        """
+        The RCR state of each time bin, aligned to the counts as STIX-GSW does, for the
+        settings last given to `align_rcr` (see `rcr_settings`).
+
+        Raises
+        ------
+        ValueError
+            If `align_rcr` has not been called yet.
+        """
+        if getattr(self, "_rcr_shifted", None) is None:
+            raise ValueError(
+                "rcr_shifted depends on the detector, pixel, livetime and ELUT "
+                "settings. Call align_rcr(...) with the settings you use first."
+            )
+        return self._rcr_shifted
+
+    @property
+    def rcr_settings(self):
+        """
+        The settings `rcr_shifted` was aligned with, as given to `align_rcr`, or None.
+        """
+        return getattr(self, "_rcr_settings", None)
+
+    def align_rcr(self, *, detector_indices=None, pixel_indices=None, livetime_correction=True, elut_correction=True):
+        """
+        Align the RCR state changes to the jumps in the counts as STIX-GSW does, for
+        these settings, and keep the result as `rcr_shifted`.
+
+        Parameters
+        ----------
+        detector_indices, pixel_indices, livetime_correction, elut_correction
+            As in `get_data`. Use the same values as for the data you work with.
+
+        Returns
+        -------
+        numpy.ndarray
+            The aligned RCR state of each time bin, also kept as `rcr_shifted`.
+        """
+        settings = {
+            "detector_indices": detector_indices,
+            "pixel_indices": pixel_indices,
+            "livetime_correction": livetime_correction,
+            "elut_correction": elut_correction,
+        }
+        self._rcr_shifted = np.asarray(self.get_data(vtype="c", **settings).rcr)
+        self._rcr_settings = settings
+        return self._rcr_shifted
+
     def get_data(
         self,
         *,
@@ -542,54 +669,82 @@ class ScienceData(L1Product):
         detector_indices=None,
         pixel_indices=None,
         sum_all_times=False,
+        livetime_correction=True,
+        elut_correction=True,
     ):
-        r"""
-        Return the counts, errors, times, durations and energies for selected data.
-
-        Optionally summing in time and or energy.
+        """
+        Return the selected data, with optional livetime and ELUT corrections.
 
         Parameters
         ----------
-        vtype : str
-            Type of value to return (vtype) controls the normalisation:
-                * 'c' - count [c]
-                * 'cr' - count rate [c/s]
-                * 'dcr' - differential count rate [c/(s keV)]
-        time_indices : `list`, `numpy.ndarray` or `astropy.time.Time`
-            If an 1xN array will be treated as mask if 2XN array will sum data between given
-            indices. For example `time_indices=[0, 2, 5]` would return only the first, third and
-            sixth times while `time_indices=[[0, 2],[3, 5]]` would sum the data between.
-            Times can also be given as strings or `~astropy.time.Time`, either as [start, end]
-            pairs or as a flat list of consecutive range edges; each range sums the data bins that
-            lie wholly inside it. Indices and times outside the file raise a `ValueError`.
-        energy_indices : `list`, `numpy.ndarray` or `astropy.units.Quantity`
-            If an 1xN array will be treated as mask if 2XN array will sum data between given
-            indices. For example `energy_indices=[0, 2, 5]` would return only the first, third and
-            sixth times while `energy_indices=[[0, 2],[3, 5]]` would sum the data between.
-            Energies can also be given as a `~astropy.units.Quantity`, either as [start, end] pairs,
-            e.g. ``[[4, 10], [15, 28]] * u.keV``, or as a flat list of consecutive range edges; each
-            range sums the bins whose centres lie inside it. Indices number the rows of
-            `energies`, and any outside it raise a `ValueError`.
-        detector_indices : `list`, `numpy.ndarray` or `str`
-            If an 1xN array will be treated as mask if 2XN array will sum data between given
-            indices. For example `detector_indices=[0, 2, 5]` would return only the first, third and
-            sixth detectors while `detector_indices=[[0, 2],[3, 5]]` would sum the data between.
-            The labels ``"top24"`` (the 24 imaging detectors, as in STIX-GSW) and ``"bkg"`` (the
-            background detector with its small-aperture pixels 2 and 5) are also accepted.
-            Detectors that are not in the file raise a `ValueError`.
-        pixel_indices : `list` or `numpy.ndarray`
-            If an 1xN array will be treated as mask if 2XN array will sum data between given
-            indices. For example `pixel_indices=[0, 2, 5]` would return only the first, third and
-            sixth pixels while `pixel_indices=[[0, 2],[3, 5]]` would sum the data between.
-            Pixels that are not in the file raise a `ValueError`.
-        sum_all_times : `bool`
-            Flag to sum all give time intervals into one
+        vtype : {'c', 'cr', 'dcr'}, optional
+            Normalisation of the returned counts and uncertainties: counts ('c'),
+            count rate in ct/s ('cr'), or differential count rate in ct/(s keV)
+            ('dcr', default). With `livetime_correction`, the rates are also divided
+            by the livetime fraction.
+        time_indices : list, numpy.ndarray or astropy.time.Time, optional
+            Flat integer indices keep those time bins, and [start, end] integer
+            pairs sum each range. Strings or `~astropy.time.Time` are accepted as
+            consecutive range edges or as [start, end] pairs, and resolve to the
+            data bins that lie wholly inside each range. Indices and times outside
+            the file raise a `ValueError`.
+        energy_indices : list, numpy.ndarray or astropy.units.Quantity, optional
+            Flat integer indices keep those energy bins, and [start, end] pairs sum
+            each range. Indices number the rows of the product's energy table
+            (`energies`), which only holds the bins in the energy mask. Energies can
+            also be given as a Quantity, either flat edges (``[4, 10, 28] * u.keV``)
+            or [start, end] ranges (``[[4, 10], [15, 28]] * u.keV``); each range
+            takes the bins whose centres lie inside it.
+        detector_indices : list, numpy.ndarray or str, optional
+            Flat indices keep those detectors, and [start, end] pairs sum each
+            range. Two labels are accepted: "top24", the 24 imaging detectors used
+            for spectroscopy in STIX-GSW, and "bkg", the background detector
+            (index 9) with its small-aperture pixels [2, 5]. None (default) uses
+            every detector in the product. Ignored for spectrogram products.
+        pixel_indices : list or numpy.ndarray, optional
+            Flat indices keep those pixels, and [start, end] pairs sum each range.
+            None (default) uses every pixel in the product, or [2, 5] with
+            ``detector_indices="bkg"``. Ignored for spectrogram products.
+        sum_all_times : bool, optional
+            If True, sum the selected time bins into one. Default False.
+        livetime_correction : bool, optional
+            Apply the livetime correction. Default True.
+        elut_correction : bool, optional
+            Apply the ELUT correction. Default True.
 
         Returns
         -------
-        `tuple`
-            Counts, errors, times, deltatimes,  energies
+        SelectedData
+            Named tuple with the selected ``counts`` and ``counts_err`` (normalised
+            according to `vtype`), ``t_norm``, ``e_norm``, ``livefrac``,
+            ``livefrac_error``, ``elut_cor_fac``, ``times``, ``energies`` and
+            ``rcr``. Access the fields by name, as more may be added.
 
+        Raises
+        ------
+        ValueError
+            If a selection is outside the file or the product's energy table, if a
+            detector label is not recognised, if ``detector_indices="bkg"`` is given
+            with pixels other than [2, 5], if a time range spans an RCR change, or
+            if `vtype` is not 'c', 'cr' or 'dcr'.
+
+        Notes
+        -----
+        The 0 keV bottom energy bin and the open top energy bin are never returned.
+
+        With `livetime_correction`, the livetime is corrected as in STIX-GSW: the
+        counts of each detector are scaled to the mean livetime fraction of the
+        detectors they are combined with (all selected detectors for flat indices,
+        each range for [start, end] pairs, every detector that is on for no
+        selection), the pixels are summed, so the pixel axis has length 1, and the
+        rates (`vtype` 'cr' and 'dcr') are divided by that livetime. With
+        ``vtype='c'`` the counts are not divided by the livetime. The livetime
+        uncertainty is added to ``counts_err``.
+
+        With `elut_correction`, each energy bin is scaled by the ratio of its
+        science width to its calibrated (ELUT) width, averaged over the selected
+        detectors and pixels that are on, so one factor per energy bin is applied
+        to every detector.
         """
         energy_indices = _energy_indices_format(energy_indices, self.energies)
         if time_indices is not None:
@@ -606,138 +761,102 @@ class ScienceData(L1Product):
         if pixel_indices is not None or bkg_label:
             pixel_indices = checked_pixels
 
+        is_spectrogram = self.data["counts"].ndim < 4
+        n_det_spectrogram = (
+            int(np.count_nonzero(np.asarray(self.detector_masks.masks, dtype=bool).any(axis=0)))
+            if is_spectrogram
+            else None
+        )
+
         detector_masks = getattr(self, "detector_masks", None)
         pixel_masks = getattr(self, "pixel_masks", None)
         counts = _full_layout(self.data["counts"], detector_masks, pixel_masks, name="counts")
         err_name = "counts_comp_err" if "counts_comp_err" in self.data.colnames else "counts_comp_comp_err"
-        counts_var = _full_layout(self.data[err_name], detector_masks, pixel_masks, name=err_name) ** 2
-        shape = counts.shape
-        if len(shape) < 4:
+        counts_err = _full_layout(self.data[err_name], detector_masks, pixel_masks, name=err_name)
+        if is_spectrogram:
+            shape = counts.shape
             counts = counts.reshape(shape[0], 1, 1, shape[-1])
-            counts_var = counts_var.reshape(shape[0], 1, 1, shape[-1])
+            counts_err = counts_err.reshape(shape[0], 1, 1, shape[-1])
 
-        energies = self.energies[:]
-        times = self.times
+        if elut_correction:
+            _, _, bins, bins_actual = get_elut_correction(np.array(self.energies["channel"]), self)
 
-        if detector_indices is not None:
-            detecor_indices = np.asarray(detector_indices)
-            if detecor_indices.ndim == 1:
-                detector_mask = np.full(32, False)
-                detector_mask[detecor_indices] = True
-                counts = counts[:, detector_mask, ...]
-                counts_var = counts_var[:, detector_mask, ...]
-            elif detecor_indices.ndim == 2:
-                counts = np.hstack(
-                    [np.sum(counts[:, dl : dh + 1, ...], axis=1, keepdims=True) for dl, dh in detecor_indices]
+            if is_spectrogram:
+                detector_indices_elut = _on_indices(self.detector_masks.masks)
+                pixel_indices_elut = _on_indices(self.pixel_masks.masks)
+            else:
+                # the selected detectors and pixels that are on, as [start, end] ranges may span ones that are off
+                detector_indices_elut = np.intersect1d(
+                    _expand(checked_detectors), _on_indices(self.detector_masks.masks)
                 )
+                pixel_indices_elut = np.intersect1d(_expand(checked_pixels), _on_indices(self.pixel_masks.masks))
 
-                counts_var = np.concatenate(
-                    [np.sum(counts_var[:, dl : dh + 1, ...], axis=1, keepdims=True) for dl, dh in detecor_indices],
-                    axis=1,
-                )
+            elut_cor_fac = _elut_correction_sort(
+                bins, bins_actual, True, pixel_indices_elut, detector_indices_elut, is_spectrogram
+            )
 
-        if pixel_indices is not None:
-            pixel_indices = np.asarray(pixel_indices)
-            if pixel_indices.ndim == 1:
-                pixel_mask = np.full(12, False)
-                pixel_mask[pixel_indices] = True
-                num_pixels = counts.shape[2]
-                counts = counts[..., pixel_mask[:num_pixels], :]
-                counts_var = counts_var[..., pixel_mask[:num_pixels], :]
-            elif pixel_indices.ndim == 2:
-                counts = np.concatenate(
-                    [np.sum(counts[..., pl : ph + 1, :], axis=2, keepdims=True) for pl, ph in pixel_indices], axis=2
-                )
+        else:
+            elut_cor_fac = None
 
-                counts_var = np.concatenate(
-                    [np.sum(counts_var[..., pl : ph + 1, :], axis=2, keepdims=True) for pl, ph in pixel_indices], axis=2
-                )
+        if livetime_correction:
+            livefrac, livefrac_error = _livefrac(self, counts, elut_cor_fac, checked_pixels)
 
-        e_norm = self.dE
-        if energy_indices is not None:
-            energy_indices = np.asarray(energy_indices)
-            if energy_indices.ndim == 1:
-                energy_mask = np.full(shape[-1], False)
-                energy_mask[energy_indices] = True
-                counts = counts[..., energy_mask]
-                counts_var = counts_var[..., energy_mask]
-                e_norm = self.dE[energy_mask]
-                energies = self.energies[energy_mask]
-            elif energy_indices.ndim == 2:
-                counts = np.concatenate(
-                    [np.sum(counts[..., el : eh + 1], axis=-1, keepdims=True) for el, eh in energy_indices], axis=-1
-                )
+        else:
+            livefrac = None
+            livefrac_error = None
 
-                counts_var = np.concatenate(
-                    [np.sum(counts_var[..., el : eh + 1], axis=-1, keepdims=True) for el, eh in energy_indices], axis=-1
-                )
+        sci_data = _data_select(
+            self,
+            counts,
+            counts_err,
+            detector_indices,
+            pixel_indices,
+            energy_indices,
+            time_indices,
+            livefrac,
+            livefrac_error,
+            elut_cor_fac,
+            sum_all_times,
+            n_detectors=n_det_spectrogram,
+        )
 
-                e_norm = np.hstack([(energies["e_high"][eh] - energies["e_low"][el]) for el, eh in energy_indices])
+        counts, counts_err, t_norm, e_norm, livefrac, livefrac_error, elut_cor_fac, times, energies, rcr = sci_data
 
-                energies = np.atleast_2d(
-                    [
-                        (self._energies["e_low"][el].value, self._energies["e_high"][eh].value)
-                        for el, eh in energy_indices
-                    ]
-                )
-                energies = QTable(energies * u.keV, names=["e_low", "e_high"])
+        e_norm = e_norm[np.newaxis, np.newaxis, np.newaxis, :]
+        t_norm = t_norm[:, np.newaxis, np.newaxis, np.newaxis].to(u.s)
 
-        t_norm = self.data["timedel"]
-        if time_indices is not None:
-            time_indices = np.asarray(time_indices)
-            if time_indices.ndim == 1:
-                time_mask = np.full(times.shape, False)
-                time_mask[time_indices] = True
-                counts = counts[time_mask, ...]
-                counts_var = counts_var[time_mask, ...]
-                t_norm = self.data["timedel"][time_mask]
-                times = times[time_mask]
-                # dT = self.data['timedel'][time_mask]
-            elif time_indices.ndim == 2:
-                new_times = []
-                dt = []
-                for tl, th in time_indices:
-                    ts = times[tl] - self.data["timedel"][tl] * 0.5
-                    te = times[th] + self.data["timedel"][th] * 0.5
-                    td = te - ts
-                    tc = ts + (td * 0.5)
-                    dt.append(td.to("s"))
-                    new_times.append(tc)
-                dt = np.hstack(dt)
-                times = Time(new_times)
-                counts = np.vstack([np.sum(counts[tl : th + 1, ...], axis=0, keepdims=True) for tl, th in time_indices])
-
-                counts_var = np.vstack(
-                    [np.sum(counts_var[tl : th + 1, ...], axis=0, keepdims=True) for tl, th in time_indices]
-                )
-                t_norm = dt
-
-                if sum_all_times and len(new_times) > 1:
-                    counts = np.sum(counts, axis=0, keepdims=True)
-                    counts_var = np.sum(counts_var, axis=0, keepdims=True)
-                    t_norm = np.sum(dt)
-
-        t_norm = t_norm.to("s")
-
-        if e_norm.size != 1:
-            e_norm = e_norm.reshape(1, 1, 1, -1)
-
-        if t_norm.size != 1:
-            t_norm = t_norm.reshape(-1, 1, 1, 1).to("s")
+        if livetime_correction:
+            livefrac = np.nanmean(livefrac, axis=2, keepdims=True)
 
         if vtype == "c":
             norm = 1
+
         elif vtype == "cr":
             norm = 1 / t_norm
+            if livetime_correction:
+                norm = 1 / (t_norm * livefrac)
+
         elif vtype == "dcr":
             norm = 1 / (e_norm * t_norm)
+
+            if livetime_correction:
+                norm = 1 / (e_norm * t_norm * livefrac)
+
         else:
             raise ValueError("vtype must be one of 'c', 'cr', 'dcr'.")
 
-        counts_err = np.sqrt(counts * u.ct + counts_var) * norm
-        counts = counts * norm
-
-        return counts, counts_err, times, t_norm, energies
+        return SelectedData(
+            counts=counts * norm,
+            counts_err=counts_err * norm,
+            t_norm=t_norm,
+            e_norm=e_norm,
+            livefrac=livefrac,
+            livefrac_error=livefrac_error,
+            elut_cor_fac=elut_cor_fac,
+            times=times,
+            energies=energies,
+            rcr=rcr,
+        )
 
     def concatenate(self, others):
         """

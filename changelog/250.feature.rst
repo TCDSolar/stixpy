@@ -1,0 +1,1 @@
+Add `~stixpy.calibration.detector.tailing_matrix`, a direct port of the STIX-GSW ``stx_tailing_matrix`` hole-tailing matrix, and `~stixpy.calibration.detector.tailing_matrix_corrected`, which fixes its discretisation errors.

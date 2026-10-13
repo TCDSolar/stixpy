@@ -176,9 +176,9 @@ def test_create_meta_pixels_shadow(flare_cpd):
     unshadowed = create_meta_pixels(
         flare_cpd, time_range=time_range, energy_range=energy_range, flare_location=flare_location, no_shadowing=True
     )
-    # Grid transmission evaluated at the mean of the selected energy range (6-12 keV bins) and CFL/BKG untouched
+    # Grid transmission evaluated at the 10-15 keV calibration energy and CFL/BKG untouched
     imaging = np.isin(np.arange(32), [8, 9], invert=True)
-    transmission = get_grid_transmission(9 * u.keV, np.arange(32)[imaging], flare_location)[0]
+    transmission = get_grid_transmission(12.5 * u.keV, np.arange(32)[imaging], flare_location)[0]
     assert_quantity_allclose(
         shadowed["abcd_rate_kev"][imaging], unshadowed["abcd_rate_kev"][imaging] / transmission.reshape(-1, 1) / 4
     )

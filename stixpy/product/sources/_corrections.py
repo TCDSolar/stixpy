@@ -1,47 +1,20 @@
 """
-Livetime and energy look-up table (ELUT) corrections, and the data selection that applies them, for
+Livetime and energy look-up table (ELUT) corrections, and the systematic uncertainty, for
 `~stixpy.product.sources.science.ScienceData.get_data`.
 """
+
+from dataclasses import replace
 
 import numpy as np
 
 import astropy.units as u
-from astropy.table import QTable
-from astropy.time import Time
 
+from stixpy.calibration.elut import get_elut_correction
 from stixpy.calibration.livetime import get_livetime_fraction
 from stixpy.config.instrument import STIX_INSTRUMENT
-from stixpy.product.sources._rcr import _handle_nested_pairs, _rcr_shift, _rcr_signal, _rcr_warning
-from stixpy.product.sources._selection import _on_indices
+from stixpy.product.sources._selection import DETECTOR, PIXEL, _flat_indices, _kept_energy_bins, _on_indices
 
 __all__ = []
-
-
-def _indices_expand_ranges(pairs, nest=True):
-    """
-    Expand [start, end] pairs into the indices they cover, inclusive.
-
-    Parameters
-    ----------
-    pairs : array_like
-        [start, end] pairs, e.g. ``[[1, 3], [7, 8]]``.
-    nest : bool, optional
-        If True (default), return one array per pair:
-        ``[array([1, 2, 3]), array([7, 8])]``. If False, return one flat list:
-        ``[1, 2, 3, 7, 8]``.
-
-    Returns
-    -------
-    list
-        A list of arrays if `nest` is True, otherwise a flat list of indices.
-    """
-    result = []
-    for pair in pairs:
-        if nest:
-            result.append(np.arange(pair[0], pair[1] + 1, 1))
-        else:
-            result.extend(np.arange(pair[0], pair[1] + 1, 1))
-    return result
 
 
 def _livetime_uncertainty(counts_var, livefrac_error, livefrac):
@@ -128,7 +101,7 @@ def _apply_livetime(counts, counts_var, livefrac, groups):
     return counts_out, counts_var_out, new_livefrac
 
 
-def _livefrac(product, counts, elut_cor_fac, pixel_indices, energy_indices=None):
+def _livefrac(product, counts, elut_cor_fac, pixel_indices):
     """
     Compute the livetime fraction and its uncertainty from the trigger counts.
 
@@ -157,14 +130,11 @@ def _livefrac(product, counts, elut_cor_fac, pixel_indices, energy_indices=None)
         spectrogram counts reshaped to (time, 1, 1, energy).
     elut_cor_fac : numpy.ndarray or None
         ELUT correction factor applied to the counts before the uncertainty is
-        computed. None for no ELUT correction.
+        computed. None for no ELUT correction, or counts that are already ELUT
+        corrected.
     pixel_indices : numpy.ndarray or None
         Pixels to compute the uncertainty over, flat or [start, end] pairs, or
         None for all pixels. Ignored for spectrogram products.
-    energy_indices : numpy.ndarray, optional
-        Energy bins of the counts to keep before applying `elut_cor_fac`, for
-        when the factor was computed for another product's bins (the
-        background case). Only used if `elut_cor_fac` is given.
 
     Returns
     -------
@@ -220,10 +190,7 @@ def _livefrac(product, counts, elut_cor_fac, pixel_indices, energy_indices=None)
         livefrac_upper = livefrac_upper.reshape(livefrac_upper.shape + (1, 1))
 
     if elut_cor_fac is not None:
-        if energy_indices is not None:
-            counts = counts[..., energy_indices] * elut_cor_fac
-        else:
-            counts = counts * elut_cor_fac
+        counts = counts * elut_cor_fac
 
     # ---- resolve the pixel summation group ------------------------------
 
@@ -233,16 +200,7 @@ def _livefrac(product, counts, elut_cor_fac, pixel_indices, energy_indices=None)
     else:
         n_pix = counts.shape[2]
 
-        if pixel_indices is None:
-            pix = np.arange(n_pix)
-        else:
-            pix = np.asarray(pixel_indices)
-            if pix.ndim == 2:
-                pix = np.asarray(_indices_expand_ranges(pix, nest=False))
-            else:
-                pix = pix.ravel()
-
-        pix = np.asarray(pix, dtype=int)
+        pix = np.arange(n_pix) if pixel_indices is None else _flat_indices(pixel_indices).astype(int)
 
         # ---- distribute the correlated livetime error over pixels -----------
         # The livetime error is a systematic shared by every pixel of a detector, so
@@ -360,15 +318,13 @@ def _elut_correction_sort(bins, bins_actual, detector_sum, pixel_indices, detect
         elut_cor_fac = bins / bins_actual
 
     else:
-        if pixel_indices.ndim == 2:
-            pixel_indices = _indices_expand_ranges(pixel_indices, nest=False)
+        pixel_indices = _flat_indices(pixel_indices)
 
         bins = np.mean(bins[:, :, pixel_indices, :], axis=2, keepdims=True)
         bins_actual = np.mean(bins_actual[:, :, pixel_indices, :], axis=2, keepdims=True)
 
         if detector_sum:
-            if detector_indices.ndim == 2:
-                detector_indices = _indices_expand_ranges(detector_indices, nest=False)
+            detector_indices = _flat_indices(detector_indices)
 
             bins = np.mean(bins[:, detector_indices, :, :], axis=1, keepdims=True)
 
@@ -380,486 +336,184 @@ def _elut_correction_sort(bins, bins_actual, detector_sum, pixel_indices, detect
             elut_cor_fac = bins / bins_actual
 
         elif detector_indices.ndim == 2:
-            detector_indices = _indices_expand_ranges(detector_indices, nest=True)
-
-            elut_cor_fac = _normalize_elut_by_group_detector_mean(bins, bins_actual, detector_indices)
+            groups = [np.arange(start, end + 1) for start, end in detector_indices]
+            elut_cor_fac = _normalize_elut_by_group_detector_mean(bins, bins_actual, groups)
 
     return elut_cor_fac
 
 
-def _data_select(
-    product,
-    counts,
-    counts_err,
-    detector_indices,
-    pixel_indices,
-    energy_indices,
-    time_indices,
-    livefrac,
-    livefrac_error,
-    elut_cor_fac,
-    sum_all_times,
-    n_detectors=None,
-    bkg=False,
-    systematic=False,
-    sunkit_spex_detector_sum=True,
-):
+def _elut_factor(product, detector_indices, pixel_indices, detector_sum):
     """
-    Apply the requested detector, pixel, energy and time selection to the data.
+    The ELUT correction factor of the energy bins `~stixpy.product.sources._countdata._load` keeps.
 
-    `counts` are either the product's counts or the background-subtracted counts
-    returned by `_bkg_sub` (``bkg=True``). On the product path the count
-    uncertainty starts as ``sqrt(counts + compression_error**2)``.
-
-    In both cases the 0 keV bottom energy bin and the open top bin (upper edge
-    NaN) are removed first. Energy indices number the rows of the product's energy
-    table, so they are shifted down by one when the bottom bin is removed and
-    then clipped into the remaining range.
-
-    On every axis, flat indices keep those bins and [start, end] pairs sum each
-    inclusive range into one bin (counts summed, uncertainties in quadrature,
-    livetime values averaged). The steps run in this order:
-
-    1. ELUT correction, except on the background path, where `_bkg_sub` has
-       already applied it.
-    2. Pixel selection; on the background path the pixels are then summed.
-    3. Energy selection; for ranges, `e_norm` and the energy table are rebuilt.
-    4. Livetime correction by detector group (see `_apply_livetime`), then a sum
-       over pixels. Only when a livetime fraction is available and this is not
-       the background path. With no detector selection all detectors that are
-       on form one group, a flat selection forms one group, and each
-       [start, end] range is its own group.
-    5. Detector selection.
-    6. On the background path, counts are set to zero wherever their total over
-       the pooled axes (see `sunkit_spex_detector_sum`) is negative.
-    7. Optionally, a systematic uncertainty is added.
-    8. RCR alignment (see `_rcr_shift`).
-    9. Time selection, and optionally a sum over all time bins.
+    Averaged over the selected detectors and pixels that are on (every one in the masks for a spectrogram), as
+    `_elut_correction_sort` sets out.
 
     Parameters
     ----------
     product : ScienceData
         The science product.
-    counts : astropy.units.Quantity
-        The product's counts, shape (time, detector, pixel, energy), with pixel
-        data on the full detector and pixel grid (see ``_full_layout``) and
-        spectrogram counts reshaped to (time, 1, 1, energy).
-    counts_err : astropy.units.Quantity
-        The compression error of `counts`, same shape. On the background path,
-        the 1-sigma uncertainty from `_bkg_sub`.
-    detector_indices : numpy.ndarray or None
-        Flat detector indices or [start, end] pairs. Detector labels such as
-        "top24" must already have been resolved by `_indices_check`. Ignored
-        for spectrogram products.
-    pixel_indices : numpy.ndarray or None
-        Flat pixel indices or [start, end] pairs. Ignored for spectrogram
-        products.
-    energy_indices : list, numpy.ndarray or None
-        Flat energy indices or [start, end] pairs, numbering the rows of the
-        product's energy table.
-    time_indices : list, numpy.ndarray or None
-        Flat time indices or [start, end] pairs, as returned by
-        `_time_indices_format`.
-    livefrac : numpy.ndarray or None
-        Livetime fraction from `_livefrac`.
-    livefrac_error : astropy.units.Quantity or None
-        Livetime uncertainty from `_livefrac`.
-    elut_cor_fac : numpy.ndarray or None
-        ELUT correction factor from `_elut_correction_sort`.
-    sum_all_times : bool
-        If True, the resulting time bins are summed into one.
-    n_detectors : int, optional
-        Number of detectors summed on board, for spectrogram products. Used to
-        scale the RCR jump signal.
-    bkg : bool, optional
-        True when `counts` come from `_bkg_sub`. They are then already trimmed,
-        livetime corrected and ELUT corrected, so only the energy table is
-        trimmed and those corrections are not repeated.
-    systematic : bool, optional
-        If True, add a systematic uncertainty of 7% below 7 keV, 5% from 7 to
-        10 keV and 3% from 10 keV of the pooled counts, spread so that a
-        quadrature sum over the pooled axes returns that percentage.
-    sunkit_spex_detector_sum : bool, optional
-        Which axes are pooled into one output bin for steps 6 and 7: detectors
-        and pixels if True (default), pixels only if False.
+    detector_indices, pixel_indices : numpy.ndarray or None
+        The selection from `_indices_check`, flat or [start, end] pairs. None for spectrogram products.
+    detector_sum : bool
+        Whether the detectors are summed into one spectrum.
 
     Returns
     -------
-    tuple
-        ``(counts, counts_var, t_norm, e_norm, livefrac, livefrac_error,
-        elut_cor_fac, times, energies, rcr)`` after the selection. `counts_var`
-        holds the 1-sigma uncertainty, not the variance.
+    numpy.ndarray
+        The factor, broadcastable against the counts.
     """
-    rcr = np.asarray(product.data["rcr"])
-    e_norm = product.dE
+    _, _, bins, bins_actual = get_elut_correction(np.array(product.energies["channel"]), product)
 
-    if product.data["counts"].ndim < 4:
-        detector_indices = None
-        pixel_indices = None
-
-    t_norm = product.data["timedel"]
-    times = product.times
-    energies = product.energies
-
-    if bkg:
-        counts_var = counts_err
-
-        if energies["e_low"][0].value == 0:
-            energies = energies[1:]
-            e_norm = e_norm[1:]
-            if energy_indices is not None:
-                energy_indices = np.asarray(energy_indices) - 1
-
-        if np.isnan(energies["e_high"][-1].value):
-            energies = energies[:-1]
-            e_norm = e_norm[:-1]
-
+    is_spectrogram = product.data["counts"].ndim < 4
+    if is_spectrogram:
+        detectors = _on_indices(product.detector_masks.masks)
+        pixels = _on_indices(product.pixel_masks.masks)
     else:
-        counts_var = np.sqrt(counts.value + counts_err.value**2) * u.ct
-
-    if not bkg and energies["e_low"][0].value == 0:
-        counts = counts[..., 1:]
-        counts_var = counts_var[..., 1:]
-        energies = energies[1:]
-        e_norm = e_norm[1:]
-        if energy_indices is not None:
-            energy_indices = np.asarray(energy_indices) - 1
-        if elut_cor_fac is not None:
-            elut_cor_fac = elut_cor_fac[..., 1:]
-        if livefrac_error is not None:
-            livefrac_error = livefrac_error[..., 1:]
-
-    if not bkg and np.isnan(energies["e_high"][-1].value):
-        counts = counts[..., :-1]
-        counts_var = counts_var[..., :-1]
-        energies = energies[:-1]
-        e_norm = e_norm[:-1]
-        if elut_cor_fac is not None:
-            elut_cor_fac = elut_cor_fac[..., :-1]
-        if livefrac_error is not None:
-            livefrac_error = livefrac_error[..., :-1]
-
-    if not bkg and elut_cor_fac is not None:
-        counts = counts * elut_cor_fac
-        counts_var = counts_var * elut_cor_fac
-
-    if energy_indices is not None:
-        energy_indices = np.clip(energy_indices, 0, len(energies) - 1)
-
-    if pixel_indices is not None:
-        pixel_indices = np.asarray(pixel_indices)
-        if pixel_indices.ndim == 1:
-            pixel_mask = np.full(12, False)
-            pixel_mask[pixel_indices] = True
-            num_pixels = counts.shape[2]
-            counts = counts[..., pixel_mask[:num_pixels], :]
-            if not bkg:
-                counts_var = counts_var[..., pixel_mask[:num_pixels], :]
-            if not bkg and livefrac is not None and livefrac.shape[2] != 1:
-                livefrac = livefrac[:, :, pixel_mask[:num_pixels], :]
-            if not bkg and livefrac_error is not None and livefrac_error.shape[2] != 1:
-                livefrac_error = livefrac_error[:, :, pixel_mask[:num_pixels], :]
-
-        if pixel_indices.ndim == 2:
-            counts = np.concatenate(
-                [np.sum(counts[..., pl : ph + 1, :], axis=2, keepdims=True) for pl, ph in pixel_indices], axis=2
-            )
-            if not bkg:
-                counts_var = np.concatenate(
-                    [
-                        np.sqrt(np.sum(counts_var[..., pl : ph + 1, :] ** 2, axis=2, keepdims=True))
-                        for pl, ph in pixel_indices
-                    ],
-                    axis=2,
-                )
-
-            if livefrac is not None and livefrac.shape[2] != 1:
-                livefrac = np.concatenate(
-                    [np.mean(livefrac[..., pl : ph + 1, :], axis=2, keepdims=True) for pl, ph in pixel_indices],
-                    axis=2,
-                )
-
-            if livefrac_error is not None:
-                livefrac_error = np.concatenate(
-                    [
-                        np.sqrt(np.sum(livefrac_error[..., pl : ph + 1, :] ** 2, axis=2, keepdims=True))
-                        for pl, ph in pixel_indices
-                    ],
-                    axis=2,
-                )
-
-    if bkg:
-        # _bkg_sub has summed the uncertainty over the pixels, so sum the counts too, as the livetime correction
-        # does without a background
-        counts = np.nansum(counts, axis=2, keepdims=True)
-        if livefrac is not None:
-            livefrac = np.nanmean(livefrac, axis=2, keepdims=True)
-
-    counts_rcr = np.nansum(counts, axis=-1, keepdims=True)
-
-    if energy_indices is not None:
-        energy_indices = np.asarray(energy_indices)
-        if energy_indices.ndim == 1:
-            energy_mask = np.full(counts.shape[-1], False)
-            energy_mask[energy_indices] = True
-            counts = counts[..., energy_mask]
-            counts_var = counts_var[..., energy_mask]
-            e_norm = e_norm[energy_mask]
-            energies = energies[energy_mask]
-
-            if elut_cor_fac is not None:
-                elut_cor_fac = elut_cor_fac[..., energy_mask]
-
-            if bkg:
-                if livefrac is not None:
-                    livefrac = livefrac[..., energy_mask]
-
-            if livefrac_error is not None:
-                livefrac_error = livefrac_error[..., energy_mask]
-
-        if energy_indices.ndim == 2:
-            counts = np.concatenate(
-                [np.sum(counts[..., el : eh + 1], axis=-1, keepdims=True) for el, eh in energy_indices], axis=-1
-            )
-
-            counts_var = np.concatenate(
-                [
-                    np.sqrt(np.sum(counts_var[..., el : eh + 1] ** 2, axis=-1, keepdims=True))
-                    for el, eh in energy_indices
-                ],
-                axis=-1,
-            )
-
-            e_norm = np.hstack([(energies["e_high"][eh] - energies["e_low"][el]) for el, eh in energy_indices])
-
-            if elut_cor_fac is not None:
-                elut_cor_fac = np.concatenate(
-                    [np.mean(elut_cor_fac[..., el : eh + 1], axis=-1, keepdims=True) for el, eh in energy_indices],
-                    axis=-1,
-                )
-
-            if bkg and livefrac is not None and livefrac.shape[-1] != 1:
-                livefrac = np.concatenate(
-                    [np.mean(livefrac[..., el : eh + 1], axis=-1, keepdims=True) for el, eh in energy_indices],
-                    axis=-1,
-                )
-
-            if livefrac_error is not None:
-                # scales with the counts and shares one livetime across all energies,
-                # so the bins in a band are fully correlated: add them linearly
-                livefrac_error = np.concatenate(
-                    [np.sum(livefrac_error[..., el : eh + 1], axis=-1, keepdims=True) for el, eh in energy_indices],
-                    axis=-1,
-                )
-
-            energies = np.atleast_2d(
-                [(energies["e_low"][el].value, energies["e_high"][eh].value) for el, eh in energy_indices]
-            )
-            energies = QTable(energies * u.keV, names=["e_low", "e_high"])
-
-    if not bkg and livefrac is not None and detector_indices is None:
-        n_det = counts.shape[1]
-        # every detector of a spectrogram, or every detector that is on for pixel data on the full grid
-        groups = [np.arange(n_det)] if n_det == 1 else [_on_indices(product.detector_masks.masks)]
-
-        counts_rcr = _apply_livetime(counts_rcr, counts_rcr, livefrac, groups)[0]
-        counts_rcr = np.nansum(counts_rcr, axis=2, keepdims=True)
-        counts_var = _livetime_uncertainty(counts_var, livefrac_error, livefrac)
-        counts, counts_var, livefrac = _apply_livetime(counts, counts_var, livefrac, groups)
-        counts = np.nansum(counts, axis=2, keepdims=True)
-
-    if detector_indices is not None:
-        detector_indices = np.asarray(detector_indices)  # "top24" must already be resolved to indices upstream
-
-        # ---- livetime -------------------------------------------------------
-        # Skipped on the bkgsub path: _bkg_sub has already applied the livetime
-        # correction and collapsed counts_var's pixel axis.
-        if not bkg and livefrac is not None:
-            if detector_indices.ndim == 1:
-                groups = [detector_indices]  # all selected -> one spectrum
-            else:  # ndim == 2 : each (dl, dh) range -> one output spectrum, of the detectors that are on
-                detectors_on = _on_indices(product.detector_masks.masks)
-                groups = [np.intersect1d(np.arange(dl, dh + 1), detectors_on) for dl, dh in detector_indices]
-
-            counts_rcr = _apply_livetime(counts_rcr, counts_rcr, livefrac, groups)[0]
-            counts_rcr = np.nansum(counts_rcr, axis=2, keepdims=True)
-            counts_var = _livetime_uncertainty(counts_var, livefrac_error, livefrac)
-            counts, counts_var, livefrac = _apply_livetime(counts, counts_var, livefrac, groups)
-            counts = np.nansum(counts, axis=2, keepdims=True)
-
-        # ---- detector selection / summing -----------------------------------
-        selected = (
-            np.concatenate([np.arange(dl, dh + 1) for dl, dh in detector_indices])
-            if detector_indices.ndim == 2
+        # the selected detectors and pixels that are on, as [start, end] ranges may span ones that are off
+        detectors = (
+            np.intersect1d(_flat_indices(detector_indices), _on_indices(product.detector_masks.masks))
+            if detector_sum
             else detector_indices
         )
-        n_det_rcr = np.count_nonzero(np.nansum(np.abs(counts_rcr[:, selected]), axis=(0, 2, 3)))
+        pixels = np.intersect1d(_flat_indices(pixel_indices), _on_indices(product.pixel_masks.masks))
 
-        if detector_indices.ndim == 1:
-            detector_mask = np.full(32, False)
-            detector_mask[detector_indices] = True
-            counts = counts[:, detector_mask, ...]
-            counts_rcr = counts_rcr[:, detector_mask, ...]
-            counts_var = counts_var[:, detector_mask, ...]
-            if livefrac is not None:
-                livefrac = livefrac[:, detector_mask, :, :]
-            if livefrac_error is not None:
-                livefrac_error = livefrac_error[:, detector_mask, :, :]
+    factor = _elut_correction_sort(bins, bins_actual, detector_sum, pixels, detectors, is_spectrogram)
+    return factor[..., _kept_energy_bins(product.energies)]
 
-        if detector_indices.ndim == 2:
-            counts = np.hstack(
-                [np.sum(counts[:, dl : dh + 1, ...], axis=1, keepdims=True) for dl, dh in detector_indices]
-            )
 
-            counts_rcr = np.hstack(
-                [np.sum(counts_rcr[:, dl : dh + 1, ...], axis=1, keepdims=True) for dl, dh in detector_indices]
-            )
+def _apply_elut(data, elut_cor_fac):
+    """
+    Apply the ELUT correction factor to the counts and their uncertainty.
 
-            counts_var = np.concatenate(
-                [
-                    np.sqrt(np.sum(counts_var[:, dl : dh + 1, ...] ** 2, axis=1, keepdims=True))
-                    for dl, dh in detector_indices
-                ],
-                axis=1,
-            )
-            if livefrac is not None:
-                livefrac = np.concatenate(
-                    [np.mean(livefrac[:, dl : dh + 1, ...], axis=1, keepdims=True) for dl, dh in detector_indices],
-                    axis=1,
-                )
-            if livefrac_error is not None:
-                livefrac_error = np.concatenate(
-                    [
-                        np.sqrt(np.mean(livefrac_error[:, dl : dh + 1, ...] ** 2, axis=1, keepdims=True))
-                        for dl, dh in detector_indices
-                    ],
-                    axis=1,
-                )
+    Parameters
+    ----------
+    data : _CountData
+        Data from `_load`.
+    elut_cor_fac : numpy.ndarray
+        From `_elut_factor`.
 
-    # sunkit_spex_detector_sum=True  -> detectors collapse downstream, so the
-    #   output bin is the sum over remaining detector AND pixel axes.
-    # sunkit_spex_detector_sum=False -> each detector stays its own output
-    #   bin, so only the pixel axis is pooled.
-    sum_axes = (1, 2) if sunkit_spex_detector_sum else (2,)
+    Returns
+    -------
+    _CountData
+    """
+    return replace(
+        data, counts=data.counts * elut_cor_fac, counts_err=data.counts_err * elut_cor_fac, elut_cor_fac=elut_cor_fac
+    )
 
-    if bkg:
-        total = np.nansum(counts, axis=sum_axes, keepdims=True)
-        counts = np.where(total < 0, 0, counts.value) * counts.unit
 
-    if systematic:
-        e_mean = ((energies["e_low"] + energies["e_high"]) / 2).value
-        systematic_err_percentage = np.select(
-            [e_mean < 7, (e_mean < 10) & (e_mean >= 7), e_mean >= 10],
-            [0.07, 0.05, 0.03],
-        )
+def _add_livetime(data, product, pixel_indices, elut_cor_fac=None):
+    """
+    Add the livetime fraction and its uncertainty (see `_livefrac`) to the data, without correcting the counts.
 
-        total = np.nansum(counts, axis=sum_axes, keepdims=True)
+    Parameters
+    ----------
+    data : _CountData
+        Data from `_load`, with or without the ELUT correction.
+    product : ScienceData
+        The product `data` was loaded from, for its triggers.
+    pixel_indices : numpy.ndarray or None
+        Pixels the livetime uncertainty is spread over, flat or [start, end] pairs.
+    elut_cor_fac : numpy.ndarray, optional
+        ELUT factor to apply to the counts for the uncertainty, if `data` is not ELUT corrected but the counts it is
+        subtracted from are (the background case).
 
-        # Divisor taken from counts_var, not counts: these are the axes that
-        # actually get quadrature-summed downstream. On the bkgsub path
-        # counts_var's pixel axis is already collapsed while counts' is not,
-        # so sizing off counts would mis-scale by sqrt(n_pix). Spreading
-        # p*total over n_elem slots as p*total/sqrt(n_elem) means the
-        # downstream quadrature sum returns exactly p*total.
-        n_elem = int(np.prod([counts_var.shape[a] for a in sum_axes]))
-        sys_err_elem = (systematic_err_percentage * total) / np.sqrt(n_elem)
+    Returns
+    -------
+    _CountData
+    """
+    livefrac, livefrac_err = _livefrac(product, data.counts, elut_cor_fac, pixel_indices)
+    return replace(data, livefrac=livefrac, livefrac_err=livefrac_err)
 
-        counts_var = np.sqrt(counts_var.value**2 + np.broadcast_to(sys_err_elem.value, counts_var.shape) ** 2) * u.ct
 
+def _livetime_groups(data, detector_indices, per_detector=False):
+    """
+    The groups of detectors that share one livetime, the mean livetime fraction of the group.
+
+    Parameters
+    ----------
+    data : _CountData
+        Data from `_load`, on the full detector axis.
+    detector_indices : numpy.ndarray or None
+        The detector selection, flat or [start, end] pairs.
+    per_detector : bool, optional
+        If True, each flat detector index is its own group.
+
+    Returns
+    -------
+    list of numpy.ndarray
+        For a spectrogram, its one detector position. Otherwise every detector that is on with no selection, each
+        [start, end] range's detectors that are on, and the flat detectors (together, or each on its own with
+        `per_detector`).
+    """
+    if data.counts.shape[DETECTOR] == 1:
+        return [np.arange(1)]
+    detectors_on = np.flatnonzero(data.detectors.any(axis=0))
     if detector_indices is None:
-        # no detector selection: a spectrogram (summed on board over n_detectors)
-        # or pixel data with every detector
-        if n_detectors is not None:
-            n_det_rcr = n_detectors
-        else:
-            n_det_rcr = np.count_nonzero(np.nansum(np.abs(counts_rcr), axis=(0, 2, 3)))
-    rcr = _rcr_shift(rcr, _rcr_signal(counts_rcr, n_det_rcr))
-    if time_indices is not None:
-        if np.asarray(time_indices).ndim == 1:
-            _rcr_warning(list(time_indices), rcr)
-        else:
-            _handle_nested_pairs(time_indices, rcr)
+        return [detectors_on]
+    detector_indices = np.asarray(detector_indices)
+    if detector_indices.ndim == 2:
+        return [np.intersect1d(np.arange(start, end + 1), detectors_on) for start, end in detector_indices]
+    if per_detector:
+        return [detector_indices[i : i + 1] for i in range(detector_indices.size)]
+    return [detector_indices]
 
-    if time_indices is not None:
-        time_indices = np.asarray(time_indices)
-        if time_indices.ndim == 1:
-            time_mask = np.full(times.shape, False)
-            time_mask[time_indices] = True
-            counts = counts[time_mask, ...]
-            counts_var = counts_var[time_mask, ...]
-            t_norm = t_norm[time_mask]
-            rcr = rcr[time_mask]
-            if livefrac is not None:
-                livefrac = livefrac[time_mask, ...]
-            if livefrac_error is not None:
-                livefrac_error = livefrac_error[time_mask, ...]
-            times = times[time_mask]
 
-        if time_indices.ndim == 2:
-            new_times = []
-            dt = []
-            for tl, th in time_indices:
-                ts = times[tl] - t_norm[tl] * 0.5
-                te = times[th] + t_norm[th] * 0.5
-                td = te - ts
-                tc = ts + (td * 0.5)
-                dt.append(td.to("s"))
-                new_times.append(tc)
+def _correct_livetime(data, groups):
+    """
+    Apply the livetime correction by detector group, and sum the pixels.
 
-            dt = np.hstack(dt)
-            times = Time(new_times)
+    The livetime uncertainty is added to the count uncertainty (see `_livetime_uncertainty`), each group of
+    detectors is scaled to its mean livetime (see `_apply_livetime`), and the pixels are summed.
 
-            counts = np.vstack([np.sum(counts[tl : th + 1, ...], axis=0, keepdims=True) for tl, th in time_indices])
-            # _handle_nested_pairs has checked that the RCR state does not change within a range
-            rcr = np.array([rcr[tl] for tl, th in time_indices])
+    Parameters
+    ----------
+    data : _CountData
+        Data with a livetime fraction and uncertainty (see `_add_livetime`).
+    groups : list of array_like
+        Detector groups, from `_livetime_groups`.
 
-            if livefrac is not None:
-                dur = t_norm.to_value(u.s).reshape((-1,) + (1,) * (livefrac.ndim - 1))
-                livefrac = np.vstack(
-                    [
-                        np.sum(livefrac[tl : th + 1, ...] * dur[tl : th + 1], axis=0, keepdims=True)
-                        / np.sum(dur[tl : th + 1])
-                        for tl, th in time_indices
-                    ]
-                )
+    Returns
+    -------
+    _CountData
+        With one pixel position. `livefrac_err` is kept as it was.
+    """
+    counts_err = _livetime_uncertainty(data.counts_err, data.livefrac_err, data.livefrac)
+    counts, counts_err, livefrac = _apply_livetime(data.counts, counts_err, data.livefrac, groups)
+    return replace(
+        data,
+        counts=np.nansum(counts, axis=PIXEL, keepdims=True),
+        counts_err=counts_err,
+        livefrac=livefrac,
+        pixels=data.pixels.any(axis=0, keepdims=True),
+    )
 
-            if livefrac_error is not None:
-                livefrac_error = np.vstack(
-                    [
-                        np.sqrt(np.sum(livefrac_error[tl : th + 1, ...] ** 2, axis=0, keepdims=True))
-                        for tl, th in time_indices
-                    ]
-                )
 
-            counts_var = np.vstack(
-                [np.sqrt(np.sum(counts_var[tl : th + 1, ...] ** 2, axis=0, keepdims=True)) for tl, th in time_indices]
-            )
-            t_norm = dt
+def _add_systematic(data, axes):
+    """
+    Add a systematic uncertainty of 7% below 7 keV, 5% from 7 to 10 keV and 3% from 10 keV of the counts pooled over
+    `axes`, spread so that a quadrature sum over those axes returns that percentage.
 
-    if sum_all_times and np.shape(counts)[0] > 1:
-        rcr_unique = np.unique(rcr)
-        if rcr_unique.size != 1:
-            raise ValueError(
-                "Cannot sum all times as the RCR state changes between the selected time ranges "
-                f"(RCR states {rcr_unique.astype(int).tolist()}). "
-                "Select time ranges in a single RCR state."
-            )
+    Parameters
+    ----------
+    data : _CountData
+        The selected data.
+    axes : tuple of int
+        Axes pooled into one spectrum: ``(DETECTOR, PIXEL)`` or ``(PIXEL,)``.
 
-        rcr = rcr_unique
-        # one bin from the start of the first selected bin to the end of the last
-        start = times[0] - 0.5 * t_norm[0]
-        end = times[-1] + 0.5 * t_norm[-1]
-        times = Time([start + 0.5 * (end - start)])
+    Returns
+    -------
+    _CountData
+    """
+    e_mean = ((data.energies["e_low"] + data.energies["e_high"]) / 2).value
+    percentage = np.select([e_mean < 7, (e_mean < 10) & (e_mean >= 7), e_mean >= 10], [0.07, 0.05, 0.03])
 
-        # weight by each bin's duration, so counts / (t_norm * livefrac) divides by the total live time
-        if livefrac is not None:
-            w = (t_norm / np.sum(t_norm)).to_value(u.one).reshape((-1,) + (1,) * (livefrac.ndim - 1))
-            livefrac = np.sum(livefrac * w, axis=0, keepdims=True)
-        if livefrac_error is not None:
-            livefrac_error = np.sqrt(np.mean(livefrac_error**2, axis=0, keepdims=True))
+    total = np.nansum(data.counts, axis=axes, keepdims=True)
 
-        counts = np.sum(counts, axis=0, keepdims=True)
-        counts_var = np.sqrt(np.sum(counts_var**2, axis=0, keepdims=True))
-        t_norm = np.sum(t_norm, keepdims=True)
+    # Spread over the slots of the uncertainty, which may already be summed over pixels while the counts are not:
+    # p * total / sqrt(n) in each of n slots adds up to p * total in quadrature.
+    n_elem = int(np.prod([data.counts_err.shape[a] for a in axes]))
+    sys_err = (percentage * total) / np.sqrt(n_elem)
 
-    return counts, counts_var, t_norm, e_norm, livefrac, livefrac_error, elut_cor_fac, times, energies, rcr
+    counts_err = np.sqrt(data.counts_err.value**2 + np.broadcast_to(sys_err.value, data.counts_err.shape) ** 2) * u.ct
+    return replace(data, counts_err=counts_err)

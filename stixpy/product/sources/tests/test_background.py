@@ -212,7 +212,7 @@ def test_spectrum_detector_ids_follow_count_order(monkeypatch):
     from types import SimpleNamespace
 
     def capture(product, detectors, pixels, data, *args, **kwargs):
-        return detectors, data[0]
+        return detectors, data.counts
 
     monkeypatch.setitem(
         sys.modules, "stixpy.product.sources._spectrum", SimpleNamespace(_get_sunkit_spex_spectrum=capture)
@@ -228,6 +228,7 @@ def test_spectrum_detector_ids_follow_count_order(monkeypatch):
         **NO_ELUT,
     )
     np.testing.assert_array_equal(detectors, [2, 0])
+    assert_allclose(selected[0, :, 0, 0].to_value(u.ct), [3, 1])
     assert_allclose(selected[0, :, 0, 0], [3, 1] * u.ct)
 
 

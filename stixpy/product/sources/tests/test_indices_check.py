@@ -17,8 +17,8 @@ import astropy.units as u
 from astropy.table import QTable
 
 from stixpy.product import Product
+from stixpy.product.sources._countdata import _full_layout
 from stixpy.product.sources._selection import TOP24, _energy_indices_format, _indices_check
-from stixpy.product.sources.science import _full_layout
 
 # The nominal 33 STIX science energy edges: 32 bins from the 0-4 keV bin to the open 150 keV - top bin.
 STIX_EDGES = [0, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 20, 22, 25, 28, 32, 36, 40, 45, 50, 56, 63, 70, 76,

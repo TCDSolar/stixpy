@@ -101,7 +101,9 @@ def _apply_livetime(counts, counts_var, livefrac, groups):
     return counts_out, counts_var_out, new_livefrac
 
 
-def _livefrac(product, counts, elut_cor_fac, pixel_indices, energy_indices=None, *, ssw_compatible=False):
+def _livefrac(
+    product, counts, elut_cor_fac, pixel_indices, energy_indices=None, *, ssw_compatible=False, per_pixel=False
+):
     """
     Compute the livetime fraction and its uncertainty from the trigger counts.
 
@@ -119,6 +121,8 @@ def _livefrac(product, counts, elut_cor_fac, pixel_indices, energy_indices=None,
     selected pixels, then shared out over those pixels in proportion to the
     square root of each pixel's share of the counts, so that a quadrature sum
     over pixels returns the total. Pixels that are not selected get zero.
+    With `per_pixel`, it is instead the uncertainty of each pixel's own counts,
+    for a linear sum over pixels.
 
     Parameters
     ----------
@@ -138,6 +142,9 @@ def _livefrac(product, counts, elut_cor_fac, pixel_indices, energy_indices=None,
         Energy bins of the counts to keep before applying `elut_cor_fac`, for
         when the factor was computed for another product's bins (the
         background case). Only used if `elut_cor_fac` is given.
+    per_pixel : bool, optional
+        Give each pixel the uncertainty of its own counts (the "correlated"
+        error model) rather than spreading the total (the "legacy" one).
 
     Returns
     -------
@@ -202,6 +209,8 @@ def _livefrac(product, counts, elut_cor_fac, pixel_indices, energy_indices=None,
 
     if len(shape) < 4:
         livefrac_error = counts * inverse_livetime_error[:, None, None, None]
+    elif per_pixel:
+        livefrac_error = (counts / livefrac_upper - counts / livefrac_lower) / 2
 
     else:
         n_pix = counts.shape[2]
@@ -437,7 +446,14 @@ def _add_livetime(data, product, pixel_indices, elut_cor_fac=None, *, ssw_compat
     -------
     _CountData
     """
-    livefrac, livefrac_err = _livefrac(product, data.counts, elut_cor_fac, pixel_indices, ssw_compatible=ssw_compatible)
+    livefrac, livefrac_err = _livefrac(
+        product,
+        data.counts,
+        elut_cor_fac,
+        pixel_indices,
+        per_pixel=data.error_model == "correlated",
+        ssw_compatible=ssw_compatible,
+    )
     return replace(data, livefrac=livefrac, livefrac_err=livefrac_err)
 
 
@@ -493,6 +509,10 @@ def _correct_livetime(data, groups, *, shared_adc=False):
     The livetime uncertainty is added to the count uncertainty (see `_livetime_uncertainty`), each group of
     detectors is scaled to its mean livetime (see `_apply_livetime`), and the pixels are summed.
 
+    With the "correlated" error model the livetime uncertainty is kept apart instead: the statistical uncertainty is
+    summed over pixels in quadrature and the livetime uncertainty linearly, as the pixels of a detector share its
+    livetime, and both are scaled like the counts.
+
     Parameters
     ----------
     data : _CountData
@@ -503,15 +523,21 @@ def _correct_livetime(data, groups, *, shared_adc=False):
     Returns
     -------
     _CountData
-        With one pixel position. `livefrac_err` is kept as it was.
+        With one pixel position. With the "legacy" error model `livefrac_err` is kept as it was.
     """
-    counts_err = _livetime_uncertainty(data.counts_err, data.livefrac_err, data.livefrac)
-    if shared_adc and data.livefrac_err is not None:
-        err = np.sqrt(np.nansum(data.livefrac_err**2, axis=PIXEL, keepdims=True))
-        variance = counts_err**2
-        for group in groups:
-            variance[:, group] += _adc_covariance(err[:, group], group)
-        counts_err = np.sqrt(variance)
+    changes = {}
+    if data.error_model == "legacy":
+        counts_err = _livetime_uncertainty(data.counts_err, data.livefrac_err, data.livefrac)
+        if shared_adc and data.livefrac_err is not None:
+            err = np.sqrt(np.nansum(data.livefrac_err**2, axis=PIXEL, keepdims=True))
+            variance = counts_err**2
+            for group in groups:
+                variance[:, group] += _adc_covariance(err[:, group], group)
+            counts_err = np.sqrt(variance)
+    else:
+        counts_err = np.sqrt(np.nansum((data.counts_err / data.livefrac) ** 2, axis=PIXEL, keepdims=True))
+        livefrac_err = np.nansum(data.livefrac_err, axis=PIXEL, keepdims=True)
+        changes["livefrac_err"] = _apply_livetime(livefrac_err, livefrac_err, data.livefrac, groups)[1]
     counts, counts_err, livefrac = _apply_livetime(data.counts, counts_err, data.livefrac, groups)
     return replace(
         data,
@@ -519,6 +545,7 @@ def _correct_livetime(data, groups, *, shared_adc=False):
         counts_err=counts_err,
         livefrac=livefrac,
         pixels=data.pixels.any(axis=0, keepdims=True),
+        **changes,
     )
 
 

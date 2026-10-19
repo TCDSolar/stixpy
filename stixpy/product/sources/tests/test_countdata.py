@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 import numpy as np
 import pytest
 from numpy.testing import assert_allclose, assert_array_equal
@@ -6,7 +8,7 @@ import astropy.units as u
 from astropy.table import QTable
 from astropy.time import Time
 
-from stixpy.product.sources._countdata import DETECTOR, ENERGY, PIXEL, TIME, _CountData
+from stixpy.product.sources._countdata import DETECTOR, ENERGY, PIXEL, TIME, _CountData, _sum_all_times
 
 N_TIME, N_DET, N_PIX, N_ENERGY = 4, 3, 2, 5
 
@@ -146,3 +148,42 @@ def test_combine_range_clipped_to_axis(data):
     # a range running past the end of an axis takes what is there, as numpy slicing does
     out = data.combine(PIXEL, [[0, 11]])
     assert_allclose(out.counts[:, :, 0], data.counts.sum(axis=2))
+
+
+def test_combine_detector_correlated_livetime(data):
+    # detectors 0 and 1 share trigger counter 0, so their livetime errors add linearly; detector 2 is on counter 7
+    data = replace(data, error_model="correlated")
+    out = data.combine(DETECTOR, [[0, 2]])
+    err = data.livefrac_err
+    assert_allclose(out.livefrac_err[:, 0], np.sqrt((err[:, 0] + err[:, 1]) ** 2 + err[:, 2] ** 2))
+    assert_allclose(out.counts_err[:, 0], np.sqrt((data.counts_err**2).sum(axis=1)))
+
+
+def test_combine_time_correlated_background(data):
+    data = replace(data, error_model="correlated", bkg_err=data.counts_err)
+    out = data.combine(TIME, [[0, 1], [2, 3]])
+    # one background measurement in every time bin: added linearly
+    assert_allclose(out.bkg_err[0], data.bkg_err[:2].sum(axis=0))
+    assert_allclose(out.livefrac_err[0], np.sqrt((data.livefrac_err[:2] ** 2).sum(axis=0)))
+    # the bins span 11:59:59-12:00:03 and 12:00:03-12:00:11, with no gaps, so the summed durations equal the spans
+    assert_allclose(out.durations.to_value(u.s), [4, 8])
+    assert_allclose(out.total_err(), np.sqrt(out.counts_err**2 + out.livefrac_err**2 + out.bkg_err**2))
+
+
+def test_total_err_legacy(data):
+    assert data.total_err() is data.counts_err
+
+
+def test_sum_all_times(data):
+    # bin 2 lasts 4 s rather than 6 s, so there is a 2 s gap on each side of it
+    gappy = replace(data, durations=[2, 2, 4, 2] * u.s, rcr=np.zeros(N_TIME, dtype=int))
+    out = _sum_all_times(gappy)
+    # the summed durations leave the gaps out, and the livetime uncertainty adds in quadrature
+    assert_allclose(out.durations.to_value(u.s), 10)
+    assert_allclose(out.livefrac_err[0], np.sqrt((data.livefrac_err**2).sum(axis=0)))
+    assert_array_equal(out.rcr, [0])
+
+
+def test_sum_all_times_rcr_change(data):
+    with pytest.raises(ValueError, match="RCR state changes"):
+        _sum_all_times(data)

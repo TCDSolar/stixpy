@@ -16,6 +16,7 @@ from sunpy.coordinates import Helioprojective
 from stixpy.calibration.srm import get_srm
 from stixpy.coordinates.frames import STIXImaging
 from stixpy.coordinates.utils import heliocentric_angle
+from stixpy.product.sources._selection import DETECTOR, PIXEL, TIME
 
 __all__ = []
 
@@ -35,8 +36,9 @@ def _return_spec_object(case, data, flare_angle, distance, srm_dict):
     case : str
         Which slice this is: 'spec_1D_detector_collapse',
         'spec_sequence_detector_collapse', 'spec_1D_detector_expand' or
-        'spec_sequence_detector_expand'. For every case except
-        'spec_1D_detector_collapse', negative summed counts are set to zero.
+        'spec_sequence_detector_expand'. With the "legacy" error model, for
+        every case except 'spec_1D_detector_collapse', negative summed counts are
+        set to zero.
     data : _CountData
         The selected data, or one time bin or detector of it, as sliced by
         `_get_sunkit_spex_spectrum`.
@@ -57,18 +59,22 @@ def _return_spec_object(case, data, flare_angle, distance, srm_dict):
     energies = data.energies
     counts_axis = np.concatenate([energies["e_low"], [energies["e_high"][-1]]])
 
+    legacy = data.error_model == "legacy"
     counts_final = np.nansum(data.counts, axis=(0, 1, 2))
-    if case != "spec_1D_detector_collapse":
+    if legacy and case != "spec_1D_detector_collapse":
         counts_final[counts_final < 0] = 0
-    counts_uncertainity_final = np.sqrt(np.nansum(data.counts_err**2, axis=(0, 1, 2)))
+    if legacy:
+        counts_uncertainity_final = np.sqrt(np.nansum(data.counts_err**2, axis=(0, 1, 2)))
+    else:
+        # each part of the uncertainty summed as its correlations need, detectors before time bins
+        summed = data
+        for axis in (DETECTOR, PIXEL, TIME):
+            summed = summed.combine(axis, [[0, summed.counts.shape[axis] - 1]])
+        counts_uncertainity_final = summed.total_err()[0, 0, 0]
 
     durations = data.durations.to(u.s)
     live_time = durations[:, None, None, None] * data.livefrac
-    if case == "spec_sequence_detector_expand":
-        # kept as it was: with a background the livetime has an energy axis, which this sums over
-        exposure_time = np.sum(np.nanmean(live_time, axis=(0, 1, 2)))
-    else:
-        exposure_time = np.sum(np.nanmean(live_time, axis=(1, 2, 3)))
+    exposure_time = np.sum(np.nanmean(live_time, axis=(1, 2, 3)))
 
     times = data.times
     if case in ("spec_sequence_detector_collapse", "spec_sequence_detector_expand"):

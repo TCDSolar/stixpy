@@ -27,7 +27,7 @@ from stixpy.product.sources._corrections import (
     _elut_factor,
     _livetime_groups,
 )
-from stixpy.product.sources._countdata import _load, _select, _select_times
+from stixpy.product.sources._countdata import ERROR_MODELS, _load, _select, _select_times
 from stixpy.product.sources._selection import (
     DETECTOR,
     PIXEL,
@@ -84,8 +84,9 @@ class SelectedData(NamedTuple):
     livefrac: np.ndarray | None
     """Livetime fraction, shape ``(time, detector, 1, 1)``, or None without the livetime correction."""
     livefrac_error: u.Quantity | None
-    """Livetime uncertainty in counts, or None without the livetime correction. Also None with a background
-    subtracted, as it is then already included in `counts_err`."""
+    """Livetime uncertainty in counts, already included in `counts_err`, or None without the livetime correction.
+    With ``error_model="legacy"`` it is also None with a background subtracted, and is not normalised by
+    ``vtype``."""
     elut_cor_fac: np.ndarray | None
     """ELUT correction factor applied to the counts, broadcastable against them, or None without the ELUT
     correction."""
@@ -136,11 +137,13 @@ class SelectedData(NamedTuple):
 
         return cls(
             counts=data.counts * norm,
-            counts_err=data.counts_err * norm,
+            counts_err=data.total_err() * norm,
             t_norm=t_norm,
             e_norm=e_norm,
             livefrac=livefrac,
-            livefrac_error=data.livefrac_err,
+            livefrac_error=data.livefrac_err
+            if data.error_model == "legacy" or data.livefrac_err is None
+            else data.livefrac_err * norm,
             elut_cor_fac=data.elut_cor_fac,
             times=data.times,
             energies=data.energies,
@@ -662,6 +665,7 @@ class ScienceData(L1Product):
         sunkit_spex_systematic_error=False,
         sunkit_spex_detector_sum=True,
         srm_e_min=3.5 * u.keV,
+        error_model="legacy",
     ):
         """
         Return the selected data, with optional livetime, ELUT and background
@@ -745,6 +749,17 @@ class ScienceData(L1Product):
         srm_e_min : astropy.units.Quantity, float, bool or None, optional
             Lower photon energy limit of the spectral response matrix. A float is
             taken as keV, True means 3.5 keV and False means None. Default 3.5 keV.
+        error_model : {'legacy', 'correlated'}, optional
+            How the uncertainties are combined. 'legacy' (default) combines them as
+            stixpy has so far. 'correlated' adds each part as its correlations
+            need: the statistical uncertainty in quadrature everywhere; the
+            livetime uncertainty linearly over the pixels and energies of a
+            detector and over the two detectors on one trigger counter, and in
+            quadrature between trigger counters and time bins; and the background
+            uncertainty linearly over time bins, as one background measurement is
+            scaled to all of them. It also gives a time range the summed duration
+            of its bins rather than its span, does not set negative background
+            subtracted counts to zero. See the Notes.
 
         Returns
         -------
@@ -773,7 +788,7 @@ class ScienceData(L1Product):
             product (see `bkg`). With `sunkit_spex_spectrum`, also if
             `energy_indices` is given, `livetime_correction` is False, the CFL
             detector is selected or the BKG detector is combined with other
-            detectors.
+            detectors. Also if `error_model` is not 'legacy' or 'correlated'.
 
         Notes
         -----
@@ -803,7 +818,23 @@ class ScienceData(L1Product):
         added to ``counts_err`` in quadrature, so ``livefrac_error`` is None.
         Counts whose total over the detectors and pixels is negative are set to
         zero. The pixels are summed, as with the livetime correction alone.
+
+        With ``error_model='legacy'`` the livetime and background uncertainties
+        are added to ``counts_err`` before the detectors and time bins are
+        combined, and then summed in quadrature like the statistical uncertainty.
+        This treats them as independent between detectors and time bins, though
+        two detectors share each trigger counter and every time bin uses the same
+        background. Time ranges take their span as their duration, and the
+        ``livefrac_error`` returned is combined as an RMS over detectors.
+
+        With ``error_model='correlated'`` each part is kept apart until the end,
+        and added to ``counts_err`` in quadrature only after every combination,
+        including the sums over detectors and time made for the `sunkit_spex`
+        spectra. ``livefrac_error`` then holds the combined livetime uncertainty,
+        normalised like the counts.
         """
+        if error_model not in ERROR_MODELS:
+            raise ValueError(f"error_model must be one of {ERROR_MODELS}, not {error_model!r}.")
         if isinstance(srm_e_min, bool):
             srm_e_min = 3.5 * u.keV if srm_e_min else None
         elif isinstance(srm_e_min, u.Quantity):
@@ -857,7 +888,7 @@ class ScienceData(L1Product):
             else None
         )
 
-        data = _load(self)
+        data = _load(self, error_model)
         if elut_correction:
             data = _apply_elut(data, _elut_factor(self, checked_detectors, checked_pixels, sunkit_spex_detector_sum))
         if bkg is not None:
@@ -884,7 +915,7 @@ class ScienceData(L1Product):
         )
         # pooled into one spectrum: detectors and pixels, or each detector's pixels
         pooled = (DETECTOR, PIXEL) if sunkit_spex_detector_sum else (PIXEL,)
-        if bkg is not None:
+        if bkg is not None and error_model == "legacy":
             data = _clip_negative(data, pooled)
         if sunkit_spex_systematic_error:
             data = _add_systematic(data, pooled)

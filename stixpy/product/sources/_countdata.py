@@ -11,6 +11,7 @@ import astropy.units as u
 from astropy.table import QTable
 from astropy.time import Time
 
+from stixpy.config.instrument import STIX_INSTRUMENT
 from stixpy.product.sources._corrections import _correct_livetime
 from stixpy.product.sources._rcr import _handle_nested_pairs, _rcr_warning, _shift_rcr
 from stixpy.product.sources._selection import (
@@ -24,6 +25,13 @@ from stixpy.product.sources._selection import (
 )
 
 __all__ = []
+
+#: The error models of `~stixpy.product.sources.science.ScienceData.get_data`: "legacy", as stixpy has combined the
+#: uncertainties so far, and "correlated", which adds them as their correlations need (see `_REDUCTIONS`).
+ERROR_MODELS = ("legacy", "correlated")
+
+#: The trigger counter of each detector. Two detectors share each counter, and so a livetime fraction.
+_TRIGGERS = np.asarray(STIX_INSTRUMENT.subcol_adc_mapping)
 
 
 def _range(values, axis, start, end):
@@ -47,27 +55,56 @@ def _mean(values, axis, start, end, data):
     return np.mean(_range(values, axis, start, end), axis=axis, keepdims=True)
 
 
+def _trigger_correlated(values, axis, start, end, data):
+    """
+    Sum linearly over the detectors that share a trigger counter, whose livetime errors are the same, and in
+    quadrature between counters.
+    """
+    part = _range(values, axis, start, end)
+    keys = [tuple(np.unique(_TRIGGERS[row])) for row in data.detectors[start : end + 1]]
+    sums = [
+        np.sum(np.take(part, [i for i, k in enumerate(keys) if k == key], axis=axis), axis=axis, keepdims=True)
+        for key in dict.fromkeys(keys)
+    ]
+    return np.sqrt(np.sum(np.concatenate(sums, axis=axis) ** 2, axis=axis, keepdims=True))
+
+
 def _duration_weighted_mean(values, axis, start, end, data):
     durations = data.durations.to_value(u.s).reshape((-1,) + (1,) * (values.ndim - 1))
     weighted = _range(values * durations, axis, start, end)
     return np.sum(weighted, axis=axis, keepdims=True) / np.sum(durations[start : end + 1])
 
 
-# How each array field is combined over a [start, end] range of each axis. None leaves the field as it is on that
-# axis: it is neither indexed nor combined.
+# How each array field is combined over a [start, end] range of each axis, for each error model. None leaves the field
+# as it is on that axis: it is neither indexed nor combined.
 _REDUCTIONS = {
-    # time, detector, pixel, energy
-    "counts": (_sum, _sum, _sum, _sum),
-    "counts_err": (_quadrature, _quadrature, _quadrature, _quadrature),
-    "livefrac": (_duration_weighted_mean, _mean, _mean, _mean),
-    # The livetime uncertainty is reduced differently on each axis, as it was before `_CountData`: in quadrature
-    # over pixels and times, linearly over energies, and as an RMS over detectors (and over all times with
-    # ``sum_all_times``, see `_sum_all_times`). Kept as it is for now, to be made consistent with the other error
-    # fixes.
-    "livefrac_err": (_quadrature, _rms, _quadrature, _sum),
-    # The ELUT factor has never been selected or combined over detectors, so with ``sunkit_spex_detector_sum=False``
-    # it keeps every detector. Kept as it is for now.
-    "elut_cor_fac": (_mean, None, _mean, _mean),
+    "legacy": {
+        # time, detector, pixel, energy
+        "counts": (_sum, _sum, _sum, _sum),
+        # includes the livetime and background uncertainties, folded in before the detectors are combined
+        "counts_err": (_quadrature, _quadrature, _quadrature, _quadrature),
+        "livefrac": (_duration_weighted_mean, _mean, _mean, _mean),
+        # only reported, as it is already in counts_err: in quadrature over pixels (of values spread so that this
+        # returns the total, see `_livefrac`) and times, linearly over energies, and as an RMS over detectors
+        "livefrac_err": (_quadrature, _rms, _quadrature, _sum),
+        "bkg_err": (None, None, None, None),
+        # The ELUT factor has never been selected or combined over detectors, so with
+        # ``sunkit_spex_detector_sum=False`` it keeps every detector.
+        "elut_cor_fac": (_mean, None, _mean, _mean),
+    },
+    "correlated": {
+        "counts": (_sum, _sum, _sum, _sum),
+        # the statistical uncertainty only, independent between every bin
+        "counts_err": (_quadrature, _quadrature, _quadrature, _quadrature),
+        "livefrac": (_duration_weighted_mean, _mean, _mean, _mean),
+        # the livetime of a detector and time bin is shared by its pixels and energies, and by the other detector on
+        # its trigger counter, and is independent between time bins
+        "livefrac_err": (_quadrature, _trigger_correlated, _sum, _sum),
+        # one background measurement is scaled to every time bin, and its uncertainty is statistical over detectors,
+        # pixels and energies
+        "bkg_err": (_sum, _quadrature, _quadrature, _quadrature),
+        "elut_cor_fac": (_mean, None, _mean, _mean),
+    },
 }
 
 
@@ -77,17 +114,22 @@ class _CountData:
     Counts and everything that is selected and combined with them, on the (time, detector, pixel, energy) axes.
 
     The array fields are broadcastable against `counts`: an axis of length 1 is shared by every position on that
-    axis, and is left alone by indexing and `combine`. `combine` reduces each field as `_REDUCTIONS` sets out.
+    axis, and is left alone by indexing and `combine`. `combine` reduces each field as `_REDUCTIONS` sets out for
+    the `error_model`.
+
+    With the "legacy" error model `counts_err` is the whole uncertainty. With "correlated" it is the statistical
+    part, and the livetime and background parts are kept in `livefrac_err` and `bkg_err` until `total_err` adds them,
+    so that each is combined as its correlations need.
     """
 
     counts: u.Quantity
     """Counts, shape (time, detector, pixel, energy)."""
     counts_err: u.Quantity
-    """1-sigma uncertainty of `counts`."""
+    """1-sigma uncertainty of `counts`: all of it ("legacy") or the statistical part ("correlated")."""
     livefrac: np.ndarray | None
     """Livetime fraction, e.g. shape (time, detector, 1, 1), or None without the livetime correction."""
     livefrac_err: u.Quantity | None
-    """Livetime uncertainty in counts, or None."""
+    """Livetime uncertainty in counts, or None. Already in `counts_err` with the "legacy" error model."""
     elut_cor_fac: np.ndarray | None
     """ELUT correction factor applied to the counts, or None without the ELUT correction."""
     times: Time
@@ -102,15 +144,23 @@ class _CountData:
     """Shape (pixel, 12), True for the pixels that are on and held by each position on the pixel axis."""
     rcr: np.ndarray
     """RCR state of each time bin."""
+    bkg_err: u.Quantity | None = None
+    """Background uncertainty in counts with the "correlated" error model and a background, otherwise None."""
+    error_model: str = "legacy"
+    """"legacy" or "correlated", see `ERROR_MODELS`."""
+
+    @property
+    def _reductions(self):
+        return _REDUCTIONS[self.error_model]
 
     def _arrays(self):
-        return {name: getattr(self, name) for name in _REDUCTIONS}
+        return {name: getattr(self, name) for name in self._reductions}
 
     def _applies(self, name, values, axis):
         """Whether field `name` is indexed and combined on `axis`."""
         return (
             values is not None
-            and _REDUCTIONS[name][axis] is not None
+            and self._reductions[name][axis] is not None
             and (name == "counts" or values.shape[axis] != 1 or self.counts.shape[axis] == 1)
         )
 
@@ -145,12 +195,24 @@ class _CountData:
             changes["energies"] = self.energies[index]
         return replace(self, **changes)
 
+    def total_err(self):
+        """
+        The whole 1-sigma uncertainty of `counts`: `counts_err`, with the livetime and background uncertainties
+        added in quadrature for the "correlated" error model.
+        """
+        if self.error_model == "legacy":
+            return self.counts_err
+        parts = [err for err in (self.counts_err, self.livefrac_err, self.bkg_err) if err is not None]
+        return np.sqrt(sum(err.to_value(u.ct) ** 2 for err in parts)) * u.ct
+
     def combine(self, axis, ranges):
         """
         Combine each inclusive [start, end] range of `axis` into one bin.
 
         The array fields are reduced as `_REDUCTIONS` sets out. A time range is centred between the start of its
-        first bin and the end of its last, its duration is that span, and it takes the RCR state of its first bin.
+        first bin and the end of its last, and takes the RCR state of its first bin. Its duration is that span with
+        the "legacy" error model, and the sum of the durations of its bins, which leaves out any gaps between them,
+        with "correlated".
         An energy range runs from the lower edge of its first bin to the upper edge of its last, and the energy table
         is rebuilt with only ``e_low`` and ``e_high``. A detector or pixel range holds every detector or pixel of the
         bins in it.
@@ -169,7 +231,7 @@ class _CountData:
         ranges = [(int(start), int(end)) for start, end in ranges]
         changes = {
             name: np.concatenate(
-                [_REDUCTIONS[name][axis](values, axis, start, end, self) for start, end in ranges], axis=axis
+                [self._reductions[name][axis](values, axis, start, end, self) for start, end in ranges], axis=axis
             )
             for name, values in self._arrays().items()
             if self._applies(name, values, axis)
@@ -181,7 +243,10 @@ class _CountData:
                 bin_start = self.times[start] - self.durations[start] * 0.5
                 span = self.times[end] + self.durations[end] * 0.5 - bin_start
                 times.append(bin_start + span * 0.5)
-                durations.append(span.to(u.s))
+                if self.error_model == "legacy":
+                    durations.append(span.to(u.s))
+                else:
+                    durations.append(np.sum(self.durations[start : end + 1]).to(u.s))
             rcr = np.asarray(self.rcr)
             changes.update(
                 times=Time(times), durations=np.hstack(durations), rcr=np.array([rcr[start] for start, _ in ranges])
@@ -272,7 +337,7 @@ def _on(masks, n_total):
     return on
 
 
-def _load(product):
+def _load(product, error_model="legacy"):
     """
     Load the counts of a science product, without any correction.
 
@@ -284,6 +349,8 @@ def _load(product):
     ----------
     product : ScienceData
         Pixel data or spectrogram product.
+    error_model : {"legacy", "correlated"}, optional
+        How the uncertainties are combined from here on (see `_CountData`).
 
     Returns
     -------
@@ -321,6 +388,7 @@ def _load(product):
         detectors=detectors,
         pixels=pixels,
         rcr=np.asarray(product.data["rcr"]),
+        error_model=error_model,
     )
     return data[:, :, :, _kept_energy_bins(product.energies)]
 
@@ -454,15 +522,5 @@ def _sum_all_times(data):
         )
 
     summed = data.combine(TIME, [[0, data.counts.shape[TIME] - 1]])
-    # Unlike a time range, which takes its span as its duration, adds the livetime uncertainty in quadrature and
-    # weights the livetime by duration, summing all times has always summed the durations, so gaps between the bins
-    # are left out, taken an RMS of the livetime uncertainty, and weighted the livetime by each bin's share of the
-    # summed duration. Kept as it is for now, to be made consistent with the other error fixes.
-    changes = {"durations": np.sum(data.durations, keepdims=True), "rcr": rcr}
-    if data.livefrac is not None:
-        weights = (data.durations / np.sum(data.durations)).to_value(u.one)
-        weights = weights.reshape((-1,) + (1,) * (data.livefrac.ndim - 1))
-        changes["livefrac"] = np.sum(data.livefrac * weights, axis=TIME, keepdims=True)
-    if data.livefrac_err is not None:
-        changes["livefrac_err"] = np.sqrt(np.mean(data.livefrac_err**2, axis=TIME, keepdims=True))
-    return replace(summed, **changes)
+    # the summed durations, which leave out any gaps between the bins, as the "correlated" time ranges take
+    return replace(summed, durations=np.sum(data.durations, keepdims=True), rcr=rcr)

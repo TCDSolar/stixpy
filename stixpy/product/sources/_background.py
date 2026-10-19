@@ -9,7 +9,7 @@ import numpy as np
 import astropy.units as u
 
 from stixpy.product.sources._corrections import _add_livetime, _livetime_uncertainty
-from stixpy.product.sources._countdata import _load
+from stixpy.product.sources._countdata import _load, _trigger_correlated
 from stixpy.product.sources._selection import DETECTOR, PIXEL, _flat_indices, _on_indices
 
 __all__ = []
@@ -129,7 +129,7 @@ def _load_background(bkg, product, data):
     _CountData
         The background, without ELUT correction.
     """
-    bkg_data = _load(bkg)
+    bkg_data = _load(bkg, data.error_model)
     _, _, matched = np.intersect1d(data.energies["e_low"], bkg_data.energies["e_low"], return_indices=True)
     bkg_data = bkg_data[:, :, :, matched]
 
@@ -148,7 +148,10 @@ def _subtract_background(data, bkg_data, detector_groups, pixel_indices):
     Both are livetime corrected, and the background is ELUT corrected with the science factor. The background is
     converted to a count rate over its time bin, scaled to the duration of each science time bin and subtracted.
     Uncertainties are combined in quadrature, with the livetime uncertainty of each folded in by
-    `_livetime_uncertainty`.
+    `_livetime_uncertainty`. With the "correlated" error model the science livetime uncertainty and the scaled
+    background uncertainty are kept apart instead, in `livefrac_err` and `bkg_err`, as the background uncertainty is
+    the same measurement in every time bin; the livetime uncertainties are summed linearly over pixels, and over the
+    detectors on one trigger counter.
 
     The result is then scaled back from livetime-corrected counts:
 
@@ -171,26 +174,38 @@ def _subtract_background(data, bkg_data, detector_groups, pixel_indices):
     Returns
     -------
     _CountData
-        Livetime corrected, with one pixel position and no livetime uncertainty, as it is in `counts_err`. For pixel
-        data the livetime fraction has an energy axis.
+        Livetime corrected, with one pixel position. With the "legacy" error model there is no livetime
+        uncertainty, as it is in `counts_err`.
     """
     elut_cor_fac = data.elut_cor_fac
     is_spectrogram = data.counts.shape[DETECTOR] == 1
+    legacy = data.error_model == "legacy"
 
     bkg_err = bkg_data.counts_err
+    livefrac_err = None
     if is_spectrogram:
         if elut_cor_fac is not None:
             bkg_err = bkg_err * elut_cor_fac
-        bkg_err = _livetime_uncertainty(bkg_err, bkg_data.livefrac_err, bkg_data.livefrac)
-
         # the counts were summed on board over the detectors and pixels, so sum the background over them too
+        if legacy:
+            bkg_err = _livetime_uncertainty(bkg_err, bkg_data.livefrac_err, bkg_data.livefrac)
+            bkg_err = np.sqrt(np.nansum(bkg_err**2, axis=(DETECTOR, PIXEL), keepdims=True))
+        else:
+            bkg_stat = np.sqrt(np.nansum((bkg_err / bkg_data.livefrac) ** 2, axis=(DETECTOR, PIXEL), keepdims=True))
+            bkg_livetime = np.nansum(bkg_data.livefrac_err, axis=PIXEL, keepdims=True)
+            bkg_livetime = _trigger_correlated(bkg_livetime, DETECTOR, 0, bkg_livetime.shape[DETECTOR] - 1, bkg_data)
+            bkg_err = np.sqrt(bkg_stat**2 + bkg_livetime**2)
         bkg_counts = np.nansum(bkg_data.counts, axis=(DETECTOR, PIXEL), keepdims=True)
-        bkg_err = np.sqrt(np.nansum(bkg_err**2, axis=(DETECTOR, PIXEL), keepdims=True))
         bkg_livefrac = np.nanmean(bkg_data.livefrac, axis=DETECTOR, keepdims=True)
 
         livefrac = np.nanmean(data.livefrac, axis=DETECTOR, keepdims=True)
-        livefrac_err = np.nanmean(data.livefrac_err, axis=(DETECTOR, PIXEL), keepdims=True)
-        counts_err = _livetime_uncertainty(data.counts_err, livefrac_err, livefrac)
+        if legacy:
+            livefrac_err = np.nanmean(data.livefrac_err, axis=(DETECTOR, PIXEL), keepdims=True)
+            counts_err = _livetime_uncertainty(data.counts_err, livefrac_err, livefrac)
+            livefrac_err = None
+        else:
+            counts_err = data.counts_err / livefrac
+            livefrac_err = data.livefrac_err
     else:
         pixels_on = np.flatnonzero(data.pixels.any(axis=0))
         pixels = _flat_indices(pixel_indices).astype(int)
@@ -201,14 +216,24 @@ def _subtract_background(data, bkg_data, detector_groups, pixel_indices):
         bkg_err = bkg_err[:, :, pixels, :]
         if elut_cor_fac is not None:
             bkg_err = bkg_err * elut_cor_fac
-        bkg_err = _livetime_uncertainty(bkg_err, _pixels(bkg_data.livefrac_err, pixels), bkg_data.livefrac)
 
         bkg_counts = bkg_data.counts
         bkg_livefrac = bkg_data.livefrac
         livefrac = data.livefrac
-        counts_err = _livetime_uncertainty(
-            data.counts_err[:, :, pixels, :], _pixels(data.livefrac_err, pixels), livefrac
-        )
+        if legacy:
+            bkg_err = _livetime_uncertainty(bkg_err, _pixels(bkg_data.livefrac_err, pixels), bkg_data.livefrac)
+            counts_err = _livetime_uncertainty(
+                data.counts_err[:, :, pixels, :], _pixels(data.livefrac_err, pixels), livefrac
+            )
+        else:
+            # one background measurement, so its statistical and livetime parts are added together here
+            bkg_stat = np.sqrt(np.nansum((bkg_err / bkg_livefrac) ** 2, axis=PIXEL, keepdims=True))
+            bkg_livetime = np.nansum(bkg_data.livefrac_err[:, :, pixels, :], axis=PIXEL, keepdims=True)
+            bkg_err = np.sqrt(bkg_stat**2 + bkg_livetime**2)
+            counts_err = np.sqrt(
+                np.nansum((data.counts_err[:, :, pixels, :] / livefrac) ** 2, axis=PIXEL, keepdims=True)
+            )
+            livefrac_err = np.nansum(data.livefrac_err[:, :, pixels, :], axis=PIXEL, keepdims=True)
 
     t_norm = data.durations.to(u.s).reshape(-1, 1, 1, 1)
     t_norm_bkg = bkg_data.durations.to(u.s).mean()
@@ -219,10 +244,18 @@ def _subtract_background(data, bkg_data, detector_groups, pixel_indices):
         counts_lvtcorr_bkg = counts_lvtcorr_bkg * elut_cor_fac
 
     counts = counts_lvtcorr - t_norm * (counts_lvtcorr_bkg / t_norm_bkg)
-    counts_err = np.sqrt(counts_err**2 + ((bkg_err / t_norm_bkg) * t_norm) ** 2)
+    bkg_err = (bkg_err / t_norm_bkg) * t_norm
+    if legacy:
+        counts_err, bkg_err = np.sqrt(counts_err**2 + bkg_err**2), None
 
     if is_spectrogram:
-        return replace(data, counts=counts * livefrac, counts_err=counts_err * livefrac, livefrac_err=None)
+        return replace(
+            data,
+            counts=counts * livefrac,
+            counts_err=counts_err * livefrac,
+            livefrac_err=None if livefrac_err is None else livefrac_err * livefrac,
+            bkg_err=None if bkg_err is None else bkg_err * livefrac,
+        )
 
     # scale each group of detectors back by its mean livetime fraction, as `_apply_livetime` does without a
     # background; detectors in no group keep their own
@@ -235,12 +268,18 @@ def _subtract_background(data, bkg_data, detector_groups, pixel_indices):
     selected = np.zeros((1, 32, 12, 1), dtype=bool)
     selected[0, detectors[:, None], pixels, 0] = True
     counts = np.where(selected, counts * eff_livefrac, 0 * counts.unit)
+    detectors_selected = selected.any(axis=PIXEL, keepdims=True)
+
+    def scaled(err):
+        return None if err is None else np.where(detectors_selected, err * eff_livefrac, 0 * err.unit)
+
     subtracted = replace(
         data,
         counts=counts,
-        counts_err=np.where(selected.any(axis=PIXEL, keepdims=True), counts_err * eff_livefrac, 0 * counts_err.unit),
-        livefrac=np.broadcast_to(eff_livefrac, counts.shape),
-        livefrac_err=None,
+        counts_err=scaled(counts_err),
+        livefrac=eff_livefrac,
+        livefrac_err=scaled(livefrac_err),
+        bkg_err=scaled(bkg_err),
         pixels=data.pixels[np.unique(pixels)].any(axis=0, keepdims=True),
     )
     if np.ndim(pixel_indices) == 2:
@@ -248,7 +287,6 @@ def _subtract_background(data, bkg_data, detector_groups, pixel_indices):
     return replace(
         subtracted,
         counts=np.nansum(subtracted.counts, axis=PIXEL, keepdims=True),
-        livefrac=np.nanmean(subtracted.livefrac, axis=PIXEL, keepdims=True),
         pixels=subtracted.pixels.any(axis=0, keepdims=True),
     )
 

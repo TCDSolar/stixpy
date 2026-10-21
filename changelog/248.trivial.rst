@@ -1,0 +1,1 @@
+Ensure fits files are closed after reading.

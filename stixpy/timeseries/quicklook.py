@@ -119,8 +119,8 @@ class QLLightCurve(GenericTimeSeries):
         filepath : `str`
             The path to the file you want to parse.
         """
-        hdus = fits.open(filepath)
-        return cls._parse_hdus(hdus)
+        with fits.open(filepath) as hdus:
+            return cls._parse_hdus(hdus)
 
     @classmethod
     def _parse_hdus(cls, hdulist):
@@ -283,8 +283,8 @@ class QLBackground(GenericTimeSeries):
         filepath : `str`
             The path to the file you want to parse.
         """
-        hdus = fits.open(filepath)
-        return cls._parse_hdus(hdus)
+        with fits.open(filepath) as hdus:
+            return cls._parse_hdus(hdus)
 
     @classmethod
     def _parse_hdus(cls, hdulist):
@@ -446,8 +446,8 @@ class QLVariance(GenericTimeSeries):
         filepath : `str`
             The path to the file you want to parse.
         """
-        hdus = fits.open(filepath)
-        return cls._parse_hdus(hdus)
+        with fits.open(filepath) as hdus:
+            return cls._parse_hdus(hdus)
 
     @classmethod
     def _parse_hdus(cls, hdulist):
@@ -586,8 +586,8 @@ class HKMaxi(GenericTimeSeries):
         filepath : `str`
             The path to the file you want to parse.
         """
-        hdus = fits.open(filepath)
-        return cls._parse_hdus(hdus)
+        with fits.open(filepath) as hdus:
+            return cls._parse_hdus(hdus)
 
     @classmethod
     def _parse_hdus(cls, hdulist):

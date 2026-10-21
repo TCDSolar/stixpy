@@ -51,7 +51,8 @@ def read_qtable(file, hdu, hdul=None):
         The corrected QTable with correct data types
     """
     if hdul is None:
-        hdul = fits.open(file)
+        with fits.open(file) as hdul:
+            return read_qtable(file, hdu, hdul=hdul)
 
     qtable = QTable.read(file, hdu)
 
@@ -114,18 +115,19 @@ class ProductFactory(BasicRegistrationFactory):
             msg = f"Failed to read {fname}."
             raise OSError(msg) from e
 
-        if hdul[0].header.get("INSTRUME", "") != "STIX":
-            raise FileError(f"File '{fname}' is not a STIX fits file.")
+        with hdul:
+            if hdul[0].header.get("INSTRUME", "") != "STIX":
+                raise FileError(f"File '{fname}' is not a STIX fits file.")
 
-        data = {"meta": hdul[0].header}
-        for name in ["CONTROL", "DATA", "IDB_VERSIONS", "ENERGIES"]:
-            try:
-                data[name.lower()] = read_qtable(fname, hdu=name)
-            except KeyError as e:
-                if name in ("IDB_VERSIONS", "ENERGIES"):
-                    logger.debug(f"Extension '{name}' not in file '{fname}'")
-                else:
-                    raise e
+            data = {"meta": hdul[0].header}
+            for name in ["CONTROL", "DATA", "IDB_VERSIONS", "ENERGIES"]:
+                try:
+                    data[name.lower()] = read_qtable(fname, hdu=name, hdul=hdul)
+                except KeyError as e:
+                    if name in ("IDB_VERSIONS", "ENERGIES"):
+                        logger.debug(f"Extension '{name}' not in file '{fname}'")
+                    else:
+                        raise e
 
         return [data]
 

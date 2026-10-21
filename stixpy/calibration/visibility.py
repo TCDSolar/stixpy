@@ -229,9 +229,14 @@ def create_meta_pixels(
         if not isinstance(flare_location.frame, STIXImaging) and flare_location.obstime != time_range.center:
             roll, solo_heeq, stix_pointing = get_hpc_info(time_range.start, time_range.end)
             flare_location = flare_location.transform_to(STIXImaging(obstime=time_range.center, observer=solo_heeq))
-        grid_shadowing = get_grid_transmission(flare_location)
-        ct_summed = ct_summed / grid_shadowing.reshape(-1, 1) / 4  # transmission grid ~ 0.5*0.5 = .25
-        ct_error_summed = ct_error_summed / grid_shadowing.reshape(-1, 1) / 4
+        # Use the energy independent transmission, evaluated at the 10-15 keV calibration energy, as STIX-GSW does
+        # for imaging (stx_subc_transmission with /simple_transm). CFL and BKG (detectors 8, 9) have no imaging
+        # grids, so are not corrected.
+        imaging = np.isin(np.arange(32), [8, 9], invert=True)
+        grid_shadowing = get_grid_transmission(12.5 * u.keV, np.arange(32)[imaging], flare_location)[0]
+        # Normalise to the nominal transmission of two grids with 50% open area 0.5*0.5 = 0.25
+        ct_summed[imaging] = ct_summed[imaging] / grid_shadowing.reshape(-1, 1) / 4
+        ct_error_summed[imaging] = ct_error_summed[imaging] / grid_shadowing.reshape(-1, 1) / 4
 
     abcd_counts = ct_summed.reshape(ct_summed.shape[0], -1, 4).sum(axis=1)
     abcd_count_errors = np.sqrt((ct_error_summed.reshape(ct_error_summed.shape[0], -1, 4) ** 2).sum(axis=1))

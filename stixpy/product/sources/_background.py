@@ -2,12 +2,15 @@
 Background subtraction for `~stixpy.product.sources.science.ScienceData.get_data`.
 """
 
+from dataclasses import replace
+
 import numpy as np
 
 import astropy.units as u
 
-from stixpy.product.sources._corrections import _indices_expand_ranges, _livetime_uncertainty
-from stixpy.product.sources._selection import _on_indices
+from stixpy.product.sources._corrections import _add_livetime, _livetime_uncertainty
+from stixpy.product.sources._countdata import _load, _trigger_correlated
+from stixpy.product.sources._selection import DETECTOR, PIXEL, _flat_indices, _on_indices
 
 __all__ = []
 
@@ -90,18 +93,8 @@ def _bkg_check(product, bkg, detector_indices, pixel_indices, livetime_correctio
         pixels = _on_indices(product.pixel_masks.masks)
         used = "were summed on board into the spectrogram"
     else:
-        detectors = np.intersect1d(
-            np.asarray(_indices_expand_ranges(detector_indices, nest=False))
-            if np.ndim(detector_indices) == 2
-            else np.ravel(detector_indices),
-            _on_indices(product.detector_masks.masks),
-        )
-        pixels = np.intersect1d(
-            np.asarray(_indices_expand_ranges(pixel_indices, nest=False))
-            if np.ndim(pixel_indices) == 2
-            else np.ravel(pixel_indices),
-            _on_indices(product.pixel_masks.masks),
-        )
+        detectors = np.intersect1d(_flat_indices(detector_indices), _on_indices(product.detector_masks.masks))
+        pixels = np.intersect1d(_flat_indices(pixel_indices), _on_indices(product.pixel_masks.masks))
         used = "are selected"
     missing_dets = np.setdiff1d(detectors, _on_indices(bkg.detector_masks.masks))
     missing_pix = np.setdiff1d(pixels, _on_indices(bkg.pixel_masks.masks))
@@ -114,280 +107,213 @@ def _bkg_check(product, bkg, detector_indices, pixel_indices, livetime_correctio
         )
 
 
-def _bkg_sub(
-    product,
-    bkg,
-    counts,
-    counts_err,
-    counts_bkg,
-    counts_err_bkg,
-    detector_indices,
-    pixel_indices,
-    detector_indices_bkg,
-    pixel_indices_bkg,
-    energy_indices_bkg,
-    livefrac,
-    livefrac_error,
-    livefrac_bkg,
-    livefrac_error_bkg,
-    elut_cor_fac,
-    rcr,
-    sunkit_spex_detector_sum=True,
-):
+def _load_background(bkg, product, data):
     """
-    Subtract a background product from the science product.
+    Load a background product for subtraction from the science data.
 
-    The background is first cut down to the detectors, pixels and energy bins
-    it shares with the science product. Both products are livetime corrected,
-    and ELUT corrected if a factor is given. The background is converted to a
-    count rate using its mean integration time, scaled to the duration of each
-    science time bin, and subtracted. Uncertainties are combined in quadrature,
-    with the livetime uncertainty folded in by `_livetime_uncertainty`.
+    The background is loaded as the science data are (see `_load`), cut down to the science energy bins, and given
+    its livetime, with the uncertainty computed on ELUT corrected counts if the science data are ELUT corrected.
+    For a spectrogram it is also cut down to the detectors and pixels summed on board that are on in both products.
+
+    Parameters
+    ----------
+    bkg : ScienceData
+        Background product, already checked with `_bkg_check`.
+    product : ScienceData
+        Science product.
+    data : _CountData
+        The science data, from `_load`, with any ELUT correction.
+
+    Returns
+    -------
+    _CountData
+        The background, without ELUT correction.
+    """
+    bkg_data = _load(bkg, data.error_model)
+    _, _, matched = np.intersect1d(data.energies["e_low"], bkg_data.energies["e_low"], return_indices=True)
+    bkg_data = bkg_data[:, :, :, matched]
+
+    pixels, detectors = _bkg_indices_check(product, bkg)
+    bkg_data = _add_livetime(bkg_data, bkg, pixels, elut_cor_fac=data.elut_cor_fac)
+    if data.counts.shape[DETECTOR] == 1:
+        bkg_data = bkg_data[:, detectors, pixels]
+    return bkg_data
+
+
+def _subtract_background(data, bkg_data, detector_groups, pixel_indices):
+    """
+    Subtract a background from the science data, as STIX-GSW's ``stx_convert_pixel_data`` and
+    ``stx_convert_spectrogram`` do.
+
+    Both are livetime corrected, and the background is ELUT corrected with the science factor. The background is
+    converted to a count rate over its time bin, scaled to the duration of each science time bin and subtracted.
+    Uncertainties are combined in quadrature, with the livetime uncertainty of each folded in by
+    `_livetime_uncertainty`. With the "correlated" error model the science livetime uncertainty and the scaled
+    background uncertainty are kept apart instead, in `livefrac_err` and `bkg_err`, as the background uncertainty is
+    the same measurement in every time bin; the livetime uncertainties are summed linearly over pixels, and over the
+    detectors on one trigger counter.
 
     The result is then scaled back from livetime-corrected counts:
 
     - spectrogram products: by the science livetime fraction;
-    - pixel data: by the mean livetime fraction of the detectors combined into
-      each output spectrum (all selected detectors for flat indices, each range
-      for [start, end] pairs), as `_apply_livetime` does without a background.
-      With flat indices and `sunkit_spex_detector_sum` False, each detector is
-      scaled by its own livetime fraction, as it gives its own spectrum.
-      Detectors and pixels that are not selected are set to zero.
-
-    The 0 keV bottom bin and the open top bin are removed from the counts,
-    uncertainties, `e_norm`, `livefrac_error` and ELUT factor, but not from the
-    energy table, so that `_data_select` can trim the table and shift the energy
-    indices in one place.
+    - pixel data: by the mean livetime fraction of each group of detectors, as `_apply_livetime` does without a
+      background. Detectors and pixels that are not selected are set to zero, and the pixels are summed.
 
     Parameters
     ----------
-    product : ScienceData
-        Science product.
-    bkg : ScienceData
-        Background product.
-    counts : astropy.units.Quantity
-        The science counts, shape (time, detector, pixel, energy), with pixel
-        data on the full detector and pixel grid (see ``_full_layout``) and
-        spectrogram counts reshaped to (time, 1, 1, energy).
-    counts_err : astropy.units.Quantity
-        The compression error of `counts`, same shape.
-    counts_bkg : astropy.units.Quantity
-        The background counts on the full detector and pixel grid.
-    counts_err_bkg : astropy.units.Quantity
-        The compression error of `counts_bkg`, same shape.
-    detector_indices : numpy.ndarray
-        Science detector selection, flat or [start, end] pairs.
-    pixel_indices : numpy.ndarray
-        Science pixel selection, flat or [start, end] pairs.
-    detector_indices_bkg : list of int
-        Background detectors shared with the science product, from
-        `_bkg_indices_check`.
-    pixel_indices_bkg : list of int
-        Background pixels shared with the science product, from
-        `_bkg_indices_check`.
-    energy_indices_bkg : numpy.ndarray
-        Background energy bins matching the science energy bins, from
-        `_energies_bkg_sub`.
-    livefrac : numpy.ndarray
-        Science livetime fraction from `_livefrac`.
-    livefrac_error : astropy.units.Quantity
-        Science livetime uncertainty from `_livefrac`.
-    livefrac_bkg : numpy.ndarray
-        Background livetime fraction from `_livefrac`.
-    livefrac_error_bkg : astropy.units.Quantity
-        Background livetime uncertainty from `_livefrac`.
-    elut_cor_fac : numpy.ndarray or None
-        ELUT correction factor, applied to both products. None for no ELUT
-        correction.
-    rcr : array_like
-        RCR state of each time bin, passed through unchanged.
-    sunkit_spex_detector_sum : bool, optional
-        Whether the detectors are summed into one spectrum. Default True.
+    data : _CountData
+        Science data from `_load`, with any ELUT correction and the livetime (see `_add_livetime`).
+    bkg_data : _CountData
+        Background from `_load_background`.
+    detector_groups : list of numpy.ndarray
+        Detectors to subtract from, in groups that share one livetime (see `_livetime_groups`). Not used for
+        spectrogram products.
+    pixel_indices : numpy.ndarray or None
+        Pixels to subtract from, flat or [start, end] pairs. Not used for spectrogram products.
 
     Returns
     -------
-    tuple
-        ``(counts, counts_var, t_norm, e_norm, livefrac, livefrac_error,
-        elut_cor_fac, times, energies, rcr)``, in the form `_data_select`
-        accepts with ``bkg=True``. `counts_var` holds the 1-sigma uncertainty
-        with the pixel axis already summed, and `energies` is the full,
-        untrimmed table.
-
-    Notes
-    -----
-    The background must already have been checked against the science product
-    with `_bkg_check`.
+    _CountData
+        Livetime corrected, with one pixel position. With the "legacy" error model there is no livetime
+        uncertainty, as it is in `counts_err`.
     """
+    elut_cor_fac = data.elut_cor_fac
+    is_spectrogram = data.counts.shape[DETECTOR] == 1
+    legacy = data.error_model == "legacy"
 
-    e_norm = product.dE
-    is_spectrogram = product.data["counts"].ndim < 4
-
-    counts_var = (counts_err.value**2) * u.ct
-    counts_var_bkg = (counts_err_bkg.value**2) * u.ct
-
-    counts_var_bkg = np.sqrt(counts_bkg + counts_var_bkg)
-
-    # Both products are on the full 32 x 12 grid (_full_layout), so detector and pixel
-    # numbers index the background directly: keep the full grid, so its shape matches the
-    # science counts, and only select the matching energy bins.
-    counts_bkg = counts_bkg[:, :, :, energy_indices_bkg]
-    counts_var_bkg = counts_var_bkg[:, :, :, energy_indices_bkg]
-
-    if elut_cor_fac is None:
-        livefrac_error_bkg = livefrac_error_bkg[:, :, :, energy_indices_bkg]
-
-    if not is_spectrogram:
-        pix = np.asarray(pixel_indices)
-        if pix.ndim == 2:
-            pix = np.asarray(_indices_expand_ranges(pix, nest=False))
-        pix = np.asarray(pix, dtype=int)
-
-        detectors_on = _on_indices(product.detector_masks.masks)
-        dets = np.asarray(detector_indices)
-        if dets.ndim == 2:
-            # [start, end] ranges may span detectors that are off, which add nothing; each range shares one livetime
-            detector_groups = [np.intersect1d(np.arange(dl, dh + 1), detectors_on) for dl, dh in dets]
-            dets = np.concatenate(detector_groups)
+    bkg_err = bkg_data.counts_err
+    livefrac_err = None
+    if is_spectrogram:
+        if elut_cor_fac is not None:
+            bkg_err = bkg_err * elut_cor_fac
+        # the counts were summed on board over the detectors and pixels, so sum the background over them too
+        if legacy:
+            bkg_err = _livetime_uncertainty(bkg_err, bkg_data.livefrac_err, bkg_data.livefrac)
+            bkg_err = np.sqrt(np.nansum(bkg_err**2, axis=(DETECTOR, PIXEL), keepdims=True))
         else:
-            dets = dets.ravel()
-            detector_groups = [dets] if sunkit_spex_detector_sum else [dets[i : i + 1] for i in range(dets.size)]
-        if np.asarray(pixel_indices).ndim == 2:
-            pix = np.intersect1d(pix, _on_indices(product.pixel_masks.masks))
+            bkg_stat = np.sqrt(np.nansum((bkg_err / bkg_data.livefrac) ** 2, axis=(DETECTOR, PIXEL), keepdims=True))
+            bkg_livetime = np.nansum(bkg_data.livefrac_err, axis=PIXEL, keepdims=True)
+            bkg_livetime = _trigger_correlated(bkg_livetime, DETECTOR, 0, bkg_livetime.shape[DETECTOR] - 1, bkg_data)
+            bkg_err = np.sqrt(bkg_stat**2 + bkg_livetime**2)
+        bkg_counts = np.nansum(bkg_data.counts, axis=(DETECTOR, PIXEL), keepdims=True)
+        bkg_livefrac = np.nanmean(bkg_data.livefrac, axis=DETECTOR, keepdims=True)
 
-        # the background is only subtracted where science data are selected, so the other detectors and pixels
-        # stay zero, as they are without a background
-        selected = np.zeros((1, 32, 12, 1), dtype=bool)
-        selected[0, dets[:, None], pix, 0] = True
-
-        counts_var_bkg = counts_var_bkg[:, :, pix, :]
-        if livefrac_error_bkg.shape[2] != 1:
-            livefrac_error_bkg = livefrac_error_bkg[:, :, pix, :]
+        livefrac = np.nanmean(data.livefrac, axis=DETECTOR, keepdims=True)
+        if legacy:
+            livefrac_err = np.nanmean(data.livefrac_err, axis=(DETECTOR, PIXEL), keepdims=True)
+            counts_err = _livetime_uncertainty(data.counts_err, livefrac_err, livefrac)
+            livefrac_err = None
+        else:
+            counts_err = data.counts_err / livefrac
+            livefrac_err = data.livefrac_err
     else:
-        # spectrogram: the counts were summed onboard over the detectors and pixels in its
-        # masks, so sum the background over the same ones (those also on in the background)
-        counts_bkg = counts_bkg[:, detector_indices_bkg][:, :, pixel_indices_bkg]
-        counts_var_bkg = counts_var_bkg[:, detector_indices_bkg][:, :, pixel_indices_bkg]
-        livefrac_error_bkg = livefrac_error_bkg[:, detector_indices_bkg][:, :, pixel_indices_bkg]
-        livefrac_bkg = livefrac_bkg[:, detector_indices_bkg]
+        pixels_on = np.flatnonzero(data.pixels.any(axis=0))
+        pixels = _flat_indices(pixel_indices).astype(int)
+        if np.ndim(pixel_indices) == 2:
+            pixels = np.intersect1d(pixels, pixels_on)
+        detectors = np.concatenate(detector_groups)
 
+        bkg_err = bkg_err[:, :, pixels, :]
+        if elut_cor_fac is not None:
+            bkg_err = bkg_err * elut_cor_fac
+
+        bkg_counts = bkg_data.counts
+        bkg_livefrac = bkg_data.livefrac
+        livefrac = data.livefrac
+        if legacy:
+            bkg_err = _livetime_uncertainty(bkg_err, _pixels(bkg_data.livefrac_err, pixels), bkg_data.livefrac)
+            counts_err = _livetime_uncertainty(
+                data.counts_err[:, :, pixels, :], _pixels(data.livefrac_err, pixels), livefrac
+            )
+        else:
+            # one background measurement, so its statistical and livetime parts are added together here
+            bkg_stat = np.sqrt(np.nansum((bkg_err / bkg_livefrac) ** 2, axis=PIXEL, keepdims=True))
+            bkg_livetime = np.nansum(bkg_data.livefrac_err[:, :, pixels, :], axis=PIXEL, keepdims=True)
+            bkg_err = np.sqrt(bkg_stat**2 + bkg_livetime**2)
+            counts_err = np.sqrt(
+                np.nansum((data.counts_err[:, :, pixels, :] / livefrac) ** 2, axis=PIXEL, keepdims=True)
+            )
+            livefrac_err = np.nansum(data.livefrac_err[:, :, pixels, :], axis=PIXEL, keepdims=True)
+
+    t_norm = data.durations.to(u.s).reshape(-1, 1, 1, 1)
+    t_norm_bkg = bkg_data.durations.to(u.s).mean()
+
+    counts_lvtcorr = data.counts / livefrac
+    counts_lvtcorr_bkg = bkg_counts / bkg_livefrac
     if elut_cor_fac is not None:
-        counts_var_bkg = counts_var_bkg * elut_cor_fac
+        counts_lvtcorr_bkg = counts_lvtcorr_bkg * elut_cor_fac
 
-    counts_var_bkg = _livetime_uncertainty(counts_var_bkg, livefrac_error_bkg, livefrac_bkg)
+    counts = counts_lvtcorr - t_norm * (counts_lvtcorr_bkg / t_norm_bkg)
+    bkg_err = (bkg_err / t_norm_bkg) * t_norm
+    if legacy:
+        counts_err, bkg_err = np.sqrt(counts_err**2 + bkg_err**2), None
 
     if is_spectrogram:
-        livefrac = np.nanmean(livefrac, axis=1, keepdims=True)
-        livefrac_error = np.nanmean(livefrac_error, axis=(1, 2), keepdims=True)
+        return replace(
+            data,
+            counts=counts * livefrac,
+            counts_err=counts_err * livefrac,
+            livefrac_err=None if livefrac_err is None else livefrac_err * livefrac,
+            bkg_err=None if bkg_err is None else bkg_err * livefrac,
+        )
 
-        counts_bkg = np.nansum(counts_bkg, axis=(1, 2), keepdims=True)
-        counts_var_bkg = np.sqrt(np.nansum(counts_var_bkg**2, axis=(1, 2), keepdims=True))
+    # scale each group of detectors back by its mean livetime fraction, as `_apply_livetime` does without a
+    # background; detectors in no group keep their own
+    eff_livefrac = np.array(livefrac, dtype=float)
+    for group in detector_groups:
+        eff_livefrac[:, group] = np.nanmean(livefrac[:, group, :, :], axis=DETECTOR, keepdims=True)
 
-        livefrac_bkg = np.nanmean(livefrac_bkg, axis=1, keepdims=True)
-        livefrac_error_bkg = np.sqrt(np.nansum(livefrac_error_bkg**2, axis=(1, 2), keepdims=True))
+    # the background is only subtracted where science data are selected, so the other detectors and pixels stay
+    # zero, as they are without a background
+    selected = np.zeros((1, 32, 12, 1), dtype=bool)
+    selected[0, detectors[:, None], pixels, 0] = True
+    counts = np.where(selected, counts * eff_livefrac, 0 * counts.unit)
+    detectors_selected = selected.any(axis=PIXEL, keepdims=True)
 
-    counts_var = np.sqrt(counts + counts_var)
+    def scaled(err):
+        return None if err is None else np.where(detectors_selected, err * eff_livefrac, 0 * err.unit)
 
-    t_norm = product.data["timedel"]
-    times = product.times
-    energies = product.energies
-
-    if not is_spectrogram:
-        counts_var = counts_var[:, :, pix, :]
-
-        if livefrac_error.shape[2] != 1:
-            livefrac_error = livefrac_error[:, :, pix, :]
-
-    if elut_cor_fac is not None:
-        counts_var = counts_var * elut_cor_fac
-
-    counts_var = _livetime_uncertainty(counts_var, livefrac_error, livefrac)
-
-    t_norm_bkg = bkg.data["timedel"]
-    t_norm = t_norm.to(u.s)
-    t_norm_bkg = t_norm_bkg.to(u.s)
-
-    if elut_cor_fac is not None:
-        counts_lvtcorr = (counts * elut_cor_fac) / livefrac
-    else:
-        counts_lvtcorr = (counts) / livefrac
-
-    if elut_cor_fac is not None:
-        counts_lvtcorr_bkg = (counts_bkg / livefrac_bkg) * elut_cor_fac
-    else:
-        counts_lvtcorr_bkg = counts_bkg / livefrac_bkg
-
-    count_rate_lvtcorr_bkg = counts_lvtcorr_bkg / t_norm_bkg.mean()
-    count_lvtcorr_scaled_bkg = t_norm.reshape(len(t_norm), 1, 1, 1) * count_rate_lvtcorr_bkg
-
-    counts_var_lvtcorr = counts_var
-    counts_var_lvtcorr_bkg = counts_var_bkg
-
-    counts_var_lvtcorr_scaled_bkg = (counts_var_lvtcorr_bkg / t_norm_bkg.mean()) * t_norm.reshape(len(t_norm), 1, 1, 1)
-
-    spec_in_corr = counts_lvtcorr - count_lvtcorr_scaled_bkg
-
-    spec_in_err = np.sqrt((counts_var_lvtcorr**2) + (counts_var_lvtcorr_scaled_bkg**2))
-
-    if energies["e_low"][0].value == 0:
-        spec_in_corr = spec_in_corr[..., 1:]
-        spec_in_err = spec_in_err[..., 1:]
-        e_norm = e_norm[1:]
-        livefrac_error = livefrac_error[..., 1:]
-        if elut_cor_fac is not None:
-            elut_cor_fac = elut_cor_fac[..., 1:]
-
-    if np.isnan(energies["e_high"][-1].value):
-        spec_in_corr = spec_in_corr[..., :-1]
-        spec_in_err = spec_in_err[..., :-1]
-        e_norm = e_norm[:-1]
-        livefrac_error = livefrac_error[..., :-1]
-        if elut_cor_fac is not None:
-            elut_cor_fac = elut_cor_fac[..., :-1]
-
-    if is_spectrogram:
-        spec_in_final = spec_in_corr * livefrac
-        spec_in_err_final = spec_in_err * livefrac
-
-        counts = spec_in_final
-        counts_var = spec_in_err_final
-
-    else:
-        # scale each group of detectors back by its mean livetime fraction, as `_apply_livetime` does without a
-        # background
-        eff_livefrac = np.array(livefrac, dtype=float)  # detectors in no group keep their own
-        for group in detector_groups:
-            eff_livefrac[:, group] = np.nanmean(livefrac[:, group, :, :], axis=1, keepdims=True)
-
-        counts = np.where(selected, spec_in_corr * eff_livefrac, 0 * spec_in_corr.unit)
-        counts_var = np.where(selected.any(axis=2, keepdims=True), spec_in_err * eff_livefrac, 0 * spec_in_err.unit)
-
-        livefrac = np.broadcast_to(eff_livefrac, counts.shape)
-
-    return counts, counts_var, t_norm, e_norm, livefrac, livefrac_error, elut_cor_fac, times, energies, rcr
+    subtracted = replace(
+        data,
+        counts=counts,
+        counts_err=scaled(counts_err),
+        livefrac=eff_livefrac,
+        livefrac_err=scaled(livefrac_err),
+        bkg_err=scaled(bkg_err),
+        pixels=data.pixels[np.unique(pixels)].any(axis=0, keepdims=True),
+    )
+    if np.ndim(pixel_indices) == 2:
+        subtracted = subtracted.combine(PIXEL, pixel_indices)  # sum range by range, as the pixel selection does
+    return replace(
+        subtracted,
+        counts=np.nansum(subtracted.counts, axis=PIXEL, keepdims=True),
+        pixels=subtracted.pixels.any(axis=0, keepdims=True),
+    )
 
 
-def _energies_bkg_sub(product, bkg):
+def _pixels(values, pixels):
+    """`values` at `pixels` on the pixel axis, unless that axis has length 1."""
+    return values if values.shape[PIXEL] == 1 else values[:, :, pixels, :]
+
+
+def _clip_negative(data, axes):
     """
-    Find the background energy bins that match the science energy bins.
-
-    Bins are matched on their lower edge, `e_low`.
+    Set the counts to zero wherever their total over `axes` is negative.
 
     Parameters
     ----------
-    product : ScienceData
-        Science product.
-    bkg : ScienceData
-        Background product.
+    data : _CountData
+        Background subtracted data.
+    axes : tuple of int
+        Axes pooled into one spectrum: ``(DETECTOR, PIXEL)`` or ``(PIXEL,)``.
 
     Returns
     -------
-    numpy.ndarray
-        Indices into `bkg.energies` of the bins whose lower edge also appears
-        in `product.energies`, in increasing energy order.
+    _CountData
     """
-    _, _, indices_sub = np.intersect1d(product.energies["e_low"], bkg.energies["e_low"], return_indices=True)
-
-    return indices_sub
+    # STIX-GSW's stx_convert_pixel_data does not clip; kept for now, to be revisited with the other error fixes
+    total = np.nansum(data.counts, axis=axes, keepdims=True)
+    return replace(data, counts=np.where(total < 0, 0, data.counts.value) * data.counts.unit)
 
 
 def _bkg_indices_check(product, bkg):

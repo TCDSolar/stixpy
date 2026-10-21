@@ -129,6 +129,25 @@ def _rcr_shift(rcr, signal):
     return state[np.clip(which, 0, None)]
 
 
+def _shift_rcr(data, n_detectors):
+    """
+    Align the RCR state changes of the count data to the jumps in its counts (see `_rcr_shift`).
+
+    Parameters
+    ----------
+    data : _CountData
+        The selected data, summed over every energy bin.
+    n_detectors : int
+        Number of detectors the signal is scaled to (see `_rcr_signal`).
+
+    Returns
+    -------
+    numpy.ndarray
+        The aligned RCR state of each time bin.
+    """
+    return _rcr_shift(data.rcr, _rcr_signal(data.counts, n_detectors))
+
+
 def _rcr_warning(time_indices, rcr):
     """
     Warn if the RCR state varies across flat time indices.

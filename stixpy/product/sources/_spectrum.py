@@ -16,12 +16,12 @@ from sunpy.coordinates import Helioprojective
 from stixpy.calibration.srm import get_srm
 from stixpy.coordinates.frames import STIXImaging
 from stixpy.coordinates.utils import heliocentric_angle
-from stixpy.product.sources._corrections import _indices_expand_ranges
+from stixpy.product.sources._selection import DETECTOR, PIXEL, TIME
 
 __all__ = []
 
 
-def _return_spec_object(case, sci_data, flare_angle, distance, srm_dict, bkg):
+def _return_spec_object(case, data, flare_angle, distance, srm_dict):
     """
     Build one `sunkit_spex` `Spectrum` from a slice of the selected data.
 
@@ -36,20 +36,18 @@ def _return_spec_object(case, sci_data, flare_angle, distance, srm_dict, bkg):
     case : str
         Which slice this is: 'spec_1D_detector_collapse',
         'spec_sequence_detector_collapse', 'spec_1D_detector_expand' or
-        'spec_sequence_detector_expand'. Sets which axes are summed. For every
-        case except 'spec_1D_detector_collapse', negative summed counts are set
-        to zero.
-    sci_data : tuple
-        The 10-element tuple from `_data_select`, or a single time bin or
-        detector of it, as sliced by `_get_sunkit_spex_spectrum`.
+        'spec_sequence_detector_expand'. With the "legacy" error model, for
+        every case except 'spec_1D_detector_collapse', negative summed counts are
+        set to zero.
+    data : _CountData
+        The selected data, or one time bin or detector of it, as sliced by
+        `_get_sunkit_spex_spectrum`.
     flare_angle : astropy.units.Quantity or None
         Flare angle, stored in the metadata.
     distance : astropy.units.Quantity
         Spacecraft-Sun distance, stored in the metadata.
     srm_dict : dict
         Output of `_masked_srm`, with keys 'srm', 'ph_axis' and 'geo_area'.
-    bkg : bool
-        Not used.
 
     Returns
     -------
@@ -58,38 +56,30 @@ def _return_spec_object(case, sci_data, flare_angle, distance, srm_dict, bkg):
         as the spectral axis. Its metadata holds 'exposure_time', 'geo_area',
         'angle', 'distance', 'srm', 'ph_axis' and 'time_range'.
     """
-
-    counts, counts_uncertainity, t_norm, _, livefrac, _, elut_cor_fac, times_full, energies, _ = sci_data
-
-    t_norm = t_norm.to(u.s)
-
+    energies = data.energies
     counts_axis = np.concatenate([energies["e_low"], [energies["e_high"][-1]]])
 
-    if case == "spec_1D_detector_collapse":
-        counts_final = np.nansum(counts, axis=(0, 1, 2))
-        counts_uncertainity_final = np.sqrt(np.nansum(counts_uncertainity**2, axis=(0, 1, 2)))
-
-        t_norm_or = t_norm
-        t_norm = t_norm[:, None, None, None] * livefrac
-        t_norm = np.nanmean(t_norm, axis=(1, 2, 3))
-
-    elif case == "spec_sequence_detector_collapse" or case == "spec_1D_detector_expand":
-        counts_final = np.nansum(counts, axis=(0, 1))
+    legacy = data.error_model == "legacy"
+    counts_final = np.nansum(data.counts, axis=(0, 1, 2))
+    if legacy and case != "spec_1D_detector_collapse":
         counts_final[counts_final < 0] = 0
-        counts_uncertainity_final = np.sqrt(np.nansum(counts_uncertainity**2, axis=(0, 1)))
+    if legacy:
+        counts_uncertainity_final = np.sqrt(np.nansum(data.counts_err**2, axis=(0, 1, 2)))
+    else:
+        # each part of the uncertainty summed as its correlations need, detectors before time bins
+        summed = data
+        for axis in (DETECTOR, PIXEL, TIME):
+            summed = summed.combine(axis, [[0, summed.counts.shape[axis] - 1]])
+        counts_uncertainity_final = summed.total_err()[0, 0, 0]
 
-        t_norm_or = np.nanmean(t_norm, axis=(0))
-        t_norm = t_norm * livefrac
-        t_norm = np.nanmean(t_norm, axis=(0, 1, 2))
+    durations = data.durations.to(u.s)
+    live_time = durations[:, None, None, None] * data.livefrac
+    exposure_time = np.sum(np.nanmean(live_time, axis=(1, 2, 3)))
 
-    elif case == "spec_sequence_detector_expand":
-        counts_final = np.nansum(counts, axis=(0))
-        counts_final[counts_final < 0] = 0
-        counts_uncertainity_final = np.sqrt(np.nansum(counts_uncertainity**2, axis=(0)))
-
-        t_norm_or = np.nanmean(t_norm, axis=(0))
-        t_norm = t_norm * livefrac
-        t_norm = np.nanmean(t_norm, axis=(0))
+    times = data.times
+    if case in ("spec_sequence_detector_collapse", "spec_sequence_detector_expand"):
+        times, durations = times[0], durations[0]  # one time bin of a sequence
+    time_range_actual = Time([(times - 0.5 * durations).value, (times + 0.5 * durations).value])
 
     counts_uncertainity_pu = PoissonUncertainty(counts_uncertainity_final)
 
@@ -97,13 +87,11 @@ def _return_spec_object(case, sci_data, flare_angle, distance, srm_dict, bkg):
 
     meta = NDMeta()
 
-    time_range_actual = Time([(times_full - 0.5 * t_norm_or).value, (times_full + 0.5 * t_norm_or).value])
-
     ct_de = np.diff(counts_axis.value)
 
     srm = srm_dict["srm"] * ct_de[None, :]
 
-    meta.add("exposure_time", np.sum(t_norm))
+    meta.add("exposure_time", exposure_time)
     meta.add("geo_area", srm_dict["geo_area"])
     meta.add("angle", flare_angle)
     meta.add("distance", distance)
@@ -146,7 +134,7 @@ def _srm_format_flat_or_ranges(indices, case):
         return indices
 
     elif isinstance(indices[0], (list, np.ndarray)):
-        indices = _indices_expand_ranges(indices)
+        indices = [np.arange(start, end + 1) for start, end in indices]
 
         if case in ("spec_1D_detector_collapse", "spec_sequence_detector_collapse"):
             return [idx for ls in indices for idx in ls]
@@ -214,13 +202,10 @@ def _get_sunkit_spex_spectrum(
     product,
     detector_indices,
     pixel_indices,
-    sci_data,
+    data,
     flare_location,
     flare_angle,
-    systematic,
     detector_sum=True,
-    rcr=None,
-    bkg=False,
     srm_e_min=3.5 * u.keV,
 ):
     """
@@ -253,8 +238,8 @@ def _get_sunkit_spex_spectrum(
         ``detector_sum=False`` each flat index or range gives one spectrum.
     pixel_indices : numpy.ndarray
         Pixel selection, flat or [start, end] pairs.
-    sci_data : tuple
-        The 10-element tuple from `_data_select`.
+    data : _CountData
+        The selected data, not normalised, from ``get_data``.
     flare_location : astropy.coordinates.SkyCoord or None
         Flare position in any frame that can be transformed to
         `~stixpy.coordinates.frames.STIXImaging` (see `_flare_location_stix`).
@@ -262,15 +247,9 @@ def _get_sunkit_spex_spectrum(
     flare_angle : astropy.units.Quantity or None
         Flare angle stored in the metadata. If None and `flare_location` is
         given, it is computed with `_flare_angle`.
-    systematic : bool
-        Not used; the systematic uncertainty is added in `_data_select`.
     detector_sum : bool, optional
         Sum detectors into one spectrum (True, default), or make one spectrum
         per detector or detector range (False).
-    rcr : array_like, optional
-        Not used; the RCR states are taken from `sci_data`.
-    bkg : bool, optional
-        Passed on to `_return_spec_object`, which does not use it.
     srm_e_min : astropy.units.Quantity or None, optional
         Lower photon energy limit of the SRM.
 
@@ -279,9 +258,6 @@ def _get_sunkit_spex_spectrum(
     sunkit_spex.spectrum.Spectrum, ndcube.NDCubeSequence or ndcube.NDCollection
         See the table above.
     """
-
-    counts, counts_uncertainity, t_norm, e_norm, livefrac, _, elut_cor_fac, times_full, energies, rcr = sci_data
-
     if flare_location is not None:
         flare_location_stx = _flare_location_stix(product, flare_location)
         if flare_angle is None:
@@ -290,216 +266,77 @@ def _get_sunkit_spex_spectrum(
         flare_location_stx = None
 
     distance = (product.meta["DSUN_OBS"] * u.m).to(u.AU)
-    rcr_unique = np.unique(rcr)
+    rcr = data.rcr
+    n_times, n_detectors = data.counts.shape[:2]
 
-    shape = np.shape(product.data["counts"])
-
-    if len(shape) < 4:
+    if product.data["counts"].ndim < 4:
         detector_indices = np.where(product.detector_masks.masks == 1)[1]
         pixel_indices = np.where(product.pixel_masks.masks == 1)[1]
         detector_sum = True
 
-    if detector_sum:
-        if np.shape(counts)[0] == 1:
-            case = "spec_1D_detector_collapse"
-
-            detector_indices_srm, pixel_indices_srm = _srm_det_pix_indices_format(detector_indices, pixel_indices, case)
-
-            srm_dict = _masked_srm(
-                energies,
+    def srm_by_rcr(detectors, pixels):
+        return {
+            state: _masked_srm(
+                data.energies,
                 flare_location=flare_location_stx,
-                detector_indices_input=detector_indices_srm,
-                pixel_indices_input=pixel_indices_srm,
-                rcr=rcr_unique[0],
+                detector_indices_input=detectors,
+                pixel_indices_input=pixels,
+                rcr=state,
                 srm_e_min=srm_e_min,
             )
+            for state in np.unique(rcr)
+        }
 
-            return _return_spec_object(case, sci_data, flare_angle, distance, srm_dict, bkg)
+    def sequence(case, data, srms):
+        spectra = [
+            _return_spec_object(case, data[i], flare_angle, distance, srms[int(data.rcr[i])])
+            for i in range(data.counts.shape[0])
+        ]
+        return NDCubeSequence(spectra, meta={"detector": "det1", "instrument": "STIX"}, common_axis=0)
 
-        else:
-            case = "spec_sequence_detector_collapse"
-
-            detector_indices_srm, pixel_indices_srm = _srm_det_pix_indices_format(detector_indices, pixel_indices, case)
-
-            rcr_unique = np.unique(rcr)
-
-            srm_dict_by_rcr = {
-                rcr_val: _masked_srm(
-                    energies,
-                    flare_location=flare_location_stx,
-                    detector_indices_input=detector_indices_srm,
-                    pixel_indices_input=pixel_indices_srm,
-                    rcr=rcr_val,
-                    srm_e_min=srm_e_min,
-                )
-                for rcr_val in rcr_unique
-            }
-
-            spec_list_working = []
-
-            for i in range(np.shape(counts)[0]):
-                (
-                    counts,
-                    counts_uncertainity,
-                    t_norm,
-                    e_norm,
-                    livefrac,
-                    _,
-                    elut_cor_fac,
-                    times_full,
-                    energies,
-                    rcr,
-                ) = sci_data
-
-                sci_data_indexed = (
-                    counts[i, ...],
-                    counts_uncertainity[i, ...],
-                    t_norm[i, ...],
-                    e_norm,
-                    livefrac[i, ...],
-                    _,
-                    elut_cor_fac,
-                    times_full[i, ...],
-                    energies,
-                    rcr,
-                )
-
-                spec_1d = _return_spec_object(
-                    case, sci_data_indexed, flare_angle, distance, srm_dict_by_rcr[int(rcr[i])], bkg
-                )
-
-                spec_list_working.append(spec_1d)
-
-            spec_sequence = NDCubeSequence(
-                spec_list_working, meta={"detector": "det1", "instrument": "STIX"}, common_axis=0
+    if detector_sum:
+        if n_times == 1:
+            case = "spec_1D_detector_collapse"
+            detectors, pixels = _srm_det_pix_indices_format(detector_indices, pixel_indices, case)
+            srm_dict = _masked_srm(
+                data.energies,
+                flare_location=flare_location_stx,
+                detector_indices_input=detectors,
+                pixel_indices_input=pixels,
+                rcr=np.unique(rcr)[0],
+                srm_e_min=srm_e_min,
             )
+            return _return_spec_object(case, data, flare_angle, distance, srm_dict)
 
-            return spec_sequence
+        case = "spec_sequence_detector_collapse"
+        detectors, pixels = _srm_det_pix_indices_format(detector_indices, pixel_indices, case)
+        return sequence(case, data, srm_by_rcr(detectors, pixels))
 
-    else:
-        if np.shape(counts)[0] == 1:
-            case = "spec_1D_detector_expand"
+    if n_times == 1:
+        case = "spec_1D_detector_expand"
+        detectors, pixels = _srm_det_pix_indices_format(detector_indices, pixel_indices, case)
+        spectra = []
+        for i in range(n_detectors):
+            srm_dict = _masked_srm(
+                data.energies,
+                flare_location=flare_location_stx,
+                detector_indices_input=detectors[i],
+                pixel_indices_input=pixels,
+                rcr=np.unique(rcr),
+                srm_e_min=srm_e_min,
+            )
+            spectra.append(
+                (f"{detector_indices[i]}", _return_spec_object(case, data[:, i], flare_angle, distance, srm_dict))
+            )
+        return NDCollection(spectra, aligned_axes="all")
 
-            spec_list_working = []
-
-            detector_indices_srm, pixel_indices_srm = _srm_det_pix_indices_format(detector_indices, pixel_indices, case)
-
-            for i in range(np.shape(counts)[1]):
-                srm_dict = _masked_srm(
-                    energies,
-                    flare_location=flare_location_stx,
-                    detector_indices_input=detector_indices_srm[i],
-                    pixel_indices_input=pixel_indices_srm,
-                    rcr=rcr_unique,
-                    srm_e_min=srm_e_min,
-                )
-
-                (
-                    counts,
-                    counts_uncertainity,
-                    t_norm,
-                    e_norm,
-                    livefrac,
-                    _,
-                    elut_cor_fac,
-                    times_full,
-                    energies,
-                    rcr,
-                ) = sci_data
-
-                sci_data_indexed = (
-                    counts[:, i, ...],
-                    counts_uncertainity[:, i, ...],
-                    t_norm,
-                    e_norm,
-                    livefrac[:, i, ...],
-                    _,
-                    elut_cor_fac,
-                    times_full,
-                    energies,
-                    rcr,
-                )
-
-                spec_1d = _return_spec_object(case, sci_data_indexed, flare_angle, distance, srm_dict, bkg)
-
-                spec_list_working.append((f"{detector_indices[i]}", spec_1d))
-
-            spec_collection = NDCollection(spec_list_working, aligned_axes="all")
-
-            return spec_collection
-
-        else:
-            spec_list_collection_working = []
-
-            case = "spec_sequence_detector_expand"
-
-            detector_indices_srm, pixel_indices_srm = _srm_det_pix_indices_format(detector_indices, pixel_indices, case)
-
-            for i in range(np.shape(counts)[1]):
-                rcr_unique = np.unique(rcr)
-
-                srm_dict_by_rcr = {
-                    rcr_val: _masked_srm(
-                        energies,
-                        flare_location=flare_location_stx,
-                        detector_indices_input=detector_indices_srm[i],
-                        pixel_indices_input=pixel_indices_srm,
-                        rcr=rcr_val,
-                        srm_e_min=srm_e_min,
-                    )
-                    for rcr_val in rcr_unique
-                }
-
-                (
-                    counts,
-                    counts_uncertainity,
-                    t_norm,
-                    e_norm,
-                    livefrac,
-                    _,
-                    elut_cor_fac,
-                    times_full,
-                    energies,
-                    rcr,
-                ) = sci_data
-
-                counts = counts[:, i, ...]
-                counts_uncertainity = counts_uncertainity[:, i, ...]
-                livefrac = livefrac[:, i, ...]
-
-                spec_list_sequence_working = []
-
-                for j in range(np.shape(counts)[0]):
-                    sci_data_indexed = (
-                        counts[j, ...],
-                        counts_uncertainity[j, ...],
-                        t_norm[j, ...],
-                        e_norm,
-                        livefrac[j, ...],
-                        _,
-                        elut_cor_fac,
-                        times_full[j, ...],
-                        energies,
-                        rcr,
-                    )
-
-                    spec_1d = _return_spec_object(
-                        case, sci_data_indexed, flare_angle, distance, srm_dict_by_rcr[int(rcr[j])], bkg
-                    )
-
-                    spec_list_sequence_working.append(spec_1d)
-
-                spec_sequence = NDCubeSequence(
-                    spec_list_sequence_working,
-                    meta={"detector": "det1", "instrument": "STIX"},  # sequence-level
-                    common_axis=0,
-                )
-
-                spec_list_collection_working.append((f"{detector_indices[i]}", spec_sequence))
-
-            spec_collection = NDCollection(spec_list_collection_working, aligned_axes="all")
-
-            return spec_collection
+    case = "spec_sequence_detector_expand"
+    detectors, pixels = _srm_det_pix_indices_format(detector_indices, pixel_indices, case)
+    sequences = [
+        (f"{detector_indices[i]}", sequence(case, data[:, i], srm_by_rcr(detectors[i], pixels)))
+        for i in range(n_detectors)
+    ]
+    return NDCollection(sequences, aligned_axes="all")
 
 
 def _flare_location_stix(product, flare_location):

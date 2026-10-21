@@ -17,20 +17,23 @@ from astropy.visualization import quantity_support
 from sunpy.time.timerange import TimeRange
 from sunpy.util import deprecated
 
-from stixpy.calibration.elut import get_elut_correction
 from stixpy.io.readers import read_subc_params
 from stixpy.product.product import L1Product
-from stixpy.product.sources._background import _bkg_check, _bkg_indices_check, _bkg_sub, _energies_bkg_sub
+from stixpy.product.sources._background import _bkg_check, _clip_negative, _load_background, _subtract_background
 from stixpy.product.sources._corrections import (
-    _data_select,
-    _elut_correction_sort,
-    _indices_expand_ranges,
-    _livefrac,
+    _add_livetime,
+    _add_systematic,
+    _apply_elut,
+    _elut_factor,
+    _livetime_groups,
 )
+from stixpy.product.sources._countdata import ERROR_MODELS, _load, _select, _select_times
 from stixpy.product.sources._selection import (
+    DETECTOR,
+    PIXEL,
     _energy_indices_format,
+    _energy_positions,
     _indices_check,
-    _on_indices,
     _time_indices_format,
 )
 from stixpy.visualisation.plotters import PixelPlotter
@@ -62,72 +65,6 @@ SubCollimatorConfig = read_subc_params(
 )
 
 
-def _full_layout(values, detector_masks, pixel_masks, name="values"):
-    """
-    Place a (time, detector, pixel, energy) data column on the full 32 x 12 grid.
-
-    L1 pixel data files store only the enabled detectors and pixels, so position
-    n on those axes is not necessarily detector or pixel n. As in IDL's
-    ``stx_read_pixel_data_fits_file``, the stored values are placed at their
-    detector and pixel numbers, with zeros for detectors and pixels that are off.
-    After this every detector and pixel index is a real detector or pixel number.
-
-    Parameters
-    ----------
-    values : astropy.units.Quantity or numpy.ndarray
-        Data column, e.g. ``data['counts']`` or ``data['counts_comp_err']``.
-    detector_masks : DetectorMasks or None
-        Detector masks of the product.
-    pixel_masks : PixelMasks or None
-        Pixel masks of the product.
-    name : str, optional
-        Name of the column, used in error messages.
-
-    Returns
-    -------
-    astropy.units.Quantity or numpy.ndarray
-        The column with shape (time, 32, 12, energy). Returned unchanged if it
-        already has that shape, is not 4-dimensional, has no masks, or holds summed pixel sets.
-
-    Raises
-    ------
-    ValueError
-        If the detector mask changes within the file, or the stored shape does
-        not match the masks.
-    """
-    if (
-        values.ndim != 4
-        or values.shape[1:3] == (32, 12)
-        or detector_masks is None
-        or pixel_masks is None
-        or pixel_masks.masks.ndim != 2
-    ):
-        return values
-
-    if len(detector_masks.masks) > 1:
-        raise ValueError(
-            f"The detector mask changes within the file, so {name!r} can not be placed on the full detector grid."
-        )
-    dets = np.flatnonzero(detector_masks.masks[0])
-    pixs = np.flatnonzero(pixel_masks.masks.any(axis=0))  # pixels used at any time, as stored by STIXcore
-
-    if values.shape[1] == 32:
-        values = values[:, dets]
-    if values.shape[2] == 12:
-        values = values[:, :, pixs]
-    if values.shape[1:3] != (dets.size, pixs.size):
-        raise ValueError(
-            f"{name!r} has shape {values.shape}, which does not match the masks "
-            f"({dets.size} detectors, {pixs.size} pixels)."
-        )
-
-    full = np.zeros((values.shape[0], 32, 12, values.shape[3]), dtype=values.dtype)
-    if isinstance(values, u.Quantity):
-        full = full << values.unit
-    full[:, dets[:, None], pixs, :] = values
-    return full
-
-
 class SelectedData(NamedTuple):
     r"""
     The data selected by `ScienceData.get_data`.
@@ -147,8 +84,9 @@ class SelectedData(NamedTuple):
     livefrac: np.ndarray | None
     """Livetime fraction, shape ``(time, detector, 1, 1)``, or None without the livetime correction."""
     livefrac_error: u.Quantity | None
-    """Livetime uncertainty in counts, or None without the livetime correction. Also None with a background
-    subtracted, as it is then already included in `counts_err`."""
+    """Livetime uncertainty in counts, already included in `counts_err`, or None without the livetime correction.
+    With ``error_model="legacy"`` it is also None with a background subtracted, and is not normalised by
+    ``vtype``."""
     elut_cor_fac: np.ndarray | None
     """ELUT correction factor applied to the counts, broadcastable against them, or None without the ELUT
     correction."""
@@ -159,15 +97,58 @@ class SelectedData(NamedTuple):
     rcr: np.ndarray
     """RCR (attenuator) state of each time bin, aligned to the jumps in the counts as STIX-GSW does."""
 
+    @classmethod
+    def from_count_data(cls, data, vtype):
+        """
+        Normalise selected count data as `vtype` asks.
 
-def _expand(indices):
-    """
-    Flat indices of a flat or [start, end] pair selection.
-    """
-    indices = np.asarray(indices)
-    if indices.ndim == 2:
-        return np.asarray(_indices_expand_ranges(indices, nest=False), dtype=int)
-    return indices.ravel()
+        Parameters
+        ----------
+        data : _CountData
+            The selected data.
+        vtype : {'c', 'cr', 'dcr'}
+            Counts, count rate in ct/s, or differential count rate in ct/(s keV). With a livetime fraction, the
+            rates are also divided by it.
+
+        Returns
+        -------
+        SelectedData
+
+        Raises
+        ------
+        ValueError
+            If `vtype` is not 'c', 'cr' or 'dcr'.
+        """
+        e_norm = (data.energies["e_high"] - data.energies["e_low"])[np.newaxis, np.newaxis, np.newaxis, :]
+        t_norm = data.durations[:, np.newaxis, np.newaxis, np.newaxis].to(u.s)
+
+        livefrac = data.livefrac
+        if livefrac is not None:
+            livefrac = np.nanmean(livefrac, axis=PIXEL, keepdims=True)
+
+        if vtype == "c":
+            norm = 1
+        elif vtype == "cr":
+            norm = 1 / t_norm if livefrac is None else 1 / (t_norm * livefrac)
+        elif vtype == "dcr":
+            norm = 1 / (e_norm * t_norm) if livefrac is None else 1 / (e_norm * t_norm * livefrac)
+        else:
+            raise ValueError("vtype must be one of 'c', 'cr', 'dcr'.")
+
+        return cls(
+            counts=data.counts * norm,
+            counts_err=data.total_err() * norm,
+            t_norm=t_norm,
+            e_norm=e_norm,
+            livefrac=livefrac,
+            livefrac_error=data.livefrac_err
+            if data.error_model == "legacy" or data.livefrac_err is None
+            else data.livefrac_err * norm,
+            elut_cor_fac=data.elut_cor_fac,
+            times=data.times,
+            energies=data.energies,
+            rcr=data.rcr,
+        )
 
 
 class PPrintMixin:
@@ -684,6 +665,7 @@ class ScienceData(L1Product):
         sunkit_spex_systematic_error=False,
         sunkit_spex_detector_sum=True,
         srm_e_min=3.5 * u.keV,
+        error_model="legacy",
     ):
         """
         Return the selected data, with optional livetime, ELUT and background
@@ -767,6 +749,17 @@ class ScienceData(L1Product):
         srm_e_min : astropy.units.Quantity, float, bool or None, optional
             Lower photon energy limit of the spectral response matrix. A float is
             taken as keV, True means 3.5 keV and False means None. Default 3.5 keV.
+        error_model : {'legacy', 'correlated'}, optional
+            How the uncertainties are combined. 'legacy' (default) combines them as
+            stixpy has so far. 'correlated' adds each part as its correlations
+            need: the statistical uncertainty in quadrature everywhere; the
+            livetime uncertainty linearly over the pixels and energies of a
+            detector and over the two detectors on one trigger counter, and in
+            quadrature between trigger counters and time bins; and the background
+            uncertainty linearly over time bins, as one background measurement is
+            scaled to all of them. It also gives a time range the summed duration
+            of its bins rather than its span, does not set negative background
+            subtracted counts to zero. See the Notes.
 
         Returns
         -------
@@ -795,7 +788,7 @@ class ScienceData(L1Product):
             product (see `bkg`). With `sunkit_spex_spectrum`, also if
             `energy_indices` is given, `livetime_correction` is False, the CFL
             detector is selected or the BKG detector is combined with other
-            detectors.
+            detectors. Also if `error_model` is not 'legacy' or 'correlated'.
 
         Notes
         -----
@@ -825,7 +818,23 @@ class ScienceData(L1Product):
         added to ``counts_err`` in quadrature, so ``livefrac_error`` is None.
         Counts whose total over the detectors and pixels is negative are set to
         zero. The pixels are summed, as with the livetime correction alone.
+
+        With ``error_model='legacy'`` the livetime and background uncertainties
+        are added to ``counts_err`` before the detectors and time bins are
+        combined, and then summed in quadrature like the statistical uncertainty.
+        This treats them as independent between detectors and time bins, though
+        two detectors share each trigger counter and every time bin uses the same
+        background. Time ranges take their span as their duration, and the
+        ``livefrac_error`` returned is combined as an RMS over detectors.
+
+        With ``error_model='correlated'`` each part is kept apart until the end,
+        and added to ``counts_err`` in quadrature only after every combination,
+        including the sums over detectors and time made for the `sunkit_spex`
+        spectra. ``livefrac_error`` then holds the combined livetime uncertainty,
+        normalised like the counts.
         """
+        if error_model not in ERROR_MODELS:
+            raise ValueError(f"error_model must be one of {ERROR_MODELS}, not {error_model!r}.")
         if isinstance(srm_e_min, bool):
             srm_e_min = 3.5 * u.keV if srm_e_min else None
         elif isinstance(srm_e_min, u.Quantity):
@@ -879,173 +888,51 @@ class ScienceData(L1Product):
             else None
         )
 
-        detector_masks = getattr(self, "detector_masks", None)
-        pixel_masks = getattr(self, "pixel_masks", None)
-        counts = _full_layout(self.data["counts"], detector_masks, pixel_masks, name="counts")
-        err_name = "counts_comp_err" if "counts_comp_err" in self.data.colnames else "counts_comp_comp_err"
-        counts_err = _full_layout(self.data[err_name], detector_masks, pixel_masks, name=err_name)
-        if is_spectrogram:
-            shape = counts.shape
-            counts = counts.reshape(shape[0], 1, 1, shape[-1])
-            counts_err = counts_err.reshape(shape[0], 1, 1, shape[-1])
-
+        data = _load(self, error_model)
         if elut_correction:
-            _, _, bins, bins_actual = get_elut_correction(np.array(self.energies["channel"]), self)
-
-            if is_spectrogram:
-                detector_indices_elut = _on_indices(self.detector_masks.masks)
-                pixel_indices_elut = _on_indices(self.pixel_masks.masks)
-            else:
-                # the selected detectors and pixels that are on, as [start, end] ranges may span ones that are off
-                detector_indices_elut = (
-                    np.intersect1d(_expand(checked_detectors), _on_indices(self.detector_masks.masks))
-                    if sunkit_spex_detector_sum
-                    else checked_detectors
-                )
-                pixel_indices_elut = np.intersect1d(_expand(checked_pixels), _on_indices(self.pixel_masks.masks))
-
-            elut_cor_fac = _elut_correction_sort(
-                bins, bins_actual, sunkit_spex_detector_sum, pixel_indices_elut, detector_indices_elut, is_spectrogram
-            )
-
-        else:
-            elut_cor_fac = None
-
+            data = _apply_elut(data, _elut_factor(self, checked_detectors, checked_pixels, sunkit_spex_detector_sum))
         if bkg is not None:
             _bkg_check(self, bkg, checked_detectors, checked_pixels, livetime_correction)
 
-            energy_indices_bkg = _energies_bkg_sub(self, bkg)
-
-            pixel_indices_bkg, detector_indices_bkg = _bkg_indices_check(self, bkg)
-
+        livetime_groups, selected_pixels = None, pixel_indices
         if livetime_correction:
-            livefrac, livefrac_error = _livefrac(self, counts, elut_cor_fac, checked_pixels)
+            data = _add_livetime(data, self, checked_pixels)
+            livetime_groups = _livetime_groups(data, detector_indices)
+        if bkg is not None:
+            # livetime corrected, and summed over the selected pixels, by the subtraction. Unlike the correction
+            # without a background, flat detectors each keep their own livetime with sunkit_spex_detector_sum=False.
+            groups = _livetime_groups(data, checked_detectors, per_detector=not sunkit_spex_detector_sum)
+            data = _subtract_background(data, _load_background(bkg, self, data), groups, checked_pixels)
+            livetime_groups, selected_pixels = None, None
 
-            if bkg is not None:
-                counts_bkg = _full_layout(bkg.data["counts"], bkg.detector_masks, bkg.pixel_masks, name="counts")
-                err_name_bkg = "counts_comp_err" if "counts_comp_err" in bkg.data.colnames else "counts_comp_comp_err"
-                counts_err_bkg = _full_layout(
-                    bkg.data[err_name_bkg], bkg.detector_masks, bkg.pixel_masks, name=err_name_bkg
-                )
-                livefrac_bkg, livefrac_error_bkg = _livefrac(
-                    bkg, counts_bkg, elut_cor_fac, pixel_indices_bkg, energy_indices_bkg
-                )
-
-        else:
-            livefrac = None
-            livefrac_error = None
-
-        if bkg is None:
-            sci_data = _data_select(
-                self,
-                counts,
-                counts_err,
-                detector_indices,
-                pixel_indices,
-                energy_indices,
-                time_indices,
-                livefrac,
-                livefrac_error,
-                elut_cor_fac,
-                sum_all_times,
-                n_detectors=n_det_spectrogram,
-                systematic=sunkit_spex_systematic_error,
-                sunkit_spex_detector_sum=sunkit_spex_detector_sum,
-            )
-
-        else:
-            sci_data_all = _bkg_sub(
-                self,
-                bkg,
-                counts,
-                counts_err,
-                counts_bkg,
-                counts_err_bkg,
-                checked_detectors,
-                checked_pixels,
-                detector_indices_bkg,
-                pixel_indices_bkg,
-                energy_indices_bkg,
-                livefrac,
-                livefrac_error,
-                livefrac_bkg,
-                livefrac_error_bkg,
-                elut_cor_fac,
-                np.asarray(self.data["rcr"]),
-                sunkit_spex_detector_sum=sunkit_spex_detector_sum,
-            )
-            counts_sub, counts_var_sub, _, _, livefrac_sub, _, elut_cor_fac_sub, _, _, _ = sci_data_all
-
-            sci_data = _data_select(
-                self,
-                counts_sub,
-                counts_var_sub,
-                detector_indices,
-                pixel_indices,
-                energy_indices,
-                time_indices,
-                livefrac_sub,
-                None,
-                elut_cor_fac_sub,
-                sum_all_times,
-                n_detectors=n_det_spectrogram,
-                bkg=True,
-                systematic=sunkit_spex_systematic_error,
-                sunkit_spex_detector_sum=sunkit_spex_detector_sum,
-            )
+        data = _select(
+            data,
+            detector_indices,
+            selected_pixels,
+            _energy_positions(energy_indices, self.energies),
+            livetime_groups=livetime_groups,
+            n_detectors=n_det_spectrogram,
+        )
+        # pooled into one spectrum: detectors and pixels, or each detector's pixels
+        pooled = (DETECTOR, PIXEL) if sunkit_spex_detector_sum else (PIXEL,)
+        if bkg is not None and error_model == "legacy":
+            data = _clip_negative(data, pooled)
+        if sunkit_spex_systematic_error:
+            data = _add_systematic(data, pooled)
+        data = _select_times(data, time_indices, sum_all_times)
 
         if sunkit_spex_spectrum:
             return _get_sunkit_spex_spectrum(
                 self,
                 detector_indices,
                 pixel_indices,
-                sci_data,
+                data,
                 flare_location,
                 flare_angle,
-                systematic=sunkit_spex_systematic_error,
                 detector_sum=sunkit_spex_detector_sum,
-                rcr=np.asarray(self.data["rcr"]),
-                bkg=bkg is not None,
                 srm_e_min=srm_e_min,
             )
-
-        counts, counts_err, t_norm, e_norm, livefrac, livefrac_error, elut_cor_fac, times, energies, rcr = sci_data
-
-        e_norm = e_norm[np.newaxis, np.newaxis, np.newaxis, :]
-        t_norm = t_norm[:, np.newaxis, np.newaxis, np.newaxis].to(u.s)
-
-        if livetime_correction:
-            livefrac = np.nanmean(livefrac, axis=2, keepdims=True)
-
-        if vtype == "c":
-            norm = 1
-
-        elif vtype == "cr":
-            norm = 1 / t_norm
-            if livetime_correction:
-                norm = 1 / (t_norm * livefrac)
-
-        elif vtype == "dcr":
-            norm = 1 / (e_norm * t_norm)
-
-            if livetime_correction:
-                norm = 1 / (e_norm * t_norm * livefrac)
-
-        else:
-            raise ValueError("vtype must be one of 'c', 'cr', 'dcr'.")
-
-        return SelectedData(
-            counts=counts * norm,
-            counts_err=counts_err * norm,
-            t_norm=t_norm,
-            e_norm=e_norm,
-            livefrac=livefrac,
-            livefrac_error=livefrac_error,
-            elut_cor_fac=elut_cor_fac,
-            times=times,
-            energies=energies,
-            rcr=rcr,
-        )
+        return SelectedData.from_count_data(data, vtype)
 
     def concatenate(self, others):
         """

@@ -1,0 +1,1 @@
+`~stixpy.product.sources.science.ScienceData.get_data` now passes the data between its steps as one internal object, which selects and combines all its arrays together, in place of parallel arrays and positional tuples. The output is unchanged, except that a spectrogram with ``bkg`` and flat ``energy_indices`` no longer raises an ``IndexError``.

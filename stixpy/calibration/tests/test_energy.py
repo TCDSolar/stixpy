@@ -2,18 +2,15 @@ from datetime import datetime
 
 import pytest
 
+from sunpy.util.exceptions import SunpyDeprecationWarning
+
 from stixpy.calibration.energy import correct_counts, get_elut
 from stixpy.product import Product
 
 
-def test_get_elut():
-    with pytest.raises(ValueError, match=r"No ELUT for for date.*"):
-        get_elut(datetime(2019, 1, 1))
-
-    elut = get_elut(datetime(2020, 6, 7))
-    assert elut.file == "elut_table_20200519.csv"
-
-    elut = get_elut(datetime(2024, 4, 9))
+def test_get_elut_deprecated():
+    with pytest.warns(SunpyDeprecationWarning, match=r"stixpy.calibration.elut.get_elut"):
+        elut = get_elut(datetime(2024, 4, 9))
     assert elut.file == "elut_table_20240205.csv"
 
 

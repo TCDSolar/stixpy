@@ -1,3 +1,4 @@
 [submodule "stixpy/config/data"]
 	path = stixpy/config/data
-	url = https://github.com/i4Ds/STIX-CONF.git
+	url = https://github.com/jajmitchell/STIX-CONF.git
+	branch = adds_calibration_files

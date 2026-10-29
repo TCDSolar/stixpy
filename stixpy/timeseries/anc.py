@@ -188,7 +188,7 @@ class ANCAspect(GenericTimeSeries):
 
         data_df = data[names].to_pandas()
         data_df.index = data_df["time"]
-        data_df.drop(columns="time", inplace=True)
+        data_df = data_df.drop(columns="time")
 
         return data_df, header, units
 

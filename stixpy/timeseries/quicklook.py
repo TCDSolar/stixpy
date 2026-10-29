@@ -164,7 +164,7 @@ class QLLightCurve(GenericTimeSeries):
 
         data_df = data.to_pandas()
         data_df.index = data_df["time"]
-        data_df.drop(columns="time", inplace=True)
+        data_df = data_df.drop(columns="time")
 
         return data_df, header, units
 
@@ -330,7 +330,7 @@ class QLBackground(GenericTimeSeries):
 
         data_df = data.to_pandas()
         data_df.index = data_df["time"]
-        data_df.drop(columns="time", inplace=True)
+        data_df = data_df.drop(columns="time")
 
         return data_df, header, units
 
@@ -491,7 +491,7 @@ class QLVariance(GenericTimeSeries):
 
         data_df = data.to_pandas()
         data_df.index = data_df["time"]
-        data_df.drop(columns="time", inplace=True)
+        data_df = data_df.drop(columns="time")
 
         return data_df, header, units
 
@@ -613,7 +613,7 @@ class HKMaxi(GenericTimeSeries):
 
         data_df = data.to_pandas()
         data_df.index = data_df["time"]
-        data_df.drop(columns="time", inplace=True)
+        data_df = data_df.drop(columns="time")
 
         return data_df, header, units
 

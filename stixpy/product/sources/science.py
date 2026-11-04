@@ -48,7 +48,7 @@ __all__ = [
     "DetectorMasks",
     "PixelMasks",
     "EnergyEdgeMasks",
-    "calc_count_rate",
+    "calc_count_rate"
 ]
 
 from stixpy.visualisation.plotters import PixelPlotter
@@ -1475,6 +1475,7 @@ class ScienceData(L1Product):
         detector_indices_bkg,
         pixel_indices_bkg,
         energy_indices_bkg,
+        energy_indices_sci,          # new
         livefrac,
         livefrac_error,
         livefrac_bkg,
@@ -1559,14 +1560,22 @@ class ScienceData(L1Product):
             If a requested science pixel is not in the background product.
         """
 
-        e_norm = product.dE
-        counts = ScienceData._full_layout(product, "counts")
+        n_full = len(product.energies)
+        energies_common = product.energies[energy_indices_sci]
+        e_norm = product.dE[energy_indices_sci]
+        counts = ScienceData._full_layout(product, "counts")[..., energy_indices_sci]
         shape = counts.shape
 
         try:
             counts_var = (ScienceData._full_layout(product, "counts_comp_err").value ** 2) * u.ct
         except KeyError:
             counts_var = (ScienceData._full_layout(product, "counts_comp_comp_err").value ** 2) * u.ct
+        counts_var = counts_var[..., energy_indices_sci]
+
+        if elut_cor_fac is not None and elut_cor_fac.shape[-1] == n_full:
+            elut_cor_fac = elut_cor_fac[..., energy_indices_sci]
+        if livefrac_error is not None and np.ndim(livefrac_error) == 4 and livefrac_error.shape[-1] == n_full:
+            livefrac_error = livefrac_error[..., energy_indices_sci]
 
         counts_bkg = ScienceData._full_layout(bkg, "counts")
 
@@ -1726,7 +1735,7 @@ class ScienceData(L1Product):
         spec_in_corr_lvt = counts_lvtcorr
         spec_in_lvt = counts_uncorr
 
-        if energies["e_low"][0].value == 0:
+        if energies_common["e_low"][0].value == 0:
             spec_in = spec_in[..., 1:]
             spec_in_lvt = spec_in_lvt[..., 1:]
             spec_in_corr_lvt = spec_in_corr_lvt[..., 1:]
@@ -1737,7 +1746,7 @@ class ScienceData(L1Product):
             if elut_cor_fac is not None:
                 elut_cor_fac = elut_cor_fac[..., 1:]
 
-        if np.isnan(energies["e_high"][-1].value):
+        if np.isnan(energies_common["e_high"][-1].value):
             spec_in = spec_in[..., :-1]
             spec_in_corr = spec_in_corr[..., :-1]
             spec_in_lvt = spec_in_lvt[..., :-1]
@@ -1819,6 +1828,29 @@ class ScienceData(L1Product):
                     livefrac = eff_livefrac_full
 
         return counts, counts_var, t_norm, e_norm, livefrac, livefrac_error, elut_cor_fac, times, energies, rcr
+
+
+    @staticmethod
+    def _energies_sci_sub(product, bkg):
+        """Science energy bins that have a background bin (matched on e_low). Only the 0 keV
+        bottom bin and the open top bin may be missing; any other missing bin raises."""
+        _, indices_sci, _ = np.intersect1d(product.energies["e_low"], bkg.energies["e_low"], return_indices=True)
+        indices_sci = np.sort(indices_sci)
+        missing = np.setdiff1d(np.arange(len(product.energies)), indices_sci)
+        allowed = []
+        if product.energies["e_low"][0].value == 0:
+            allowed.append(0)
+        if np.isnan(product.energies["e_high"][-1].value):
+            allowed.append(len(product.energies) - 1)
+        not_allowed = np.setdiff1d(missing, allowed)
+        if not_allowed.size:
+            bins = [f"{product.energies['e_low'][i].value:g}-{product.energies['e_high'][i].value:g} keV" for i in not_allowed]
+            raise ValueError(
+                f"Science energy bins {bins} are not in the background file (matched on e_low), so it can not "
+                "be background subtracted. Only the 0 keV bottom bin and the open top bin may be missing."
+            )
+        return indices_sci
+
 
     @staticmethod
     def _energies_bkg_sub(product, bkg):
@@ -2584,8 +2616,37 @@ class ScienceData(L1Product):
     #                 f"Bottom pixel total 5% higher than top row with a ratio of {np.round(rat_bot_top, 2)}. Possible pixel shadowing. Recommend using only top pixels for analysis."
     #             )
 
+
     @staticmethod
-    def _time_indices_format(time_indices, times, dt):
+    def _snap_to_time_bin_edges(time_bins, times, dt):
+        # bin edges in seconds from the first bin centre: every bin start plus the end of the last bin
+        t0 = times[0]
+        edges = np.append((times - 0.5 * dt - t0).to_value(u.s), (times[-1] + 0.5 * dt[-1] - t0).to_value(u.s))
+
+        results = []
+        for n, pair in enumerate(time_bins):
+            if len(pair) != 2:
+                raise ValueError(
+                    f"Each time bin must have exactly 2 elements [start, end], got {len(pair)} at index {n}."
+                )
+
+            start = int(np.argmin(np.abs(edges - (Time(pair[0]) - t0).to_value(u.s))))
+            end = int(np.argmin(np.abs(edges - (Time(pair[1]) - t0).to_value(u.s))))
+
+            if end <= start:
+                raise IndexError(
+                    f"Time range {n} [{Time(pair[0]).isot} - {Time(pair[1]).isot}] snaps to a single "
+                    f"bin edge at {(t0 + edges[start] * u.s).isot} and so contains no data bin."
+                )
+
+            # edge `end` is the start of bin `end`, i.e. the end of bin `end - 1`
+            results.append([start, end - 1])
+
+        return results
+
+
+    @staticmethod
+    def _time_indices_format(time_indices, times, dt, snap_to_time_bin_edges=False):
         """
         Turn a time selection into integer indices, checking it against the file.
 
@@ -2633,6 +2694,8 @@ class ScienceData(L1Product):
         file_start = times[0] - 0.5 * dt[0]
         file_end = times[-1] + 0.5 * dt[-1]
 
+        resolve = ScienceData._snap_to_time_bin_edges if snap_to_time_bin_edges else ScienceData._handle_datetime_strings
+
         if isinstance(first, (int, np.integer)):
             ScienceData._check_index_limits(time_indices, len(times))
             return time_indices
@@ -2640,12 +2703,12 @@ class ScienceData(L1Product):
         if isinstance(first, (str, Time)):
             bins = [[time_indices[i], time_indices[i + 1]] for i in range(len(time_indices) - 1)]
             ScienceData._check_time_limits(bins, file_start, file_end)
-            return ScienceData._handle_datetime_strings(bins, times, dt)
+            return resolve(bins, times, dt)
 
         if isinstance(first, (list, tuple, np.ndarray)):
             if isinstance(first[0], (str, Time)):
                 ScienceData._check_time_limits(time_indices, file_start, file_end)
-                return ScienceData._handle_datetime_strings(time_indices, times, dt)
+                return resolve(bins, times, dt)
             if len(first) == 2 and all(isinstance(v, (int, np.integer)) for v in first):
                 ScienceData._check_index_limits(time_indices, len(times))
                 return time_indices
@@ -3221,6 +3284,7 @@ class ScienceData(L1Product):
         *,
         vtype="dcr",
         time_indices=None,
+        snap_to_time_bin_edges=False,
         energy_indices=None,
         detector_indices=None,
         pixel_indices=None,
@@ -3343,7 +3407,9 @@ class ScienceData(L1Product):
                 energy_indices = self._energy_indices_format(energy_indices, self.energies)
 
         if time_indices is not None:
-            time_indices = self._time_indices_format(time_indices, self.times, self.durations)
+            time_indices = self._time_indices_format(
+                time_indices, self.times, self.durations, snap_to_time_bin_edges=snap_to_time_bin_edges
+            )
 
         detector_indices, pixel_indices, energy_indices = self._indices_check(
             self, detector_indices, pixel_indices, energy_indices
@@ -3384,6 +3450,7 @@ class ScienceData(L1Product):
             livetime_correction = True
 
             energy_indices_bkg = self._energies_bkg_sub(self, bkg)
+            energy_indices_sci = self._energies_sci_sub(self, bkg)          # new
 
             pixel_indices_bkg, detector_indices_bkg = self._bkg_indices_check(self, bkg)
 
@@ -3397,7 +3464,10 @@ class ScienceData(L1Product):
 
             if bkg and isinstance(bkg, ScienceData):
                 livefraction_bkg, livefraction_bkg_error = self._livefrac(
-                    bkg, elut_cor_fac, pixel_indices_bkg, energy_indices_bkg
+                    bkg,
+                    elut_cor_fac[..., energy_indices_sci] if elut_cor_fac is not None else None,
+                    pixel_indices_bkg,
+                    energy_indices_bkg,
                 )
 
         else:
@@ -3440,6 +3510,7 @@ class ScienceData(L1Product):
                 detector_indices_bkg,
                 pixel_indices_bkg,
                 energy_indices_bkg,
+                energy_indices_sci,          # new
                 livefraction_sci,
                 livefraction_sci_error,
                 livefraction_bkg,

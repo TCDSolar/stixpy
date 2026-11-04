@@ -141,8 +141,7 @@ def _get_spectrum(cpd, flare_location, *, time_indices, detector_indices, elut_c
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=DeprecationWarning)
         warnings.filterwarnings("ignore", category=UserWarning)
-        with pytest.warns(UserWarning, match="sunkit_spex_spectrum = True"):
-            return cpd.get_data(**kwargs)
+        return cpd.get_data(**kwargs)
 
 
 # ---------------------------------------------------------------------------

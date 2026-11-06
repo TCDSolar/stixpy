@@ -384,25 +384,31 @@ def test_plot_spectrogram_all_energies(cpd_partial):
 
 
 @pytest.mark.parametrize(
-    "kwargs, error, match",
+    "get_data_kwargs, kwargs, error, match",
     [
-        ({"energy_indices": [0, 1]}, ValueError, "energy_indices can not be used"),
-        ({"livetime_correction": False}, ValueError, "needs livetime_correction=True"),
-        ({"flare_location": {"stx": None, "hpc": None}}, TypeError, "flare_location must be a SkyCoord"),
+        ({"livetime_correction": False}, {}, ValueError, "needs data with the livetime correction"),
+        (
+            {"livetime_correction": False},
+            {"flare_location": {"stx": None, "hpc": None}},
+            TypeError,
+            "flare_location must be a SkyCoord",
+        ),
     ],
 )
-def test_get_data_sunkit_spex_errors(cpd_partial, kwargs, error, match):
-    pytest.importorskip("sunkit_spex")
+def test_to_spectrum_errors(cpd_partial, get_data_kwargs, kwargs, error, match):
+    to_spectrum = pytest.importorskip("stixpy.spectroscopy").to_spectrum
+    data = cpd_partial.get_data(elut_correction=False, **get_data_kwargs)
     with pytest.raises(error, match=match):
-        cpd_partial.get_data(sunkit_spex_spectrum=True, **kwargs)
+        to_spectrum(data, **kwargs)
 
 
-def test_get_data_sunkit_spex_not_installed(cpd_partial, monkeypatch):
+def test_spectroscopy_not_installed(monkeypatch):
+    import importlib
     import sys
 
     # a None entry makes the import fail, as if sunkit-spex were not installed
     for name in [name for name in sys.modules if name.split(".")[0] == "sunkit_spex"] + ["sunkit_spex"]:
         monkeypatch.setitem(sys.modules, name, None)
-    monkeypatch.delitem(sys.modules, "stixpy.product.sources._spectrum", raising=False)
+    monkeypatch.delitem(sys.modules, "stixpy.spectroscopy", raising=False)
     with pytest.raises(ImportError, match=r"stixpy\[spectroscopy\]"):
-        cpd_partial.get_data(sunkit_spex_spectrum=True)
+        importlib.import_module("stixpy.spectroscopy")

@@ -1,6 +1,5 @@
 """
-Livetime and energy look-up table (ELUT) corrections, and the systematic uncertainty, for
-`~stixpy.product.sources.science.ScienceData.get_data`.
+Livetime and energy look-up table (ELUT) corrections for `~stixpy.product.sources.science.ScienceData.get_data`.
 """
 
 from dataclasses import replace
@@ -101,9 +100,7 @@ def _apply_livetime(counts, counts_var, livefrac, groups):
     return counts_out, counts_var_out, new_livefrac
 
 
-def _livefrac(
-    product, counts, elut_cor_fac, pixel_indices, energy_indices=None, *, ssw_compatible=False, per_pixel=False
-):
+def _livefrac(product, counts, pixel_indices, per_pixel=False, *, ssw_compatible=False):
     """
     Compute the livetime fraction and its uncertainty from the trigger counts.
 
@@ -132,16 +129,9 @@ def _livefrac(
         The product's counts, shape (time, detector, pixel, energy), with pixel
         data on the full detector and pixel grid (see ``_full_layout``) and
         spectrogram counts reshaped to (time, 1, 1, energy).
-    elut_cor_fac : numpy.ndarray or None
-        ELUT correction factor applied to the counts before the uncertainty is
-        computed. None for no ELUT correction.
     pixel_indices : numpy.ndarray or None
         Pixels to compute the uncertainty over, flat or [start, end] pairs, or
         None for all pixels. Ignored for spectrogram products.
-    energy_indices : numpy.ndarray, optional
-        Energy bins of the counts to keep before applying `elut_cor_fac`, for
-        when the factor was computed for another product's bins (the
-        background case). Only used if `elut_cor_fac` is given.
     per_pixel : bool, optional
         Give each pixel the uncertainty of its own counts (the "correlated"
         error model) rather than spreading the total (the "legacy" one).
@@ -198,12 +188,6 @@ def _livefrac(
         livefrac = livefrac.reshape(livefrac.shape + (1, 1))
         livefrac_lower = livefrac_lower.reshape(livefrac_lower.shape + (1, 1))
         livefrac_upper = livefrac_upper.reshape(livefrac_upper.shape + (1, 1))
-
-    if elut_cor_fac is not None:
-        if energy_indices is not None:
-            counts = counts[..., energy_indices] * elut_cor_fac
-        else:
-            counts = counts * elut_cor_fac
 
     # ---- resolve the pixel summation group ------------------------------
 
@@ -289,15 +273,13 @@ def _normalize_elut_by_group_detector_mean(bins, bins_actual, index_groups):
     return bins / bins_actual_mod
 
 
-def _elut_correction_sort(bins, bins_actual, detector_sum, pixel_indices, detector_indices, spec_file):
+def _elut_correction_sort(bins, bins_actual, detector_sum, pixel_indices, detector_indices):
     """
     Compute the ELUT correction factor for the selected detectors and pixels.
 
     `bins` and `bins_actual` are averaged over the selected pixels, and the
     factor is ``bins / bins_actual``. Detectors are handled as follows:
 
-    - spectrogram products (`spec_file` True): averaged over the detectors
-      given, giving one factor;
     - `detector_sum` True: averaged over the selected detectors, giving one
       factor;
     - flat detector indices, not summed: one factor per detector, for every
@@ -318,8 +300,6 @@ def _elut_correction_sort(bins, bins_actual, detector_sum, pixel_indices, detect
         Selected pixels, flat or [start, end] pairs.
     detector_indices : numpy.ndarray
         Selected detectors, flat or [start, end] pairs.
-    spec_file : bool
-        True for spectrogram products.
 
     Returns
     -------
@@ -329,56 +309,37 @@ def _elut_correction_sort(bins, bins_actual, detector_sum, pixel_indices, detect
 
     # np.mean rather than np.nanmean: the calibrated width of the open top bin is NaN for every detector and
     # pixel, so it stays NaN (that bin is never returned) without nanmean's "Mean of empty slice" warning
-    pixel_indices = np.asarray(pixel_indices)
+    pixel_indices = _flat_indices(np.asarray(pixel_indices))
     detector_indices = np.asarray(detector_indices)
 
-    if spec_file:
-        bins = np.mean(bins[:, :, pixel_indices, :], axis=2, keepdims=True)
-        bins_actual = np.mean(bins_actual[:, :, pixel_indices, :], axis=2, keepdims=True)
+    bins = np.mean(bins[:, :, pixel_indices, :], axis=2, keepdims=True)
+    bins_actual = np.mean(bins_actual[:, :, pixel_indices, :], axis=2, keepdims=True)
 
+    if detector_sum:
+        detector_indices = _flat_indices(detector_indices)
         bins = np.mean(bins[:, detector_indices, :, :], axis=1, keepdims=True)
         bins_actual = np.mean(bins_actual[:, detector_indices, :, :], axis=1, keepdims=True)
-
-        elut_cor_fac = bins / bins_actual
-
-    else:
-        pixel_indices = _flat_indices(pixel_indices)
-
-        bins = np.mean(bins[:, :, pixel_indices, :], axis=2, keepdims=True)
-        bins_actual = np.mean(bins_actual[:, :, pixel_indices, :], axis=2, keepdims=True)
-
-        if detector_sum:
-            detector_indices = _flat_indices(detector_indices)
-
-            bins = np.mean(bins[:, detector_indices, :, :], axis=1, keepdims=True)
-
-            bins_actual = np.mean(bins_actual[:, detector_indices, :, :], axis=1, keepdims=True)
-
-            elut_cor_fac = bins / bins_actual
-
-        elif detector_indices.ndim == 1:
-            elut_cor_fac = bins / bins_actual
-
-        elif detector_indices.ndim == 2:
-            groups = [np.arange(start, end + 1) for start, end in detector_indices]
-            elut_cor_fac = _normalize_elut_by_group_detector_mean(bins, bins_actual, groups)
-
-    return elut_cor_fac
+        return bins / bins_actual
+    if detector_indices.ndim == 2:
+        groups = [np.arange(start, end + 1) for start, end in detector_indices]
+        return _normalize_elut_by_group_detector_mean(bins, bins_actual, groups)
+    return bins / bins_actual
 
 
 def _elut_factor(product, detector_indices, pixel_indices, detector_sum):
     """
-    The ELUT correction factor of the energy bins `~stixpy.product.sources._countdata._load` keeps.
+    The ELUT correction factor of the energy bins `~stixpy.product.sources._countdata._load` keeps, for pixel data.
 
-    Averaged over the selected detectors and pixels that are on (every one in the masks for a spectrogram), as
-    `_elut_correction_sort` sets out.
+    Averaged over the selected detectors and pixels that are on, as `_elut_correction_sort` sets out. Spectrograms are
+    not ELUT corrected: averaged over the detectors and pixels summed on board, the calibrated edges are within 0.01 keV
+    of the science edges, and STIX-GSW does not correct them either.
 
     Parameters
     ----------
     product : ScienceData
-        The science product.
-    detector_indices, pixel_indices : numpy.ndarray or None
-        The selection from `_indices_check`, flat or [start, end] pairs. None for spectrogram products.
+        The pixel data product.
+    detector_indices, pixel_indices : numpy.ndarray
+        The selection from `_indices_check`, flat or [start, end] pairs.
     detector_sum : bool
         Whether the detectors are summed into one spectrum.
 
@@ -389,20 +350,15 @@ def _elut_factor(product, detector_indices, pixel_indices, detector_sum):
     """
     _, _, bins, bins_actual = get_elut_correction(np.array(product.energies["channel"]), product)
 
-    is_spectrogram = product.data["counts"].ndim < 4
-    if is_spectrogram:
-        detectors = _on_indices(product.detector_masks.masks)
-        pixels = _on_indices(product.pixel_masks.masks)
-    else:
-        # the selected detectors and pixels that are on, as [start, end] ranges may span ones that are off
-        detectors = (
-            np.intersect1d(_flat_indices(detector_indices), _on_indices(product.detector_masks.masks))
-            if detector_sum
-            else detector_indices
-        )
-        pixels = np.intersect1d(_flat_indices(pixel_indices), _on_indices(product.pixel_masks.masks))
+    # the selected detectors and pixels that are on, as [start, end] ranges may span ones that are off
+    detectors = (
+        np.intersect1d(_flat_indices(detector_indices), _on_indices(product.detector_masks.masks))
+        if detector_sum
+        else detector_indices
+    )
+    pixels = np.intersect1d(_flat_indices(pixel_indices), _on_indices(product.pixel_masks.masks))
 
-    factor = _elut_correction_sort(bins, bins_actual, detector_sum, pixels, detectors, is_spectrogram)
+    factor = _elut_correction_sort(bins, bins_actual, detector_sum, pixels, detectors)
     return factor[..., _kept_energy_bins(product.energies)]
 
 
@@ -426,7 +382,7 @@ def _apply_elut(data, elut_cor_fac):
     )
 
 
-def _add_livetime(data, product, pixel_indices, elut_cor_fac=None, *, ssw_compatible=False):
+def _add_livetime(data, product, pixel_indices, *, ssw_compatible=False):
     """
     Add the livetime fraction and its uncertainty (see `_livefrac`) to the data, without correcting the counts.
 
@@ -438,9 +394,6 @@ def _add_livetime(data, product, pixel_indices, elut_cor_fac=None, *, ssw_compat
         The product `data` was loaded from, for its triggers.
     pixel_indices : numpy.ndarray or None
         Pixels the livetime uncertainty is spread over, flat or [start, end] pairs.
-    elut_cor_fac : numpy.ndarray, optional
-        ELUT factor to apply to the counts for the uncertainty, if `data` is not ELUT corrected but the counts it is
-        subtracted from are (the background case).
 
     Returns
     -------
@@ -449,7 +402,6 @@ def _add_livetime(data, product, pixel_indices, elut_cor_fac=None, *, ssw_compat
     livefrac, livefrac_err = _livefrac(
         product,
         data.counts,
-        elut_cor_fac,
         pixel_indices,
         per_pixel=data.error_model == "correlated",
         ssw_compatible=ssw_compatible,
@@ -457,7 +409,7 @@ def _add_livetime(data, product, pixel_indices, elut_cor_fac=None, *, ssw_compat
     return replace(data, livefrac=livefrac, livefrac_err=livefrac_err)
 
 
-def _livetime_groups(data, detector_indices, per_detector=False):
+def _livetime_groups(data, detector_indices):
     """
     The groups of detectors that share one livetime, the mean livetime fraction of the group.
 
@@ -467,15 +419,12 @@ def _livetime_groups(data, detector_indices, per_detector=False):
         Data from `_load`, on the full detector axis.
     detector_indices : numpy.ndarray or None
         The detector selection, flat or [start, end] pairs.
-    per_detector : bool, optional
-        If True, each flat detector index is its own group.
 
     Returns
     -------
     list of numpy.ndarray
         For a spectrogram, its one detector position. Otherwise every detector that is on with no selection, each
-        [start, end] range's detectors that are on, and the flat detectors (together, or each on its own with
-        `per_detector`).
+        [start, end] range's detectors that are on, and the flat detectors together.
     """
     if data.counts.shape[DETECTOR] == 1:
         return [np.arange(1)]
@@ -485,8 +434,6 @@ def _livetime_groups(data, detector_indices, per_detector=False):
     detector_indices = np.asarray(detector_indices)
     if detector_indices.ndim == 2:
         return [np.intersect1d(np.arange(start, end + 1), detectors_on) for start, end in detector_indices]
-    if per_detector:
-        return [detector_indices[i : i + 1] for i in range(detector_indices.size)]
     return [detector_indices]
 
 
@@ -547,33 +494,3 @@ def _correct_livetime(data, groups, *, shared_adc=False):
         pixels=data.pixels.any(axis=0, keepdims=True),
         **changes,
     )
-
-
-def _add_systematic(data, axes):
-    """
-    Add a systematic uncertainty of 7% below 7 keV, 5% from 7 to 10 keV and 3% from 10 keV of the counts pooled over
-    `axes`, spread so that a quadrature sum over those axes returns that percentage.
-
-    Parameters
-    ----------
-    data : _CountData
-        The selected data.
-    axes : tuple of int
-        Axes pooled into one spectrum: ``(DETECTOR, PIXEL)`` or ``(PIXEL,)``.
-
-    Returns
-    -------
-    _CountData
-    """
-    e_mean = ((data.energies["e_low"] + data.energies["e_high"]) / 2).value
-    percentage = np.select([e_mean < 7, (e_mean < 10) & (e_mean >= 7), e_mean >= 10], [0.07, 0.05, 0.03])
-
-    total = np.nansum(data.counts, axis=axes, keepdims=True)
-
-    # Spread over the slots of the uncertainty, which may already be summed over pixels while the counts are not:
-    # p * total / sqrt(n) in each of n slots adds up to p * total in quadrature.
-    n_elem = int(np.prod([data.counts_err.shape[a] for a in axes]))
-    sys_err = (percentage * total) / np.sqrt(n_elem)
-
-    counts_err = np.sqrt(data.counts_err.value**2 + np.broadcast_to(sys_err.value, data.counts_err.shape) ** 2) * u.ct
-    return replace(data, counts_err=counts_err)

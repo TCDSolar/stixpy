@@ -1,3 +1,4 @@
+from dataclasses import dataclass, replace
 from itertools import product
 from pathlib import Path
 from typing import NamedTuple
@@ -9,7 +10,6 @@ from matplotlib.dates import ConciseDateFormatter, DateFormatter, HourLocator
 from matplotlib.widgets import Slider
 
 import astropy.units as u
-from astropy.coordinates import SkyCoord
 from astropy.table import QTable, vstack
 from astropy.time import Time
 from astropy.utils.masked import Masked
@@ -21,14 +21,8 @@ from sunpy.util import deprecated
 from stixpy.calibration.elut import get_elut
 from stixpy.io.readers import read_subc_params
 from stixpy.product.product import L1Product
-from stixpy.product.sources._background import _bkg_check, _load_background, _subtract_background
-from stixpy.product.sources._corrections import (
-    _add_livetime,
-    _add_systematic,
-    _apply_elut,
-    _elut_factor,
-    _livetime_groups,
-)
+from stixpy.product.sources._background import _bkg_check, _bkg_selection, _restrict, _used
+from stixpy.product.sources._corrections import _add_livetime, _apply_elut, _elut_factor, _livetime_groups
 from stixpy.product.sources._countdata import ERROR_MODELS, _load, _select, _select_times
 from stixpy.product.sources._selection import (
     DETECTOR,
@@ -36,6 +30,7 @@ from stixpy.product.sources._selection import (
     _energy_indices_format,
     _energy_positions,
     _indices_check,
+    _on_indices,
     _time_indices_format,
 )
 from stixpy.visualisation.plotters import PixelPlotter
@@ -43,6 +38,8 @@ from stixpy.visualisation.plotters import PixelPlotter
 __all__ = [
     "ScienceData",
     "SelectedData",
+    "DataSelection",
+    "subtract_background",
     "RawPixelData",
     "CompressedPixelData",
     "SummedCompressedPixelData",
@@ -67,7 +64,9 @@ SubCollimatorConfig = read_subc_params(
 )
 
 
-def _selected_active(product, detector_indices, pixel_indices, time_indices, sum_all_times, livetime_correction):
+def _selected_active(
+    product, detector_indices, pixel_indices, time_indices, sum_all_times, livetime_correction, sum_detectors=False
+):
     """Track which detector and pixel positions contribute to each selected time bin."""
     if product.data["counts"].ndim < 4 or product.pixel_masks.masks.ndim != 2:
         return None
@@ -100,6 +99,8 @@ def _selected_active(product, detector_indices, pixel_indices, time_indices, sum
             active = np.concatenate(
                 [np.any(active[:, lo : hi + 1], axis=1, keepdims=True) for lo, hi in detectors], axis=1
             )
+    if sum_detectors:
+        active = np.any(active, axis=1, keepdims=True)
 
     if time_indices is not None:
         times = np.asarray(time_indices)
@@ -110,6 +111,49 @@ def _selected_active(product, detector_indices, pixel_indices, time_indices, sum
     if sum_all_times and active.shape[0] > 1:
         active = np.any(active, axis=0, keepdims=True)
     return active
+
+
+@dataclass(frozen=True, eq=False)
+class DataSelection:
+    """
+    The selection `ScienceData.get_data` made, resolved against the product, kept in `SelectedData.selection`.
+
+    `subtract_background` applies it to the background product, and `stixpy.spectroscopy.to_spectrum` builds the
+    response matrix from it, so both use exactly the detectors, pixels and energies of the counts.
+    """
+
+    detector_indices: np.ndarray | None
+    """Detector selection as applied: flat indices or [start, end] pairs, or None to keep every detector position."""
+    pixel_indices: np.ndarray | None
+    """Pixel selection as applied, like `detector_indices`."""
+    checked_detectors: np.ndarray | None
+    """The selected detectors that are on, flat or [start, end] pairs. None for a spectrogram."""
+    checked_pixels: np.ndarray | None
+    """The selected pixels that are on, flat or [start, end] pairs. None for a spectrogram."""
+    detectors: np.ndarray
+    """Shape (detector, 32): True for the detectors summed into each position on the detector axis of the counts."""
+    pixels: np.ndarray
+    """Shape (12,): True for the pixels the counts hold."""
+    sum_detectors: bool
+    """Whether the detectors were summed into one."""
+    livetime_correction: bool
+    """Whether the livetime correction was applied."""
+    elut_correction: bool
+    """Whether the ELUT correction was applied (never for a spectrogram)."""
+    ssw_compatible: bool
+    """Use SSW conventions for spectrogram livetime and legacy detector uncertainties."""
+    error_model: str
+    """The error model, "legacy" or "correlated"."""
+    spectrogram: bool
+    """Whether the product is a spectrogram, summed on board over `detectors` and `pixels`."""
+    summed_pixels: bool
+    """Whether the product holds pixels summed on board (sci-xray-scpd)."""
+    elut_file: str | None
+    """The ELUT file of the ELUT correction, or None without it."""
+    distance: u.Quantity | None
+    """Distance of Solar Orbiter from the Sun, or None if the product has no ``DSUN_OBS``."""
+    time_range: TimeRange
+    """Time range of the product."""
 
 
 class SelectedData(NamedTuple):
@@ -135,8 +179,7 @@ class SelectedData(NamedTuple):
     """Livetime fraction, shape ``(time, detector, 1, 1)``, or None without the livetime correction."""
     livefrac_error: u.Quantity | None
     """Livetime uncertainty in counts, already included in `counts_err`, or None without the livetime correction.
-    With ``error_model="legacy"`` it is also None with a background subtracted, and is not normalised by
-    ``vtype``."""
+    With ``error_model="legacy"`` it is not normalised by ``vtype``."""
     elut_cor_fac: np.ndarray | None
     """ELUT correction factor applied to the counts, broadcastable against them, or None without the ELUT
     correction."""
@@ -146,9 +189,13 @@ class SelectedData(NamedTuple):
     """Energy table with ``e_low`` and ``e_high`` columns, one row per energy bin."""
     rcr: np.ndarray
     """RCR (attenuator) state of each time bin, aligned to the jumps in the counts as STIX-GSW does."""
+    vtype: str
+    """Normalisation of `counts`: 'c', 'cr' or 'dcr' (see `ScienceData.get_data`)."""
+    selection: DataSelection
+    """The selection the data were made with."""
 
     @classmethod
-    def from_count_data(cls, data, vtype):
+    def from_count_data(cls, data, vtype, selection):
         """
         Normalise selected count data as `vtype` asks.
 
@@ -159,6 +206,8 @@ class SelectedData(NamedTuple):
         vtype : {'c', 'cr', 'dcr'}
             Counts, count rate in ct/s, or differential count rate in ct/(s keV). With a livetime fraction, the
             rates are also divided by it.
+        selection : DataSelection
+            The selection the data were made with.
 
         Returns
         -------
@@ -198,6 +247,8 @@ class SelectedData(NamedTuple):
             times=data.times,
             energies=data.energies,
             rcr=data.rcr,
+            vtype=vtype,
+            selection=selection,
         )
 
 
@@ -669,16 +720,14 @@ class ScienceData(L1Product):
         """
         return getattr(self, "_rcr_settings", None)
 
-    def align_rcr(
-        self, *, detector_indices=None, pixel_indices=None, livetime_correction=True, elut_correction=True, bkg=None
-    ):
+    def align_rcr(self, *, detector_indices=None, pixel_indices=None, livetime_correction=True, elut_correction=True):
         """
         Align the RCR state changes to the jumps in the counts as STIX-GSW does, for
         these settings, and keep the result as `rcr_shifted`.
 
         Parameters
         ----------
-        detector_indices, pixel_indices, livetime_correction, elut_correction, bkg
+        detector_indices, pixel_indices, livetime_correction, elut_correction
             As in `get_data`. Use the same values as for the data you work with.
 
         Returns
@@ -691,7 +740,6 @@ class ScienceData(L1Product):
             "pixel_indices": pixel_indices,
             "livetime_correction": livetime_correction,
             "elut_correction": elut_correction,
-            "bkg": bkg,
         }
         self._rcr_shifted = np.asarray(self.get_data(vtype="c", **settings).rcr)
         self._rcr_settings = settings
@@ -706,21 +754,17 @@ class ScienceData(L1Product):
         detector_indices=None,
         pixel_indices=None,
         sum_all_times=False,
+        sum_detectors=False,
         livetime_correction=True,
         elut_correction=True,
-        bkg=None,
-        ssw_compatible=False,
-        sunkit_spex_spectrum=False,
-        flare_location=None,
-        flare_angle=None,
-        sunkit_spex_systematic_error=False,
-        sunkit_spex_detector_sum=True,
-        srm_e_min=3.5 * u.keV,
         error_model="legacy",
+        ssw_compatible=False,
     ):
         """
-        Return the selected data, with optional livetime, ELUT and background
-        corrections, as arrays or as `sunkit_spex` spectra.
+        Return the selected data, with optional livetime and ELUT corrections.
+
+        Use `subtract_background` to subtract a background from the result, and
+        `stixpy.spectroscopy.to_spectrum` to turn it into `sunkit_spex` spectra.
 
         Parameters
         ----------
@@ -728,8 +772,7 @@ class ScienceData(L1Product):
             Normalisation of the returned counts and uncertainties: counts ('c'),
             count rate in ct/s ('cr'), or differential count rate in ct/(s keV)
             ('dcr', default). With `livetime_correction`, the rates are also divided
-            by the livetime fraction. Ignored if `sunkit_spex_spectrum` is True, as
-            the spectra always hold counts.
+            by the livetime fraction.
         time_indices : list, numpy.ndarray or astropy.time.Time, optional
             Flat integer indices keep those time bins, and [start, end] integer
             pairs sum each range. Flat strings or `~astropy.time.Time` select
@@ -742,74 +785,37 @@ class ScienceData(L1Product):
             (`energies`), which only holds the bins in the energy mask. Flat
             Quantity values select the bins containing them; [start, end] ranges,
             such as ``[[4, 10], [15, 28]] * u.keV``, take bins whose centres lie
-            inside them. Can not be used with `sunkit_spex_spectrum`.
+            inside them.
         detector_indices : list, numpy.ndarray or str, optional
             Flat indices keep those detectors, and [start, end] pairs sum each
             range. Two labels are accepted: "top24", the 24 imaging detectors used
             for spectroscopy in STIX-GSW, and "bkg", the background detector
             (index 9) with its small-aperture pixels [2, 5]. None (default) uses
-            every detector in the product. Ignored for spectrogram products. With
-            `sunkit_spex_spectrum`, the CFL detector (index 8) can not be used, and
-            the BKG detector only on its own.
+            every detector in the product. Ignored for spectrogram products.
         pixel_indices : list or numpy.ndarray, optional
             Flat indices keep those pixels, and [start, end] pairs sum each range.
             None (default) uses every pixel in the product, or [2, 5] with
             ``detector_indices="bkg"``. Ignored for spectrogram products.
         sum_all_times : bool, optional
             If True, sum the selected time bins into one. Default False.
+        sum_detectors : bool, optional
+            If True, sum the selected detectors (or detector ranges) into one, as
+            for a spectrum of several detectors. This also averages the ELUT factor
+            over all of them. Default False.
         livetime_correction : bool, optional
-            Apply the livetime correction. Default True. Must be True when `bkg` is
-            given.
+            Apply the livetime correction. Default True.
         elut_correction : bool, optional
-            Apply the ELUT correction. Default True.
-        bkg : ScienceData, optional
-            Background product to subtract, e.g. a STIX background (BKG) file. It
-            must be pixel data (sci-xray-rpd or sci-xray-cpd) with a single time
-            bin, every energy bin of this product, and every detector and pixel
-            used here switched on. A spectrogram (sci-xray-spec) is subtracted
-            with the detectors and pixels summed on board. Default None, no
-            background subtraction.
-        sunkit_spex_spectrum : bool, optional
-            Return `sunkit_spex` spectra instead of arrays. The spectra hold counts
-            whatever `vtype` is, with the live time as their exposure time, so
-            `livetime_correction` must be True. Every energy bin is used, so
-            `energy_indices` can not be given. Needs sunkit-spex, installed with
-            ``pip install 'stixpy[spectroscopy]'``. Default False.
-        flare_location : `~astropy.coordinates.SkyCoord`, optional
-            Flare position, used for the grid transmission in the spectral
-            response and for the flare angle when `sunkit_spex_spectrum` is True.
-            A `~stixpy.coordinates.frames.STIXImaging` coordinate (which must have
-            an ``obstime``) is used as it is; any other frame, e.g.
-            `~sunpy.coordinates.Helioprojective`, is transformed to the STIX frame
-            at its own ``obstime``, or for this product's time range if it has
-            none. The ``stx`` or ``hpc`` entry of
-            `~stixpy.imaging.flare_location.estimate_flare_location` can be used.
-            Default None, on-axis.
-        flare_angle : astropy.units.Quantity, optional
-            Heliocentric angle of the flare as seen from Solar Orbiter, stored in
-            the spectrum metadata. If None and `flare_location` is given, it is
-            computed from the flare position.
-        sunkit_spex_systematic_error : bool, optional
-            Add an energy-dependent systematic uncertainty: 7% below 7 keV, 5% from
-            7 to 10 keV and 3% from 10 keV. Default False.
-        sunkit_spex_detector_sum : bool, optional
-            Sum detectors into one spectrum (True, default), or keep one per
-            detector or detector range (False). Also sets how the ELUT factor and
-            the background livetime are averaged.
-        srm_e_min : astropy.units.Quantity, float, bool or None, optional
-            Lower photon energy limit of the spectral response matrix. A float is
-            taken as keV, True means 3.5 keV and False means None. Default 3.5 keV.
+            Apply the ELUT correction to pixel data. Default True. Spectrograms are
+            never ELUT corrected, see the Notes.
         error_model : {'legacy', 'correlated'}, optional
             How the uncertainties are combined. 'legacy' (default) combines them as
             stixpy has so far. 'correlated' adds each part as its correlations
-            need: the statistical uncertainty in quadrature everywhere; the
+            need: the statistical uncertainty in quadrature everywhere, and the
             livetime uncertainty linearly over the pixels and energies of a
             detector and over the two detectors on one trigger counter, and in
-            quadrature between trigger counters and time bins; and the background
-            uncertainty linearly over time bins, as one background measurement is
-            scaled to all of them. It also gives a time range the summed duration
-            of its bins rather than its span, does not set negative background
-            subtracted counts to zero. See the Notes.
+            quadrature between trigger counters and time bins. It also gives a time
+            range the summed duration of its bins rather than its span. See the
+            Notes.
 
 
         ssw_compatible : bool, optional
@@ -820,32 +826,21 @@ class ScienceData(L1Product):
         Returns
         -------
         SelectedData
-            If `sunkit_spex_spectrum` is False: named tuple with the selected
-            ``counts`` and ``counts_err`` (normalised according to `vtype`),
-            ``t_norm``, ``e_norm``, ``livefrac``, ``livefrac_error``,
-            ``elut_cor_fac``, ``times``, ``energies`` and ``rcr``. Inactive
+            Named tuple with the selected ``counts`` and ``counts_err``
+            (normalised according to `vtype`), ``t_norm``, ``e_norm``,
+            ``livefrac``, ``livefrac_error``, ``elut_cor_fac``, ``times``,
+            ``energies``, ``rcr``, ``vtype`` and the ``selection`` made. Inactive
             detector and pixel positions are masked in both quantities.
             Access the fields by name, as more may be added.
-        sunkit_spex.spectrum.Spectrum, ndcube.NDCubeSequence or ndcube.NDCollection
-            If `sunkit_spex_spectrum` is True; see `_get_sunkit_spex_spectrum`.
 
         Raises
         ------
-        TypeError
-            If `bkg` is not a `ScienceData` product, or `flare_location` is not a
-            `~astropy.coordinates.SkyCoord`.
-        ImportError
-            If `sunkit_spex_spectrum` is True and sunkit-spex is not installed.
         ValueError
             If a selection is outside the file or the product's energy table, if a
             detector label is not recognised, if ``detector_indices="bkg"`` is given
-            with pixels other than [2, 5], if a time range spans an RCR change, or
-            if `vtype` is not 'c', 'cr' or 'dcr'. With `bkg`, also if
-            `livetime_correction` is False, or the background does not match this
-            product (see `bkg`). With `sunkit_spex_spectrum`, also if
-            `energy_indices` is given, `livetime_correction` is False, the CFL
-            detector is selected or the BKG detector is combined with other
-            detectors. Also if `error_model` is not 'legacy' or 'correlated'.
+            with pixels other than [2, 5], if a time range spans an RCR change, if
+            `vtype` is not 'c', 'cr' or 'dcr', or if `error_model` is not 'legacy'
+            or 'correlated'.
 
         Notes
         -----
@@ -860,65 +855,27 @@ class ScienceData(L1Product):
         ``vtype='c'`` the counts are not divided by the livetime. The livetime
         uncertainty is added to ``counts_err``.
 
-        With `elut_correction`, each energy bin is scaled by the ratio of its
-        science width to its calibrated (ELUT) width, averaged over the selected
-        detectors and pixels that are on, so one factor per energy bin is applied
-        to every detector.
+        With `elut_correction`, each energy bin of pixel data is scaled by the
+        ratio of its science width to its calibrated (ELUT) width, averaged over
+        the selected detectors and pixels that are on (and over all selected
+        detectors with `sum_detectors`). Spectrograms are not corrected, as STIX-GSW
+        does not: averaged over the detectors and pixels summed on board, the
+        calibrated edges are within 0.01 keV of the science edges.
 
-        With `bkg`, as in STIX-GSW's ``stx_convert_pixel_data`` and
-        ``stx_convert_spectrogram``, the science and background counts are both
-        livetime corrected, and ELUT corrected with this product's factor. The
-        background is converted to a count rate over its time bin, scaled to the
-        duration of each science time bin and subtracted, and the result is scaled
-        back by the mean livetime fraction of the detectors combined into each
-        spectrum. The background uncertainty and both livetime uncertainties are
-        added to ``counts_err`` in quadrature, so ``livefrac_error`` is None.
-        Counts whose total over the detectors and pixels is negative are set to
-        zero. The pixels are summed, as with the livetime correction alone.
+        With ``error_model='legacy'`` the livetime uncertainty is added to
+        ``counts_err`` before the detectors and time bins are combined, and then
+        summed in quadrature like the statistical uncertainty. This treats it as
+        independent between detectors and time bins, though two detectors share
+        each trigger counter. Time ranges take their span as their duration, and
+        the ``livefrac_error`` returned is combined as an RMS over detectors.
 
-        With ``error_model='legacy'`` the livetime and background uncertainties
-        are added to ``counts_err`` before the detectors and time bins are
-        combined, and then summed in quadrature like the statistical uncertainty.
-        This treats them as independent between detectors and time bins, though
-        two detectors share each trigger counter and every time bin uses the same
-        background. Time ranges take their span as their duration, and the
-        ``livefrac_error`` returned is combined as an RMS over detectors.
-
-        With ``error_model='correlated'`` each part is kept apart until the end,
-        and added to ``counts_err`` in quadrature only after every combination,
-        including the sums over detectors and time made for the `sunkit_spex`
-        spectra. ``livefrac_error`` then holds the combined livetime uncertainty,
-        normalised like the counts.
+        With ``error_model='correlated'`` the livetime uncertainty is kept apart
+        until the end, and added to ``counts_err`` in quadrature only after every
+        combination. ``livefrac_error`` then holds the combined livetime
+        uncertainty, normalised like the counts.
         """
         if error_model not in ERROR_MODELS:
             raise ValueError(f"error_model must be one of {ERROR_MODELS}, not {error_model!r}.")
-        if isinstance(srm_e_min, bool):
-            srm_e_min = 3.5 * u.keV if srm_e_min else None
-        elif isinstance(srm_e_min, u.Quantity):
-            srm_e_min = srm_e_min.to(u.keV)
-        elif srm_e_min is not None:
-            srm_e_min = float(srm_e_min) * u.keV
-
-        if sunkit_spex_spectrum:
-            try:
-                from stixpy.product.sources._spectrum import _get_sunkit_spex_spectrum
-            except ImportError as e:
-                raise ImportError(
-                    "sunkit_spex_spectrum=True needs sunkit-spex, which can be installed with "
-                    "pip install 'stixpy[spectroscopy]'."
-                ) from e
-            if energy_indices is not None:
-                raise ValueError(
-                    "energy_indices can not be used with sunkit_spex_spectrum=True, as the spectra and their "
-                    "response matrices use every energy bin. Select the fitting range in sunkit-spex instead."
-                )
-            if not livetime_correction:
-                raise ValueError(
-                    "sunkit_spex_spectrum=True needs livetime_correction=True, as the exposure time of each "
-                    "spectrum is its live time."
-                )
-            if flare_location is not None and not isinstance(flare_location, SkyCoord):
-                raise TypeError(f"flare_location must be a SkyCoord, not {type(flare_location).__name__}.")
 
         energy_indices = _energy_indices_format(energy_indices, self.energies)
         if time_indices is not None:
@@ -930,85 +887,40 @@ class ScienceData(L1Product):
         checked_detectors, checked_pixels, energy_indices = _indices_check(
             self, detector_indices, pixel_indices, energy_indices
         )
-        if detector_indices is not None:
-            detector_indices = checked_detectors
+        if detector_indices is not None or sum_detectors:
+            detector_indices = checked_detectors  # a sum takes only the detectors that are on
+            if np.ndim(detector_indices) == 1:
+                detector_indices = list(dict.fromkeys(detector_indices))
         if pixel_indices is not None or bkg_label:
             pixel_indices = checked_pixels
-        if sunkit_spex_spectrum:
-            # the spectra and their SRMs are built for the detectors and pixels actually used
-            detector_indices, pixel_indices = checked_detectors, checked_pixels
-            if detector_indices is not None and np.ndim(detector_indices) == 1:
-                detector_indices = list(dict.fromkeys(detector_indices))
 
         is_spectrogram = self.data["counts"].ndim < 4
-        n_det_spectrogram = (
-            int(np.count_nonzero(np.asarray(self.detector_masks.masks, dtype=bool).any(axis=0)))
-            if is_spectrogram
-            else None
+        elut_correction = elut_correction and not is_spectrogram
+        selection = DataSelection(
+            detector_indices=None if is_spectrogram else detector_indices,
+            pixel_indices=None if is_spectrogram else pixel_indices,
+            checked_detectors=checked_detectors,
+            checked_pixels=checked_pixels,
+            detectors=None,
+            pixels=None,
+            sum_detectors=sum_detectors,
+            livetime_correction=livetime_correction,
+            elut_correction=elut_correction,
+            error_model=error_model,
+            ssw_compatible=ssw_compatible,
+            spectrogram=is_spectrogram,
+            summed_pixels=not is_spectrogram and np.ndim(self.pixel_masks.masks) != 2,
+            elut_file=get_elut(self.time_range.center).file if elut_correction else None,
+            distance=self.meta["DSUN_OBS"] * u.m if "DSUN_OBS" in self.meta else None,
+            time_range=self.time_range,
         )
 
-        data = _load(self, error_model)
-        if bkg is not None:
-            _bkg_check(self, bkg, checked_detectors, checked_pixels, livetime_correction)
-            if elut_correction:
-                science_elut = get_elut(self.time_range.center).file
-                background_elut = get_elut(bkg.time_range.center).file
-                if science_elut != background_elut:
-                    raise ValueError(
-                        f"Science and background ELUT files differ: {science_elut!r} and {background_elut!r}. "
-                        "Use a matching background or set elut_correction=False."
-                    )
-
-        if elut_correction:
-            data = _apply_elut(data, _elut_factor(self, checked_detectors, checked_pixels, sunkit_spex_detector_sum))
-
-        livetime_groups, selected_pixels = None, pixel_indices
-        if livetime_correction:
-            data = _add_livetime(data, self, checked_pixels, ssw_compatible=ssw_compatible)
-            livetime_groups = _livetime_groups(data, detector_indices)
-        if bkg is not None:
-            # livetime corrected, and summed over the selected pixels, by the subtraction. Unlike the correction
-            # without a background, flat detectors each keep their own livetime with sunkit_spex_detector_sum=False.
-            groups = _livetime_groups(data, checked_detectors, per_detector=not sunkit_spex_detector_sum)
-            data = _subtract_background(
-                data,
-                _load_background(bkg, self, data),
-                groups,
-                checked_pixels,
-                shared_adc=not ssw_compatible and np.ndim(detector_indices) == 2,
-            )
-            livetime_groups, selected_pixels = None, None
-
-        data = _select(
-            data,
-            detector_indices,
-            selected_pixels,
-            _energy_positions(energy_indices, self.energies),
-            livetime_groups=livetime_groups,
-            n_detectors=n_det_spectrogram,
-            preserve_detector_order=sunkit_spex_spectrum and not sunkit_spex_detector_sum,
-            shared_adc=not ssw_compatible and np.ndim(detector_indices) == 2,
-        )
-        # pooled into one spectrum: detectors and pixels, or each detector's pixels
-        pooled = (DETECTOR, PIXEL) if sunkit_spex_detector_sum else (PIXEL,)
+        data = _selected_counts(self, selection, _energy_positions(energy_indices, self.energies))
         data = _select_times(data, time_indices, sum_all_times)
-        if sunkit_spex_systematic_error:
-            data = _add_systematic(data, pooled)
-
-        if sunkit_spex_spectrum:
-            return _get_sunkit_spex_spectrum(
-                self,
-                detector_indices,
-                pixel_indices,
-                data,
-                flare_location,
-                flare_angle,
-                detector_sum=sunkit_spex_detector_sum,
-                srm_e_min=srm_e_min,
-            )
-        selected = SelectedData.from_count_data(data, vtype)
+        selection = replace(selection, detectors=data.detectors, pixels=data.pixels.any(axis=0))
+        selected = SelectedData.from_count_data(data, vtype, selection)
         active = _selected_active(
-            self, detector_indices, pixel_indices, time_indices, sum_all_times, livetime_correction
+            self, detector_indices, pixel_indices, time_indices, sum_all_times, livetime_correction, sum_detectors
         )
         if active is not None and not np.all(active):
             mask = np.broadcast_to(~active[..., np.newaxis], selected.counts.shape)
@@ -1064,6 +976,116 @@ class ScienceData(L1Product):
             f"    {self.pixel_masks}\n"
             f"    {self.energy_masks}"
         )
+
+
+def _selected_counts(product, selection, energy_positions, restrict=False):
+    """
+    Load a product and apply a selection and its corrections, before any time selection.
+
+    Parameters
+    ----------
+    product : ScienceData
+        The product to load.
+    selection : DataSelection
+        The selection; its `~DataSelection.detectors` and `~DataSelection.pixels` are only used with `restrict`.
+    energy_positions : numpy.ndarray or None
+        Energy selection as positions in the kept energy bins (see `_energy_positions`).
+    restrict : bool, optional
+        Keep only the detectors and pixels of the selection, for a background that may have more of them on.
+
+    Returns
+    -------
+    _CountData
+    """
+    data = _load(product, selection.error_model)
+    if restrict:
+        data = _restrict(data, *_used(selection))
+    if selection.elut_correction:
+        factor = _elut_factor(product, selection.checked_detectors, selection.checked_pixels, selection.sum_detectors)
+        data = _apply_elut(data, factor)
+
+    livetime_groups = None
+    if selection.livetime_correction:
+        data = _add_livetime(data, product, selection.checked_pixels, ssw_compatible=selection.ssw_compatible)
+        livetime_groups = _livetime_groups(data, selection.detector_indices)
+
+    n_det_spectrogram = None
+    if product.data["counts"].ndim < 4:
+        n_det_spectrogram = _on_indices(product.detector_masks.masks).size
+    data = _select(
+        data,
+        selection.detector_indices,
+        selection.pixel_indices,
+        energy_positions,
+        livetime_groups=livetime_groups,
+        n_detectors=n_det_spectrogram,
+        preserve_detector_order=True,
+        shared_adc=not selection.ssw_compatible
+        and (selection.sum_detectors or np.ndim(selection.detector_indices) == 2),
+    )
+    if selection.sum_detectors and data.counts.shape[DETECTOR] > 1:
+        data = data.combine(DETECTOR, [[0, data.counts.shape[DETECTOR] - 1]])
+    return data
+
+
+def subtract_background(data, background):
+    """
+    Subtract a background from data selected with `ScienceData.get_data`.
+
+    The selection of `data` is applied to the background product, so that both hold the same detectors, pixels and
+    energy bins, with the same corrections. As in STIX-GSW's ``stx_convert_pixel_data`` and
+    ``stx_convert_spectrogram``, the livetime corrected background count rate is subtracted from the livetime
+    corrected science count rate, so the background is scaled to the duration of each time bin. The uncertainties
+    are added in quadrature, and negative results are kept.
+
+    For a spectrogram, the background is summed over the detectors and pixels summed on board into the spectrogram.
+
+    Parameters
+    ----------
+    data : SelectedData
+        Science data from `ScienceData.get_data`, with the livetime correction.
+    background : ScienceData
+        Background product, e.g. a STIX background (BKG) file: pixel data (sci-xray-rpd or sci-xray-cpd) with a
+        single time bin, recorded with the same ELUT as the science data, with every detector and pixel of `data`
+        switched on and every energy bin of `data`.
+
+    Returns
+    -------
+    SelectedData
+        `data` with the background subtracted from ``counts`` and its uncertainty added to ``counts_err``.
+
+    Raises
+    ------
+    TypeError
+        If `background` is not a `ScienceData` product.
+    ValueError
+        If `data` is not livetime corrected or holds pixels summed on board, or if the background does not match
+        `data` (see `background`).
+
+    Examples
+    --------
+    >>> from stixpy.product import Product
+    >>> from stixpy.product.sources.science import subtract_background
+    >>> cpd = Product("http://dataarchive.stix.i4ds.net/fits/L1/2024/03/10/SCI/"
+    ...               "solo_L1_stix-sci-xray-cpd_20240310T115906-20240310T121540_V02_2403109216-57290.fits")  # doctest: +SKIP
+    >>> bkg = Product("http://dataarchive.stix.i4ds.net/fits/L1/2024/03/08/SCI/"
+    ...               "solo_L1_stix-sci-xray-cpd_20240308T193915-20240308T203235_V02_2403087339-57240.fits")  # doctest: +SKIP
+    >>> data = subtract_background(cpd.get_data(detector_indices="top24", vtype="cr"), bkg)  # doctest: +SKIP
+    """
+    _bkg_check(data, background)
+
+    selection = _bkg_selection(data.selection)
+    edges = np.stack([data.energies["e_low"].to_value(u.keV), data.energies["e_high"].to_value(u.keV)], axis=1)
+    energies = _energy_indices_format(edges * u.keV, background.energies)
+    bkg = _selected_counts(background, selection, _energy_positions(energies, background.energies), restrict=True)
+    bkg = SelectedData.from_count_data(_select_times(bkg, None, True), "cr", selection)
+    if bkg.counts.shape[1:] != data.counts.shape[1:]:
+        raise ValueError(f"The background has shape {bkg.counts.shape[1:]} but the data {data.counts.shape[1:]}.")
+
+    # the background as a livetime corrected count rate, normalised as the data are
+    scale = {"c": data.t_norm * data.livefrac, "cr": 1, "dcr": 1 / data.e_norm}[data.vtype]
+    counts_err = np.sqrt(data.counts_err**2 + (scale * bkg.counts_err) ** 2)
+    return data._replace(counts=data.counts - scale * bkg.counts, counts_err=counts_err)
 
 
 class RawPixelData(ScienceData, PixelPlotMixin, TimesSeriesPlotMixin, SpectrogramPlotMixin):

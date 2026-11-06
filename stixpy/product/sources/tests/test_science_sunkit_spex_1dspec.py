@@ -9,8 +9,10 @@ from astropy.io import fits
 
 from stixpy.imaging.flare_location import estimate_flare_location
 from stixpy.product import Product
+from stixpy.product.sources.science import subtract_background
 
 Spectrum = pytest.importorskip("sunkit_spex.spectrum.spectrum").Spectrum
+to_spectrum = pytest.importorskip("stixpy.spectroscopy").to_spectrum
 
 # Each selection uses its own integration window. The reference files bear this
 # out: the top24 file stores EXPTIME ~4.00 s (the 5 s window below) while the
@@ -119,25 +121,20 @@ def expected_bkgdet():
 
 
 def _get_spectrum(cpd, flare_location, *, time_indices, detector_indices, elut_correction, bkg, pixel_indices=None):
-    kwargs = {
-        "time_indices": time_indices,
-        "sunkit_spex_spectrum": True,
-        "flare_location": flare_location,
-        "elut_correction": elut_correction,
-        "detector_indices": detector_indices,
-        "bkg": bkg,
-        "sunkit_spex_detector_sum": True,
-        "sunkit_spex_systematic_error": True,
-        # No photon-axis trim: the reference SRM was generated before get_data
-        # gained srm_e_min, so it still spans the full 3210 photon bins. Passing
-        # False keeps the SRM untrimmed and the stored shape valid.
-        "srm_e_min": False,
-    }
-    if pixel_indices is not None:
-        kwargs["pixel_indices"] = pixel_indices
-    spectrum = cpd.get_data(**kwargs)
-    kwargs["sunkit_spex_systematic_error"] = False
-    statistical = cpd.get_data(**kwargs)
+    data = cpd.get_data(
+        vtype="c",
+        time_indices=time_indices,
+        detector_indices=detector_indices,
+        pixel_indices=pixel_indices,
+        elut_correction=elut_correction,
+        sum_detectors=True,
+    )
+    if bkg is not None:
+        data = subtract_background(data, bkg)
+    # No photon-axis trim: the reference SRM was generated before srm_e_min existed, so it still spans the full 3210
+    # photon bins. Passing False keeps the SRM untrimmed and the stored shape valid.
+    spectrum = to_spectrum(data, flare_location=flare_location, systematic_error=True, srm_e_min=False)
+    statistical = to_spectrum(data, flare_location=flare_location, systematic_error=False, srm_e_min=False)
     assert_allclose(spectrum.data, statistical.data)
     edges = spectrum.spectral_axis.bin_edges.to_value(u.keV)
     centres = (edges[:-1] + edges[1:]) / 2
@@ -515,37 +512,27 @@ def test_flare_angle(spec_top24_nobkgsub_elut):
 
 
 @pytest.mark.remote_data
-def test_flare_angle_given(cpd_2024_03_10):
-    spec = cpd_2024_03_10.get_data(
-        time_indices=T_RANGE_TOP24, detector_indices="top24", sunkit_spex_spectrum=True, flare_angle=30 * u.deg
-    )
-    assert spec.meta["angle"] == 30 * u.deg
-
-
-@pytest.mark.remote_data
 def test_detector_expand_and_sequence(cpd_2024_03_10):
     ndcube = pytest.importorskip("ndcube")
 
     # without the ELUT correction, which is per detector when they are not summed
-    per_detector = cpd_2024_03_10.get_data(
-        time_indices=[[0, 3]],
-        detector_indices=[0, 1, 2],
-        sunkit_spex_spectrum=True,
-        sunkit_spex_detector_sum=False,
-        elut_correction=False,
+    per_detector = to_spectrum(
+        cpd_2024_03_10.get_data(time_indices=[[0, 3]], detector_indices=[0, 1, 2], elut_correction=False)
     )
     assert isinstance(per_detector, ndcube.NDCollection)
     assert list(per_detector.keys()) == ["0", "1", "2"]
     assert all(isinstance(spec, Spectrum) for spec in per_detector.values())
 
-    sequence = cpd_2024_03_10.get_data(
-        time_indices=[[0, 3], [4, 6]], detector_indices=[0, 1, 2], sunkit_spex_spectrum=True
+    sequence = to_spectrum(
+        cpd_2024_03_10.get_data(time_indices=[[0, 3], [4, 6]], detector_indices=[0, 1, 2], sum_detectors=True)
     )
     assert isinstance(sequence, ndcube.NDCubeSequence)
     assert len(sequence.data) == 2
 
-    summed = cpd_2024_03_10.get_data(
-        time_indices=[[0, 3]], detector_indices=[0, 1, 2], sunkit_spex_spectrum=True, elut_correction=False
+    summed = to_spectrum(
+        cpd_2024_03_10.get_data(
+            time_indices=[[0, 3]], detector_indices=[0, 1, 2], sum_detectors=True, elut_correction=False
+        )
     )
     # summing the per-detector spectra gives the detector-summed one
     assert_allclose(sum(np.asarray(spec.data) for spec in per_detector.values()), summed.data, rtol=1e-6)

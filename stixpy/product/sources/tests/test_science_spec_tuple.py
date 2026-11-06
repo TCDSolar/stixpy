@@ -7,7 +7,10 @@ from numpy.testing import assert_allclose
 import astropy.units as u
 from astropy.io import fits
 
+from stixpy.calibration.elut import get_elut_correction
 from stixpy.product import Product
+from stixpy.product.sources._selection import _kept_energy_bins, _on_indices
+from stixpy.product.sources.science import subtract_background
 
 SPEC_URL = "https://pub099.cs.technik.fhnw.ch/fits/L1/2024/03/10/SCI/solo_L1_stix-sci-xray-spec_20240310T073505-20240310T134008_V02_2403103995-60712.fits"
 # A pixel-data background, as in STIX-GSW's stx_convert_spectrogram
@@ -73,8 +76,10 @@ def _get_summed_counts(spec_prod, bkg=None):
     No detector_indices or pixel_indices are passed: a spectrogram is already
     summed over detectors and pixels onboard.
     """
-    # The saved IDL reference uses integer triggers and the legacy uncertainty model.
-    spec = spec_prod.get_data(vtype="cr", elut_correction=True, livetime_correction=True, bkg=bkg, ssw_compatible=True)
+    # The saved IDL reference uses integer triggers.
+    spec = spec_prod.get_data(vtype="cr", elut_correction=True, livetime_correction=True, ssw_compatible=True)
+    if bkg is not None:
+        spec = subtract_background(spec, bkg)
 
     counts = np.nansum(spec.counts, axis=(1, 2))
     counts_err = np.sqrt(np.nansum(spec.counts_err**2, axis=(1, 2)))
@@ -105,6 +110,7 @@ def _assert_counts(result, expected, label):
         assert np.all(counts >= 0)
     if expected is not None:
         # The saved IDL reference clips negative background-subtracted bins.
+        counts = counts * _reference_elut_factor()
         comparison = np.maximum(counts, 0) if background_subtracted else counts
         assert_allclose(comparison, expected[label]["counts"], rtol=RTOL, atol=ATOL)
 
@@ -115,7 +121,24 @@ def _assert_counts_err(result, expected, label):
     assert np.all(np.isfinite(counts_err))
     assert np.all(counts_err >= 0)
     if expected is not None:
+        counts_err = counts_err * _reference_elut_factor()
         assert_allclose(counts_err, expected[label]["counts_err"], rtol=RTOL, atol=ATOL)
+
+
+def _reference_elut_factor():
+    """
+    The ELUT factor the reference spectrogram counts include, averaged over the detectors and pixels summed on board.
+
+    get_data no longer ELUT corrects spectrograms, as STIX-GSW does not; this is the factor it applied before.
+    """
+    spec_prod = Product(SPEC_URL)
+    _, _, bins, bins_actual = get_elut_correction(np.array(spec_prod.energies["channel"]), spec_prod)
+    detectors, pixels = _on_indices(spec_prod.detector_masks.masks), _on_indices(spec_prod.pixel_masks.masks)
+
+    def mean(values):
+        return values[:, :, pixels].mean(axis=2)[:, detectors].mean(axis=1)
+
+    return (mean(bins) / mean(bins_actual))[..., _kept_energy_bins(spec_prod.energies)]
 
 
 # ---------------------------------------------------------------------------

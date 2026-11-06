@@ -5,7 +5,12 @@ from numpy.testing import assert_allclose
 import astropy.units as u
 from astropy.table import QTable
 
-from stixpy.product.sources.science import CompressedPixelData, Spectrogram, SummedCompressedPixelData
+from stixpy.product.sources.science import (
+    CompressedPixelData,
+    Spectrogram,
+    SummedCompressedPixelData,
+    subtract_background,
+)
 
 # synthetic products have no ELUT channels, so get_data is called without the ELUT correction
 NO_ELUT = {"elut_correction": False}
@@ -77,31 +82,41 @@ def bkg_zero():
         {"detector_indices": [[0, 15], [16, 31]], "pixel_indices": [[0, 3], [4, 11]]},
         {"detector_indices": [[0, 31]], "time_indices": [[0, 2]]},
         {"pixel_indices": [1, 2]},
+        {"detector_indices": [0, 3, 5], "sum_detectors": True},
     ],
 )
-@pytest.mark.parametrize("vtype", ["c", "dcr"])
-@pytest.mark.parametrize("ssw_compatible", [False, True])
-def test_zero_background_unchanged(cpd, bkg_zero, selection, vtype, ssw_compatible):
-    options = dict(vtype=vtype, ssw_compatible=ssw_compatible, **selection, **NO_ELUT)
-    without = cpd.get_data(**options)
-    with_bkg = cpd.get_data(bkg=bkg_zero, **options)
+@pytest.mark.parametrize("vtype", ["c", "cr", "dcr"])
+def test_zero_background_unchanged(cpd, bkg_zero, selection, vtype):
+    without = cpd.get_data(vtype=vtype, **selection, **NO_ELUT)
+    with_bkg = subtract_background(without, bkg_zero)
 
     assert with_bkg.counts.shape == without.counts.shape
     assert with_bkg.counts.unit == without.counts.unit
     assert_allclose(with_bkg.counts, without.counts)
     assert_allclose(with_bkg.counts_err, without.counts_err)
-    assert with_bkg.livefrac.shape == without.livefrac.shape
-    assert_allclose(with_bkg.livefrac, without.livefrac)
-    assert with_bkg.livefrac_error is None
+    assert with_bkg.selection is without.selection
 
 
 def test_background_scaled_and_subtracted(cpd, bkg):
     without = cpd.get_data(vtype="c", detector_indices=[0, 1], pixel_indices=[0], **NO_ELUT)
-    with_bkg = cpd.get_data(vtype="c", detector_indices=[0, 1], pixel_indices=[0], bkg=bkg, **NO_ELUT)
+    with_bkg = subtract_background(without, bkg)
 
     # both livetime fractions are the same, so the subtracted background is 2 ct / 100 s for each 1 s science bin
     assert_allclose(with_bkg.counts, without.counts - 0.02 * u.ct)
     assert np.all(with_bkg.counts_err > without.counts_err)
+
+
+@pytest.mark.parametrize("vtype", ["c", "cr", "dcr"])
+def test_background_only_science_detectors_and_pixels(cpd, bkg, vtype):
+    # the background has every detector and pixel on, the science data not detectors 10 and 11 or pixel 7: only the
+    # 11 pixels of the detectors that are on in the science data are subtracted
+    without = cpd.get_data(vtype=vtype, **NO_ELUT)
+    with_bkg = subtract_background(without, bkg)
+    # a livetime corrected rate; the background has the same trigger rate, so the same livetime fraction
+    rate = np.where(np.isin(np.arange(32), [10, 11]), 0, 11 * 0.02)[None, :, None, None] * u.ct / u.s
+    rate = rate / without.livefrac
+    scale = {"c": without.t_norm * without.livefrac, "cr": 1, "dcr": 1 / without.e_norm}[vtype]
+    assert_allclose(with_bkg.counts, without.counts - scale * rate)
 
 
 def test_background_spectrogram(bkg_zero, bkg):
@@ -109,37 +124,37 @@ def test_background_spectrogram(bkg_zero, bkg):
     spec = _make_product(Spectrogram, rng.integers(500, 1000, size=(3, 4)).astype(float), detector_off=(9,))
 
     without = spec.get_data(vtype="cr", **NO_ELUT)
-    zero = spec.get_data(vtype="cr", bkg=bkg_zero, **NO_ELUT)
+    zero = subtract_background(without, bkg_zero)
     assert zero.counts.shape == without.counts.shape == (3, 1, 1, 4)
     assert_allclose(zero.counts, without.counts)
     assert_allclose(zero.counts_err, without.counts_err)
 
     # the background of the 31 detectors and 12 pixels summed on board into the spectrogram
-    with_bkg = spec.get_data(vtype="c", bkg=bkg, **NO_ELUT)
-    assert_allclose(with_bkg.counts, spec.get_data(vtype="c", **NO_ELUT).counts - 31 * 12 * 0.02 * u.ct)
+    counts = spec.get_data(vtype="c", **NO_ELUT)
+    assert_allclose(subtract_background(counts, bkg).counts, counts.counts - 31 * 12 * 0.02 * u.ct)
 
 
-def test_background_preserves_negative_counts(cpd):
+def test_background_negative_kept(cpd):
     big = _make_product(CompressedPixelData, np.full((1, 32, 12, 4), 1e6), timedel=100)
-    data = cpd.get_data(vtype="c", detector_indices=[[0, 31]], bkg=big, **NO_ELUT)
-    assert np.all(data.counts < 0 * u.ct)
+    data = subtract_background(cpd.get_data(vtype="c", detector_indices=[[0, 31]], **NO_ELUT), big)
+    assert np.all(data.counts < 0)
     assert np.all(data.counts_err > 0)
 
 
 def test_background_livetime_false(cpd, bkg):
     with pytest.raises(ValueError, match="needs the livetime correction"):
-        cpd.get_data(livetime_correction=False, bkg=bkg, **NO_ELUT)
+        subtract_background(cpd.get_data(livetime_correction=False, **NO_ELUT), bkg)
 
 
 def test_background_not_a_product(cpd):
     with pytest.raises(TypeError, match="bkg must be a STIX science product"):
-        cpd.get_data(bkg=np.zeros(3), **NO_ELUT)
+        subtract_background(cpd.get_data(**NO_ELUT), np.zeros(3))
 
 
 def test_background_spectrogram_rejected(cpd):
     spec = _make_product(Spectrogram, np.ones((1, 4)), timedel=100)
     with pytest.raises(ValueError, match="must be pixel data"):
-        cpd.get_data(bkg=spec, **NO_ELUT)
+        subtract_background(cpd.get_data(**NO_ELUT), spec)
 
 
 def test_background_summed_pixels_rejected(cpd, bkg):
@@ -150,13 +165,13 @@ def test_background_summed_pixels_rejected(cpd, bkg):
     scpd.data["pixel_masks"] = np.tile(pmask, (2, 1, 1))
     scpd.pixel_masks = type(cpd.pixel_masks)(scpd.data["pixel_masks"])
     with pytest.raises(ValueError, match="summed pixel data"):
-        scpd.get_data(bkg=bkg, **NO_ELUT)
+        subtract_background(scpd.get_data(livetime_correction=False, **NO_ELUT), bkg)
 
 
 def test_background_several_time_bins(cpd):
     two = _make_product(CompressedPixelData, np.ones((2, 32, 12, 4)), timedel=100)
     with pytest.raises(ValueError, match="single time bin, but it has 2"):
-        cpd.get_data(bkg=two, **NO_ELUT)
+        subtract_background(cpd.get_data(**NO_ELUT), two)
 
 
 def test_background_energy_mismatch(cpd):
@@ -165,101 +180,63 @@ def test_background_energy_mismatch(cpd):
     energies["e_high"] = [5, 6, 8, 10] * u.keV
     other = _make_product(CompressedPixelData, np.ones((1, 32, 12, 4)), timedel=100, energies=energies)
     with pytest.raises(ValueError, match=r"science energy bins \['6-7', '7-8'\] keV are not in the background"):
-        cpd.get_data(bkg=other, **NO_ELUT)
+        subtract_background(cpd.get_data(**NO_ELUT), other)
+    # a science range that starts and ends on background edges can be subtracted
+    data = subtract_background(cpd.get_data(vtype="c", energy_indices=[[0, 1], [2, 3]], **NO_ELUT), other)
+    assert data.counts.shape[-1] == 2
+
+
+def test_background_elut_mismatch(cpd, bkg, monkeypatch):
+    from dataclasses import replace
+
+    data = cpd.get_data(**NO_ELUT)
+    data = data._replace(selection=replace(data.selection, elut_file="elut_table_20200519.csv"))
+    with pytest.raises(ValueError, match="recorded with the ELUT"):
+        subtract_background(data, bkg)
 
 
 def test_background_detector_off(cpd):
     other = _make_product(CompressedPixelData, np.ones((1, 31, 11, 4)), timedel=100, detector_off=(3,), pixel_off=(2,))
     with pytest.raises(ValueError, match=r"Detectors \[3\] and pixels \[2\] are selected but are off"):
-        cpd.get_data(bkg=other, **NO_ELUT)
+        subtract_background(cpd.get_data(**NO_ELUT), other)
     # detectors and pixels that are not selected need not be in the background
-    cpd.get_data(detector_indices=[0, 1], pixel_indices=[0, 1], bkg=other, **NO_ELUT)
+    subtract_background(cpd.get_data(detector_indices=[0, 1], pixel_indices=[0, 1], **NO_ELUT), other)
 
 
 def test_background_detector_off_spectrogram():
     spec = _make_product(Spectrogram, np.ones((2, 4)))
     other = _make_product(CompressedPixelData, np.ones((1, 31, 12, 4)), timedel=100, detector_off=(5,))
     with pytest.raises(ValueError, match=r"Detectors \[5\] and pixels \[\] were summed on board"):
-        spec.get_data(bkg=other, **NO_ELUT)
+        subtract_background(spec.get_data(**NO_ELUT), other)
 
 
-def test_background_rejects_different_elut_files(cpd, bkg, monkeypatch):
-    from types import SimpleNamespace
-
-    tables = iter(("science.csv", "background.csv"))
-    monkeypatch.setattr("stixpy.product.sources.science.get_elut", lambda date: SimpleNamespace(file=next(tables)))
-
-    with pytest.raises(ValueError, match=r"ELUT files differ: 'science.csv' and 'background.csv'"):
-        cpd.get_data(bkg=bkg)
-
-
-def test_background_negative_residuals_survive_time_sum():
-    science_counts = np.broadcast_to(np.array([2.0, 8.0])[:, None, None, None], (2, 32, 12, 4)).copy()
-    science = _make_product(CompressedPixelData, science_counts)
-    background = _make_product(CompressedPixelData, np.full((1, 32, 12, 4), 5.0))
-    options = dict(bkg=background, vtype="c", detector_indices=[0], pixel_indices=[0], **NO_ELUT)
-
-    bins = science.get_data(**options)
-    assert_allclose(bins.counts[:, 0, 0, 0], [-3, 3] * u.ct)
-    summed = science.get_data(time_indices=[[0, 1]], **options)
-    assert_allclose(summed.counts, 0 * u.ct, atol=1e-12 * u.ct)
-
-
-def test_spectrum_detector_ids_follow_count_order(monkeypatch):
-    import sys
-    from types import SimpleNamespace
-
-    def capture(product, detectors, pixels, data, *args, **kwargs):
-        return detectors, data.counts
-
-    monkeypatch.setitem(
-        sys.modules, "stixpy.product.sources._spectrum", SimpleNamespace(_get_sunkit_spex_spectrum=capture)
-    )
+def test_selected_detector_ids_follow_count_order():
     counts = np.ones((1, 32, 12, 4))
     counts[:, 2] *= 3
     product = _make_product(CompressedPixelData, counts, triggers=0)
-    detectors, selected = product.get_data(
-        detector_indices=[2, 0],
-        pixel_indices=[0],
-        sunkit_spex_spectrum=True,
-        sunkit_spex_detector_sum=False,
-        **NO_ELUT,
-    )
-    np.testing.assert_array_equal(detectors, [2, 0])
-    assert_allclose(selected[0, :, 0, 0].to_value(u.ct), [3, 1])
-    assert_allclose(selected[0, :, 0, 0], [3, 1] * u.ct)
-
-
-def test_systematic_uncertainty_after_time_sum():
-    counts = np.full((2, 32, 12, 4), 100.0)
-    product = _make_product(CompressedPixelData, counts, triggers=0)
-    options = dict(vtype="c", detector_indices=[0], pixel_indices=[0], time_indices=[[0, 1]], **NO_ELUT)
-    baseline = product.get_data(**options)
-    calibrated = product.get_data(sunkit_spex_systematic_error=True, **options)
-
-    extra_variance = (calibrated.counts_err**2 - baseline.counts_err**2).to_value(u.ct**2)
-    assert_allclose(extra_variance[0, 0, 0, 0], (0.07 * 200) ** 2)
+    selected = product.get_data(vtype="c", detector_indices=[2, 0], pixel_indices=[0], **NO_ELUT)
+    np.testing.assert_array_equal(np.nonzero(selected.selection.detectors)[1], [2, 0])
+    assert_allclose(selected.counts[0, :, 0, 0].to_value(u.ct), [3, 1])
 
 
 def test_correlated_matches_legacy_without_combining(cpd, bkg):
     # with nothing combined over detectors or time, the parts of the uncertainty add up the same way
-    kwargs = {"vtype": "c", "detector_indices": [0], "bkg": bkg, **NO_ELUT}
-    legacy = cpd.get_data(**kwargs)
-    correlated = cpd.get_data(error_model="correlated", **kwargs)
+    kwargs = {"vtype": "c", "detector_indices": [0], **NO_ELUT}
+    legacy = subtract_background(cpd.get_data(**kwargs), bkg)
+    correlated = subtract_background(cpd.get_data(error_model="correlated", **kwargs), bkg)
     assert_allclose(correlated.counts, legacy.counts)
     assert_allclose(correlated.counts_err, legacy.counts_err)
 
 
-def test_correlated_background_error_linear_over_time(bkg):
+@pytest.mark.parametrize("error_model", ["legacy", "correlated"])
+def test_background_error_linear_over_time(bkg, error_model):
     # no science counts, so the background is the whole uncertainty: one measurement scaled to all three time bins
     empty = _make_product(CompressedPixelData, np.zeros((3, 32, 12, 4)))
-    kwargs = {"vtype": "c", "detector_indices": [0], "pixel_indices": [0], "time_indices": [[0, 2]], "bkg": bkg}
-    legacy = empty.get_data(**kwargs, **NO_ELUT)
-    correlated = empty.get_data(error_model="correlated", **kwargs, **NO_ELUT)
-    assert_allclose(correlated.counts_err, np.sqrt(3) * legacy.counts_err)
-    # and negative counts are kept
-    assert_allclose(legacy.counts, correlated.counts)
-    assert_allclose(correlated.counts, -3 * 0.02 * u.ct)
+    kwargs = {"vtype": "c", "detector_indices": [0], "pixel_indices": [0], "error_model": error_model, **NO_ELUT}
+    one = subtract_background(empty.get_data(time_indices=[0], **kwargs), bkg)
+    three = subtract_background(empty.get_data(time_indices=[[0, 2]], **kwargs), bkg)
+    assert_allclose(three.counts_err, 3 * one.counts_err)
+    assert_allclose(three.counts, -3 * 0.02 * u.ct)
 
 
 def test_error_model_unknown(cpd):

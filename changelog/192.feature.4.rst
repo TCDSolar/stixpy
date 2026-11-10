@@ -1,0 +1,1 @@
+Add `~stixpy.coordinates.flare_angle.flare_spacecraft_angle`, the angle between the flare's surface normal and the direction to the spacecraft, and `~stixpy.calibration.detector.tailing_matrix`, the hole tailing response of the detectors.

@@ -923,7 +923,7 @@ class ScienceData(L1Product):
         return getattr(self, "_rcr_settings", None)
 
     def align_rcr(
-        self, *, detector_indices=None, pixel_indices=None, livetime_correction=True, elut_correction=True, bkg=None
+        self, *, rcr=None, detector_indices="top24", pixel_indices=None, livetime_correction=True, elut_correction=True, bkg=None
     ):
         """
         Align the RCR state changes to the jumps in the counts as STIX-GSW does, for
@@ -946,7 +946,12 @@ class ScienceData(L1Product):
             elut_correction=elut_correction,
             bkg=bkg,
         )
-        self._rcr_shifted = np.asarray(self.get_data(vtype="c", **settings)[9])
+        self._rcr_shifted = None            # align from the counts, not from an earlier alignment
+        if rcr is not None:                 # per-bin states aligned by other means
+            settings = {"rcr": "user supplied"}
+            self._rcr_shifted = np.asarray(rcr)
+        else:
+            self._rcr_shifted = np.asarray(self.get_data(vtype="c", **settings)[9])
         self._rcr_settings = settings
         return self._rcr_shifted
 
@@ -991,7 +996,8 @@ class ScienceData(L1Product):
         systematic,
         sunkit_spex_detector_sum,
         bkg,
-        n_detectors=None
+        n_detectors=None,
+        rcr_aligned=None
     ):
         """
         Apply the requested detector, pixel, energy and time selection to the data.
@@ -1282,7 +1288,12 @@ class ScienceData(L1Product):
             )
             n_det_rcr = np.count_nonzero(np.nansum(np.abs(counts_rcr[:, selected]), axis=(0, 2, 3)))
 
+            imaging = np.setdiff1d(np.arange(32), [8, 9])     # CFL and BKG are not behind the attenuator
+            counts_rcr_align = counts_rcr[:, imaging]
+            n_det_align = np.count_nonzero(np.nansum(np.abs(counts_rcr_align), axis=(0, 2, 3)))
+
             if detector_indices.ndim == 1:
+
                 detector_mask = np.full(32, False)
                 detector_mask[detector_indices] = True
                 counts = counts[:, detector_mask, ...]
@@ -1368,7 +1379,16 @@ class ScienceData(L1Product):
                 n_det_rcr = n_detectors
             else:
                 n_det_rcr = np.count_nonzero(np.nansum(np.abs(counts_rcr), axis=(0, 2, 3)))
-        rcr = ScienceData._rcr_shift(rcr, ScienceData._rcr_signal(counts_rcr, n_det_rcr))
+        
+            counts_rcr_align, n_det_align = counts_rcr, n_det_rcr
+
+        # rcr = ScienceData._rcr_shift(rcr, ScienceData._rcr_signal(counts_rcr, n_det_rcr))
+
+        if rcr_aligned is not None:   # states aligned once for the product by align_rcr
+            rcr = np.asarray(rcr_aligned)
+        else:
+            rcr = ScienceData._rcr_shift(rcr, ScienceData._rcr_signal(counts_rcr_align, n_det_align))
+
         if time_indices is not None:
             if np.asarray(time_indices).ndim == 1:
                 ScienceData._rcr_warning(list(time_indices), rcr)
@@ -2853,18 +2873,13 @@ class ScienceData(L1Product):
 
             # jumps = where(abs(x - shift(x, -1)) gt 1e4)   (-1 if none)
             jumps = np.flatnonzero(np.abs(signal - np.roll(signal, -1)) > 1e4)
-            if jumps.size == 0:
-                jumps = np.array([-1])
-            # jumps = [0, jumps]
             jumps = np.concatenate(([0], jumps))
-            # idx_jumps = where(abs(jumps - shift(jumps, -1)) gt 2)   (-1 if none)
             idx_jumps = np.flatnonzero(np.abs(jumps - np.roll(jumps, -1)) > 2)
-            # jumps_use = [jumps[idx_jumps]]   (scalar -1 subscript = last element)
-            jumps_use = jumps[idx_jumps] if idx_jumps.size else jumps[-1:]
-            # index = jumps_use[value_closest(jumps_use, index)]
-            index = jumps_use[np.abs(jumps_use[None, :] - index[:, None]).argmin(axis=1)]
-            # ut_rcr[index]: a negative subscript in an array is clipped to 0
-            index = np.clip(index, 0, n_times - 1)
+            if jumps.size == 1 or idx_jumps.size == 0:
+                warnings.warn("RCR alignment: no count jump found; the reported RCR change times are kept.", stacklevel=3)
+            else:
+                jumps_use = jumps[idx_jumps]
+                index = jumps_use[np.abs(jumps_use[None, :] - index[:, None]).argmin(axis=1)]           
 
         # stx_read_sp_data: state[value_locate(time, bin_start) > 0]
         which = np.searchsorted(index, np.arange(n_times), side="right") - 1
@@ -3388,6 +3403,7 @@ class ScienceData(L1Product):
 
 
         rcr = np.asarray(self.data["rcr"])
+        rcr_aligned = getattr(self, "_rcr_shifted", None) 
 
         if isinstance(srm_e_min, bool):
             srm_e_min = 3.5 * u.keV if srm_e_min else None
@@ -3491,7 +3507,8 @@ class ScienceData(L1Product):
                 sunkit_spex_systematic_error,
                 sunkit_spex_detector_sum,
                 bkg=background_boolean,
-                n_detectors=n_det_spectrogram
+                n_detectors=n_det_spectrogram,
+                rcr_aligned=rcr_aligned,
             )
 
         else:
@@ -3533,7 +3550,8 @@ class ScienceData(L1Product):
                 sunkit_spex_systematic_error,
                 sunkit_spex_detector_sum,
                 bkg=background_boolean,
-                n_detectors=n_det_spectrogram
+                n_detectors=n_det_spectrogram,
+                rcr_aligned=rcr_aligned,
             )
 
         if sunkit_spex_spectrum:
@@ -3752,7 +3770,8 @@ class ScienceData(L1Product):
 
         trans = Transmission()
 
-        if rcr == 0:
+        bkg_only = detector_indices_input.size == 1 and detector_indices_input[0] == 9
+        if rcr == 0 or bkg_only:
             tot_trans = trans.get_transmission(energies=e_mids * u.keV)
         else:
             tot_trans = trans.get_transmission(energies=e_mids * u.keV, attenuator=True)

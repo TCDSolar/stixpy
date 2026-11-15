@@ -73,17 +73,15 @@ def test_stx_to_hpc_times():
 
 
 @pytest.mark.remote_data
-def test_stx_to_hpc_obstime_end():
-    times = Time("2023-01-01") + [0, 2] * u.min
-    time_avg = np.mean(times)
-    stix_coord = SkyCoord(0 * u.deg, 0 * u.deg, frame=STIXImaging(obstime=times[0], obstime_end=times[-1]))
-    hp = stix_coord.transform_to(Helioprojective(obstime=time_avg))
-    stix_coord_rt = hp.transform_to(STIXImaging(obstime=times[0], obstime_end=times[-1]))
-
-    stix_coord_rt_interp = hp.transform_to(STIXImaging(obstime=times[1]))  # noqa: F841
-    assert_quantity_allclose(0 * u.deg, stix_coord.separation(stix_coord_rt), atol=1e-9 * u.deg)
-    assert np.all(stix_coord.obstime.isclose(stix_coord_rt.obstime))
-    assert np.all(stix_coord.obstime_end.isclose(stix_coord_rt.obstime_end))
+def test_stx_to_hpc_off_disk_round_trip():
+    # Off-disk 2D directions only survive STIX -> HPC -> STIX if both transforms use the same observer,
+    # this used to give NaN when the observer was averaged over a time range on one side only.
+    obstime = Time("2022-10-09T14:10:25.668")
+    stix_coord = SkyCoord(0 * u.arcsec, 3500 * u.arcsec, frame=STIXImaging(obstime=obstime))
+    hp = stix_coord.transform_to(Helioprojective(obstime=obstime))
+    stix_coord_rt = hp.transform_to(STIXImaging(obstime=obstime))
+    assert_quantity_allclose(stix_coord_rt.Tx, 0 * u.arcsec, atol=1e-6 * u.arcsec)
+    assert_quantity_allclose(stix_coord_rt.Ty, 3500 * u.arcsec)
 
 
 @pytest.mark.remote_data

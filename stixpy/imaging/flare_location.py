@@ -111,11 +111,11 @@ def estimate_flare_location(cpd_sci, time_range, energy_range=None, plot=False):
     vis = create_visibility(meta_pixels_sci)
     vis_tr = TimeRange(vis.meta["time_range"])
 
-    roll, solo_xyz, _ = get_hpc_info(vis_tr.start, vis_tr.end)
+    roll, solo_xyz, _ = get_hpc_info(vis_tr.center)
     solo = frames.HeliographicStonyhurst(*solo_xyz, obstime=vis_tr.center, representation_type="cartesian")
 
     center_map = SkyCoord(0 * u.arcsec, 0 * u.arcsec, frame=frames.Helioprojective(observer=solo, obstime=solo.obstime))
-    center_coord = center_map.transform_to(STIXImaging(obstime=vis_tr.start, obstime_end=vis_tr.end, observer=solo))
+    center_coord = center_map.transform_to(STIXImaging(obstime=vis_tr.center, observer=solo))
 
     # get calibrated visibilities - use center of Sun as phase center
     cal_vis = calibrate_visibility(vis, flare_location=center_coord)
@@ -140,6 +140,7 @@ def estimate_flare_location(cpd_sci, time_range, energy_range=None, plot=False):
     header = sunpy.map.make_fitswcs_header(
         bp_image, center_coord, telescope="STIX", observatory="Solar Orbiter", scale=pixel
     )
+    header.update({"date-beg": vis_tr.start.isot, "date-end": vis_tr.end.isot})
     fd_bp_map = sunpy.map.Map((bp_image, header))
 
     sidelobes_ratio = calculate_sidelobes_ratio(fd_bp_map)
@@ -152,6 +153,7 @@ def estimate_flare_location(cpd_sci, time_range, energy_range=None, plot=False):
     # Make a sunpy map from the bp_image, in HPC from STIX observer
     hpc_ref = center_coord.transform_to(frames.Helioprojective(observer=solo, obstime=vis_tr.center))
     header_hp = sunpy.map.make_fitswcs_header(bp_image, hpc_ref, scale=pixel, rotation_angle=90 * u.deg + roll)
+    header_hp.update({"date-beg": vis_tr.start.isot, "date-end": vis_tr.end.isot})
     hp_map = sunpy.map.Map((bp_image, header_hp))
 
     # get the position of the max pixel, argmax/unravel_index picks a single deterministic

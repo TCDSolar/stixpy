@@ -10,17 +10,23 @@ from matplotlib.patches import Circle, Patch
 from matplotlib.widgets import Slider
 
 import astropy.units as u
+from astropy.coordinates import CartesianRepresentation, SkyCoord
 
-from sunpy.coordinates import SphericalScreen
+from sunpy.coordinates import HeliographicStonyhurst, SphericalScreen
+from sunpy.map import make_fitswcs_header
 
+from stixpy.coordinates.fov import FOV_LIMITS, get_illumination_status
+from stixpy.coordinates.frames import STIXImaging
+from stixpy.coordinates.transforms import get_hpc_info
 from stixpy.io.readers import read_subc_params
+from stixpy.map.stix import STIXMap
 
 SubCollimatorConfig = read_subc_params(
     Path(__file__).parent.parent / "config" / "data" / "detector" / "stx_subc_params.csv"
 )
 
 
-__all__ = ["PixelPlotter", "SliderCustomValue", "plot_flare_location"]
+__all__ = ["PixelPlotter", "SliderCustomValue", "plot_flare_location", "plot_fov"]
 
 
 def plot_flare_location(bp_map, hp_map, flare_coord, fig=None):
@@ -70,6 +76,87 @@ def plot_flare_location(bp_map, hp_map, flare_coord, fig=None):
     fig.tight_layout()
 
     return fig, (ax0, ax1)
+
+
+def plot_fov(coord=None, frame=None, ax=None, draw_limb=False, draw_grid=False):
+    r"""
+    Plot the STIX FOVs (fully, single, row, pixel or outside)
+
+    The boxes are those of `~stixpy.coordinates.fov.FOV_LIMITS`, see
+    `~stixpy.coordinates.fov.get_illumination_status`. They are drawn on a blank map, by default in the
+    `~stixpy.coordinates.frames.STIXImaging` frame.
+
+    Parameters
+    ----------
+    coord : `astropy.coordinates.SkyCoord`, optional
+        Source location(s) to mark, labelled with their illumination status and the pixels to use. A coordinate in
+        another frame (e.g. `~sunpy.coordinates.Helioprojective`) is transformed to the STIX frame at its ``obstime``.
+    frame : `astropy.coordinates.BaseCoordinateFrame`, optional
+        Frame with longitude/latitude-like components (e.g. `~sunpy.coordinates.Helioprojective`) to plot the boxes
+        and sources in instead of the STIX frame. Its ``observer`` must be Solar Orbiter and its ``obstime`` that of
+        ``coord``, otherwise the off-disk box corners cannot be transformed and a `ValueError` is raised.
+    ax : `astropy.visualization.wcsaxes.WCSAxes`, optional
+        Axes to plot on to, with the projection of the plotting frame. If not given a new figure is created.
+    draw_limb : `bool`, optional
+        Draw the solar limb, see `sunpy.map.GenericMap.draw_limb`.
+    draw_grid : `bool`, optional
+        Draw the heliographic Stonyhurst grid, see `sunpy.map.GenericMap.draw_grid`.
+
+    Returns
+    -------
+    `astropy.visualization.wcsaxes.WCSAxes`
+    """
+    obstime = coord.obstime if coord is not None else getattr(frame, "obstime", None)
+    if obstime is None:
+        raise ValueError("An obstime, from coord or frame, is needed to place Solar Orbiter.")
+    # the observer the STIX transforms use, so off-disk directions (box corners, limb sources) transform as rotations
+    _, solo_heeq, _ = get_hpc_info(obstime)
+    solo = HeliographicStonyhurst(CartesianRepresentation(solo_heeq.T), obstime=obstime)
+
+    if frame is None:
+        frame = STIXImaging(obstime=obstime, observer=solo)
+    elif not (
+        isinstance(getattr(frame, "observer", None), HeliographicStonyhurst)
+        and frame.obstime == obstime
+        and frame.observer.obstime == obstime
+        and u.allclose(frame.observer.cartesian.xyz, solo.cartesian.xyz)
+    ):
+        raise ValueError(
+            f"frame must have Solar Orbiter as observer and obstime {obstime.isot}, "
+            "e.g. Helioprojective(observer=coord.observer, obstime=coord.obstime) for a STIX coord."
+        )
+
+    # blank map in the plotting frame, for its axes, limb and grid
+    data = np.zeros((100, 100))
+    header = make_fitswcs_header(
+        data, SkyCoord(0 * u.arcsec, 0 * u.arcsec, frame=frame), scale=[100, 100] * u.arcsec / u.pix,
+        telescope="STIX", observatory="Solar Orbiter",
+    )  # fmt: skip
+    smap = STIXMap(data, header)
+    if ax is None:
+        ax = plt.figure().add_subplot(projection=smap)
+    smap.plot(axes=ax, alpha=0)
+    if draw_limb:
+        smap.draw_limb(axes=ax, color="goldenrod")
+    if draw_grid:
+        smap.draw_grid(axes=ax, color="0.6", annotate=False)
+
+    stix_frame = STIXImaging(obstime=obstime, observer=solo)
+    styles = [("tab:orange", "-"), ("tab:green", "--"), ("tab:red", ":")]
+    for (name, (lx, ly)), (color, ls) in zip(FOV_LIMITS.items(), styles, strict=True):
+        # corners are enough: edges stay straight to < 1 arcsec under the STIX to HPC rotation
+        corners = SkyCoord(u.Quantity([-lx, lx, lx, -lx, -lx]), u.Quantity([-ly, -ly, ly, ly, -ly]), frame=stix_frame)
+        ax.plot_coord(corners, ls, color=color, label=f"{name.capitalize()} FOV")
+
+    if coord is not None:
+        status, pixels = (np.atleast_1d(a) for a in get_illumination_status(coord))
+        (source,) = ax.plot_coord(coord, "k+", label="Source")
+        for (xi, yi), si, pi in zip(source.get_xydata(), status, pixels, strict=True):
+            label = si if pi is None else f"{si} ({pi})"
+            ax.annotate(label, (xi, yi), xycoords=source.get_transform(), textcoords="offset points", xytext=(5, 5))
+
+    ax.legend(loc="upper left", bbox_to_anchor=(1.02, 1))
+    return ax
 
 
 class PixelPlotter:

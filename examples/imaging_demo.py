@@ -92,13 +92,9 @@ vis = create_visibility(meta_pixels_bkg_subtracted)
 # Obtain the necessary ephemeris data
 
 vis_tr = TimeRange(vis.meta["time_range"])
-roll, solo_xyz, pointing = get_hpc_info(vis_tr.start, vis_tr.end)
+roll, solo_xyz, pointing = get_hpc_info(vis_tr.center)
 solo = HeliographicStonyhurst(*solo_xyz, obstime=vis_tr.center, representation_type="cartesian")
-center_stix = SkyCoord(
-    0 * u.deg,
-    0 * u.deg,
-    frame=STIXImaging(obstime=vis_tr.start, obstime_end=vis_tr.end, observer=solo),
-)
+center_stix = SkyCoord(0 * u.deg, 0 * u.deg, frame=STIXImaging(obstime=vis_tr.center, observer=solo))
 
 ###############################################################################
 # Calibrate the visibilities

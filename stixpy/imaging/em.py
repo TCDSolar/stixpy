@@ -143,7 +143,7 @@ def em(
     tr = TimeRange(vis.meta.time_range)
 
     if not isinstance(flare_location, STIXImaging) and flare_location.obstime != tr.center:
-        roll, solo_heeq, stix_pointing = get_hpc_info(vis.meta.time_range[0], vis.meta.time_range[1])
+        roll, solo_heeq, stix_pointing = get_hpc_info(tr.center)
         solo_coord = HeliographicStonyhurst(solo_heeq, representation_type="cartesian", obstime=tr.center)
         flare_location = flare_location.transform_to(STIXImaging(obstime=tr.center, observer=solo_coord))
 

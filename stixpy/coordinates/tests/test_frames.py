@@ -35,25 +35,28 @@ def stix_wcs():
 
 @pytest.fixture
 def stix_frame():
-    obstime = "2024-01-01"
-    obstime_end = "2024-01-01 00:00:02.000"
+    obstime = "2024-01-01 00:00:01.000"
     observer = HeliographicStonyhurst(10 * u.deg, 20 * u.deg, 1.5e11 * u.m, obstime=obstime)
-
-    frame_args = {"obstime": obstime, "observer": observer, "obstime_end": obstime_end, "rsun": 695_700_000 * u.m}
-
-    frame = STIXImaging(**frame_args)
-    return frame
+    return STIXImaging(obstime=obstime, observer=observer, rsun=695_700_000 * u.m)
 
 
 def test_stix_wcs_to_frame(stix_wcs):
     frame = stix_wcs_to_frame(stix_wcs)
     assert isinstance(frame, STIXImaging)
 
-    assert frame.obstime.isot == "2024-01-01T00:00:00.000"
+    # the frame takes DATE-AVG, not the start of the time range
+    assert frame.obstime.isot == "2024-01-01T00:00:01.000"
     assert frame.rsun == 695700 * u.km
     assert frame.observer == HeliographicStonyhurst(
         10 * u.deg, 20 * u.deg, 1.5e11 * u.m, obstime="2024-01-01T00:00:01.000"
     )
+
+
+def test_stix_wcs_to_frame_dateobs(stix_wcs):
+    stix_wcs.wcs.dateavg = ""
+    stix_wcs.wcs.dateobs = "2024-01-01 00:00:03.000"
+    frame = stix_wcs_to_frame(stix_wcs)
+    assert frame.obstime.isot == "2024-01-01T00:00:03.000"
 
 
 def test_stix_wcs_to_frame_none():
@@ -70,9 +73,11 @@ def test_stix_frame_to_wcs(stix_frame):
     assert isinstance(wcs, WCS)
     assert wcs.wcs.ctype[0] == "SXLN-TAN"
     assert wcs.wcs.cunit[0] == "arcsec"
-    assert wcs.wcs.datebeg == "2024-01-01 00:00:00.000"
     assert wcs.wcs.dateavg == "2024-01-01 00:00:01.000"
-    assert wcs.wcs.dateend == "2024-01-01 00:00:02.000"
+    assert wcs.wcs.dateobs == "2024-01-01 00:00:01.000"
+    # the frame has no time range, DATE-BEG/DATE-END are set from the data
+    assert wcs.wcs.datebeg == ""
+    assert wcs.wcs.dateend == ""
 
     assert wcs.wcs.aux.rsun_ref == stix_frame.rsun.to_value(u.m)
     assert wcs.wcs.aux.dsun_obs == 1.5e11
@@ -88,17 +93,19 @@ def test_stix_frame_to_wcs_none():
 @pytest.mark.remote_data
 def test_stix_frame_map():
     data = np.random.rand(512, 512)
-    obstime = "2023-01-01 12:00:00"
-    obstime_end = "2023-01-01 12:02:00"
+    obstime = "2023-01-01 12:01:00"
     solo = get_horizons_coord("solo", time=obstime)
-    coord = SkyCoord(
-        0 * u.arcsec, 0 * u.arcsec, obstime=obstime, obstime_end=obstime_end, observer=solo, frame=STIXImaging
-    )
+    coord = SkyCoord(0 * u.arcsec, 0 * u.arcsec, obstime=obstime, observer=solo, frame=STIXImaging)
     header = make_fitswcs_header(
         data, coord, scale=[8, 8] * u.arcsec / u.pix, telescope="STIX", instrument="STIX", observatory="Solar Orbiter"
     )
+    header.update({"date-beg": "2023-01-01T12:00:00", "date-end": "2023-01-01T12:02:00"})
     smap = Map((data, header))
     assert isinstance(smap, STIXMap)
+    # the time range stays with the map, the frame has the average time
+    assert smap.date_start.isot == "2023-01-01T12:00:00.000"
+    assert smap.date_end.isot == "2023-01-01T12:02:00.000"
+    assert smap.coordinate_frame.obstime.isot == "2023-01-01T12:01:00.000"
     assert smap.coordinate_system == SpatialPair(axis1="SXLN-TAN", axis2="SXLT-TAN")
     assert isinstance(smap.coordinate_frame, STIXImaging)
     smap.plot()

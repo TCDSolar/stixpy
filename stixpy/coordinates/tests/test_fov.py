@@ -36,7 +36,42 @@ def test_get_illumination_status():
     y = [0, -1900, 2500, 3000, 0, -4000] * u.arcsec
     status, pixels = get_illumination_status(SkyCoord(x, y, frame=STIXImaging))
     assert np.all(status == ["full", "single row", "single row", "partial", "outside", "outside"])
-    assert pixels.tolist() == ["top+bot", "top", "bot", "bot", None, None]
+    assert pixels.tolist() == ["top+bot", "top", "bot", None, None, None]
+
+
+@pytest.mark.parametrize("scalar", [True, False])
+@pytest.mark.parametrize(
+    "x, y, expected_status, expected_pixels",
+    [
+        (0, 0, "full", "top+bot"),
+        (0, 2500, "single row", "bot"),
+        (0, -2500, "single row", "top"),
+        (3000, 3000, "partial", None),
+        (3000, 0, "partial", None),
+        (0, 4000, "outside", None),
+    ],
+)
+def test_get_illumination_status_return_types(scalar, x, y, expected_status, expected_pixels):
+    coord = SkyCoord(x * u.arcsec, y * u.arcsec, frame=STIXImaging)
+    if not scalar:
+        coord = coord.reshape((1,))
+
+    status, pixels = get_illumination_status(coord)
+
+    if scalar:
+        assert isinstance(status, str)
+        assert status == expected_status
+        if expected_pixels is None:
+            assert pixels is None
+        else:
+            assert isinstance(pixels, str)
+            assert pixels == expected_pixels
+    else:
+        assert isinstance(status, np.ndarray)
+        assert isinstance(pixels, np.ndarray)
+        assert status.shape == pixels.shape == coord.shape
+        assert status.tolist() == [expected_status]
+        assert pixels.tolist() == [expected_pixels]
 
 
 def test_get_illumination_status_needs_obstime():
@@ -82,6 +117,18 @@ def test_plot_fov_hpc():
     assert u.allclose([hpc_source.Tx[0], hpc_source.Ty[0]], [-3027.57, 1024.27] * u.arcsec, atol=1e-3 * u.arcsec)
     for name in ["Full FOV", "Single row FOV", "Partial FOV"]:
         assert not np.isnan(_world(ax, name).Tx).any()
+
+    # on an existing map axes the map's frame and view are kept and kwargs style the source
+    ax = plot_fov(flare_hpc, frame=hpc)
+    ax.set_xlim(10, 20)
+    ax.set_ylim(30, 40)
+    ax = plot_fov(flare_hpc, ax=ax, color="r", marker="o")
+    assert ax.get_xlim() == (10, 20)
+    assert ax.get_ylim() == (30, 40)
+    source = [line for line in ax.lines if line.get_label() == "Source"][-1]
+    assert (source.get_color(), source.get_marker()) == ("r", "o")
+    with pytest.raises(ValueError, match="only one of frame and ax"):
+        plot_fov(flare_hpc, frame=hpc, ax=ax)
 
     # a frame with another observer or time cannot hold the off-disk box corners
     with pytest.raises(ValueError, match="Solar Orbiter"):

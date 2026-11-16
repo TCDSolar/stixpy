@@ -52,17 +52,20 @@ def get_illumination_status(coord):
 
     Returns
     -------
-    status : `numpy.ndarray` of `str`
-        One status per coordinate:
+    status : `str` or `numpy.ndarray` of `str`
+        A string for a scalar coordinate, otherwise an array with the same shape as ``coord``:
 
         * ``"full"``: all pixels fully illuminated, top and bottom rows see the same flux.
         * ``"single row"``: the top or bottom row is shadowed, use only the other row.
-        * ``"partial"``: as ``"single row"``, and the outer pixel columns are partially shadowed.
+        * ``"partial"``: some pixel columns are partially or fully shadowed.
         * ``"outside"``: outside the partial (maximal) FOV.
-    pixels : `numpy.ndarray`
+    pixels : `str`, `None`, or `numpy.ndarray`
         The pixels to use, as accepted by the ``pixels`` argument of
-        `~stixpy.calibration.visibility.create_meta_pixels`: ``"top+bot"`` for ``"full"``, ``"bot"`` for a source
-        at +Y (top row shadowed), ``"top"`` for a source at -Y (bottom row shadowed) and `None` for ``"outside"``.
+        `~stixpy.calibration.visibility.create_meta_pixels`: ``"top+bot"`` for ``"full"``, and for ``"single row"``,
+        ``"bot"`` at +Y (top row shadowed) or ``"top"`` at -Y (bottom row shadowed).
+        For ``"partial"`` and ``"outside"``, `None` indicates that no pixel selection is supported by the current
+        visibility calculation. A scalar coordinate returns a string or `None`; an array of coordinates returns
+        an object array with the same shape as ``coord``.
 
     Examples
     --------
@@ -75,7 +78,7 @@ def get_illumination_status(coord):
     >>> status
     array(['full', 'single row', 'partial', 'outside'], dtype='<U10')
     >>> pixels
-    array(['top+bot', 'bot', 'top', None], dtype=object)
+    array(['top+bot', 'bot', None, None], dtype=object)
     """
     if not isinstance(coord, SkyCoord):
         raise ValueError("coord must be a SkyCoord.")
@@ -87,5 +90,11 @@ def get_illumination_status(coord):
     inside = [(x <= lx) & (np.abs(y) <= ly) for lx, ly in FOV_LIMITS.values()]
     status = np.select(inside, list(FOV_LIMITS.keys()), default="outside")
     # the window shadow moves opposite to the source, so a source at +Y shadows the top row (+Y side)
-    pixels = np.select([status == "full", status == "outside", y > 0], ["top+bot", None, "bot"], default="top")
+    pixels = np.select(
+        [status == "full", status == "single row"],
+        ["top+bot", np.where(y > 0, "bot", "top")],
+        default=None,
+    )
+    if coord.isscalar:
+        return status.item(), pixels.item()
     return status, pixels

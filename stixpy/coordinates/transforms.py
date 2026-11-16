@@ -28,7 +28,7 @@ logger = get_logger(__name__)
 __all__ = ["get_hpc_info", "stixim_to_hpc", "hpc_to_stixim"]
 
 
-def _get_rotation_matrix_and_position(obstime, obstime_end=None):
+def _get_rotation_matrix_and_position(obstime):
     r"""
     Return rotation matrix STIX Imaging to SOLO HPC and position of SOLO in HEEQ.
 
@@ -39,7 +39,7 @@ def _get_rotation_matrix_and_position(obstime, obstime_end=None):
     Returns
     -------
     """
-    roll, solo_position_heeq, spacecraft_pointing = get_hpc_info(obstime, obstime_end)
+    roll, solo_position_heeq, spacecraft_pointing = get_hpc_info(obstime)
 
     # Generate the rotation matrix using the x-convention (see Goldstein)
     # Rotate +90 clockwise around the first axis
@@ -220,11 +220,8 @@ def stixim_to_hpc(stxcoord, hpcframe):
     """
     logger.debug("STIX: %s", stxcoord)
 
-    rot_matrix, solo_pos_heeq = _get_rotation_matrix_and_position(stxcoord.obstime, stxcoord.obstime_end)
-
     obstime = stxcoord.obstime
-    if stxcoord.obstime_end is not None:
-        obstime = stxcoord.obstime + (stxcoord.obstime_end - stxcoord.obstime) / 2
+    rot_matrix, solo_pos_heeq = _get_rotation_matrix_and_position(obstime)
 
     solo_heeq = HeliographicStonyhurst(solo_pos_heeq.T, representation_type="cartesian", obstime=obstime)
 
@@ -253,11 +250,9 @@ def hpc_to_stixim(hpccoord, stxframe):
     Transform HPC coordinate to STIX Imaging frame.
     """
     logger.debug("Input HPC: %s", hpccoord)
-    rmatrix, solo_pos_heeq = _get_rotation_matrix_and_position(stxframe.obstime, stxframe.obstime_end)
-
     obstime = stxframe.obstime
-    if stxframe.obstime_end is not None:
-        obstime = stxframe.obstime + (stxframe.obstime_end - stxframe.obstime) / 2
+    rmatrix, solo_pos_heeq = _get_rotation_matrix_and_position(obstime)
+
     solo_hgs = HeliographicStonyhurst(solo_pos_heeq.T, representation_type="cartesian", obstime=obstime)
 
     # Create SOLO HPC

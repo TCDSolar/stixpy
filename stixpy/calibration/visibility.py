@@ -226,8 +226,9 @@ def create_meta_pixels(
         if flare_location is None or not isinstance(flare_location, SkyCoord):
             raise ValueError("flare_location must be a SkyCoord object if using grid shadowing correction.")
         if not isinstance(flare_location.frame, STIXImaging) and flare_location.obstime != time_range.center:
-            roll, solo_heeq, stix_pointing = get_hpc_info(time_range.start, time_range.end)
-            flare_location = flare_location.transform_to(STIXImaging(obstime=time_range.center, observer=solo_heeq))
+            roll, solo_heeq, stix_pointing = get_hpc_info(time_range.center)
+            solo_coord = HeliographicStonyhurst(solo_heeq, representation_type="cartesian", obstime=time_range.center)
+            flare_location = flare_location.transform_to(STIXImaging(obstime=time_range.center, observer=solo_coord))
         grid_shadowing = get_grid_transmission(flare_location)
         ct_summed = ct_summed / grid_shadowing.reshape(-1, 1) / 4  # transmission grid ~ 0.5*0.5 = .25
         ct_error_summed = ct_error_summed / grid_shadowing.reshape(-1, 1) / 4
@@ -397,7 +398,7 @@ def calibrate_visibility(vis: Visibilities, flare_location: SkyCoord | None = No
     if not isinstance(flare_location, SkyCoord):
         raise ValueError("'flare_location' is not a SkyCoord object")
     if not isinstance(flare_location.frame, STIXImaging) or flare_location.obstime != tr.center:
-        roll, solo_heeq, stix_pointing = get_hpc_info(vis.meta.time_range[0], vis.meta.time_range[1])
+        roll, solo_heeq, stix_pointing = get_hpc_info(tr.center)
         solo_coord = HeliographicStonyhurst(solo_heeq, representation_type="cartesian", obstime=tr.center)
         flare_location = flare_location.transform_to(STIXImaging(obstime=tr.center, observer=solo_coord))
 

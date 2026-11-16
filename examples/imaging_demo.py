@@ -32,6 +32,7 @@ from stixpy.coordinates.transforms import get_hpc_info
 from stixpy.imaging.em import em
 from stixpy.map.stix import STIXMap  # noqa
 from stixpy.product import Product
+from stixpy.visualisation.plotters import plot_fov
 
 logger = logging.getLogger(__name__)
 
@@ -92,13 +93,9 @@ vis = create_visibility(meta_pixels_bkg_subtracted)
 # Obtain the necessary ephemeris data
 
 vis_tr = TimeRange(vis.meta["time_range"])
-roll, solo_xyz, pointing = get_hpc_info(vis_tr.start, vis_tr.end)
+roll, solo_xyz, pointing = get_hpc_info(vis_tr.center)
 solo = HeliographicStonyhurst(*solo_xyz, obstime=vis_tr.center, representation_type="cartesian")
-center_stix = SkyCoord(
-    0 * u.deg,
-    0 * u.deg,
-    frame=STIXImaging(obstime=vis_tr.start, obstime_end=vis_tr.end, observer=solo),
-)
+center_stix = SkyCoord(0 * u.deg, 0 * u.deg, frame=STIXImaging(obstime=vis_tr.center, observer=solo))
 
 ###############################################################################
 # Calibrate the visibilities
@@ -149,8 +146,17 @@ hp_map = Map((bp_image, header_hp))
 hp_map_rotated = hp_map.rotate()
 
 ###############################################################################
-# Plot the both maps
+# Estimate the flare location from the brightest pixel of the back projection map
 
+max_pixel = np.argwhere(fd_bp_map.data == fd_bp_map.data.max()).ravel() * u.pixel
+# because WCS axes and array are reversed
+max_stix = fd_bp_map.pixel_to_world(max_pixel[1], max_pixel[0])
+
+###############################################################################
+# Plot both maps with the flare location and the STIX fields of view. A source in the full
+# FOV illuminates all pixels; further out one pixel row is shadowed and only the other row
+# should be used (see `~stixpy.coordinates.fov.get_illumination_status`). Note the coordinates
+# are automatically converted from the STIXImaging to Helioprojective
 
 fig = plt.figure(layout="constrained", figsize=(12, 6))
 ax = fig.subplot_mosaic(
@@ -164,17 +170,9 @@ hp_map_rotated.plot(axes=ax["hpc"])
 hp_map_rotated.draw_limb()
 hp_map_rotated.draw_grid()
 
-###############################################################################
-# Estimate the flare location and plot on top of back projection map. Note the coordinates
-# are automatically converted from the STIXImaging to Helioprojective
-
-max_pixel = np.argwhere(fd_bp_map.data == fd_bp_map.data.max()).ravel() * u.pixel
-# because WCS axes and array are reversed
-max_stix = fd_bp_map.pixel_to_world(max_pixel[1], max_pixel[0])
-
-ax["stix"].plot_coord(max_stix, marker=".", markersize=50, fillstyle="none", color="r", markeredgewidth=2)
-ax["hpc"].plot_coord(max_stix, marker=".", markersize=50, fillstyle="none", color="r", markeredgewidth=2)
-fig.tight_layout()
+marker = {"marker": ".", "markersize": 50, "fillstyle": "none", "color": "r", "markeredgewidth": 2}
+plot_fov(max_stix, ax=ax["stix"], **marker)
+plot_fov(max_stix, ax=ax["hpc"], **marker)
 
 ################################################################################
 # Use estimated flare location to create more accurate visibilities

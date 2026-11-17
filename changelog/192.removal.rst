@@ -1,0 +1,1 @@
+Remove ``stixpy.calibration.detector.get_srm`` and ``stixpy.calibration.detector.get_pixel_srm``. The spectral response matrix is now built by `~stixpy.product.sources.science.ScienceData.get_masked_srm`.

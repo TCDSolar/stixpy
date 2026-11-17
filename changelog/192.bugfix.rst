@@ -1,0 +1,1 @@
+Pixel data files in which some detectors or pixels are switched off are now read correctly: the stored counts are placed at their detector and pixel numbers, as in STIX-GSW's ``stx_read_pixel_data_fits_file``, so detector and pixel indices always refer to the real detectors and pixels.

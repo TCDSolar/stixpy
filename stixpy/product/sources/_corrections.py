@@ -437,10 +437,8 @@ def _data_select(
        on form one group, a flat selection forms one group, and each
        [start, end] range is its own group.
     5. Detector selection.
-    6. On the background path, counts are set to zero wherever their total over
-       the detectors and pixels is negative.
-    7. RCR alignment (see `_rcr_shift`).
-    8. Time selection, and optionally a sum over all time bins.
+    6. RCR alignment (see `_rcr_shift`).
+    7. Time selection, and optionally a sum over all time bins.
 
     Parameters
     ----------
@@ -754,10 +752,6 @@ def _data_select(
                     ],
                     axis=1,
                 )
-
-    if bkg:
-        total = np.nansum(counts, axis=(1, 2), keepdims=True)
-        counts = np.where(total < 0, 0, counts.value) * counts.unit
 
     if detector_indices is None:
         # no detector selection: a spectrogram (summed on board over n_detectors)

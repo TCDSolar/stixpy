@@ -825,8 +825,7 @@ class ScienceData(L1Product):
         back by the mean livetime fraction of the detectors combined into each
         spectrum. The background uncertainty and both livetime uncertainties are
         added to ``counts_err`` in quadrature, so ``livefrac_error`` is None.
-        Counts whose total over the detectors and pixels is negative are set to
-        zero. The pixels are summed, as with the livetime correction alone.
+        Negative background-subtracted counts are preserved. The pixels are summed, as with the livetime correction alone.
         """
         energy_indices = _energy_indices_format(energy_indices, self.energies)
         if time_indices is not None:

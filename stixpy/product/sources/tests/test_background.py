@@ -121,10 +121,10 @@ def test_background_spectrogram(bkg_zero, bkg):
     assert_allclose(with_bkg.counts, spec.get_data(vtype="c", **NO_ELUT).counts - 31 * 12 * 0.02 * u.ct)
 
 
-def test_background_negative_set_to_zero(cpd):
+def test_background_preserves_negative_counts(cpd):
     big = _make_product(CompressedPixelData, np.full((1, 32, 12, 4), 1e6), timedel=100)
     data = cpd.get_data(vtype="c", detector_indices=[[0, 31]], bkg=big, **NO_ELUT)
-    assert np.all(data.counts == 0)
+    assert np.all(data.counts < 0 * u.ct)
     assert np.all(data.counts_err > 0)
 
 
@@ -193,3 +193,15 @@ def test_background_rejects_different_elut_files(cpd, bkg, monkeypatch):
 
     with pytest.raises(ValueError, match=r"ELUT files differ: 'science.csv' and 'background.csv'"):
         cpd.get_data(bkg=bkg)
+
+
+def test_background_negative_residuals_survive_time_sum():
+    science_counts = np.broadcast_to(np.array([2.0, 8.0])[:, None, None, None], (2, 32, 12, 4)).copy()
+    science = _make_product(CompressedPixelData, science_counts)
+    background = _make_product(CompressedPixelData, np.full((1, 32, 12, 4), 5.0))
+    options = dict(bkg=background, vtype="c", detector_indices=[0], pixel_indices=[0], **NO_ELUT)
+
+    bins = science.get_data(**options)
+    assert_allclose(bins.counts[:, 0, 0, 0], [-3, 3] * u.ct)
+    summed = science.get_data(time_indices=[[0, 1]], **options)
+    assert_allclose(summed.counts, 0 * u.ct, atol=1e-12 * u.ct)

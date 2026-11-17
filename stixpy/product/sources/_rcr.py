@@ -62,6 +62,12 @@ def _rcr_shift(rcr, signal):
     returns -1, a scalar -1 subscript takes the last element, and a -1 in a
     subscript array is clipped to 0.
 
+    The fixed threshold is applied to raw counts, without dividing by each bin's
+    integration time or correcting for livetime. This matches STIX-GSW, but a
+    change in integration time or livetime can look like an attenuator jump.
+    The trigger counters may provide a better signal for a future alignment
+    method, once its threshold has been validated against flight data.
+
     The per-bin states are then rebuilt as STIX-GSW ``stx_read_sp_data`` does:
     each bin takes the state in force at its start (``value_locate``, clipped
     at 0). ``stx_read_sp_data`` also marks bins in which a state change falls

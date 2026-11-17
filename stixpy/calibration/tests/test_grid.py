@@ -7,7 +7,7 @@ import astropy.units as u
 from astropy.coordinates import SkyCoord
 from astropy.table import Table
 
-from stixpy.calibration.grid import CFL_BKG_0, FINEST_ALL_0, get_grid_transmission
+from stixpy.calibration.grid import CFL_BKG_0, FINEST_ALL_0, get_grid_transmission, stx_grid_transmission
 from stixpy.coordinates.frames import STIXImaging
 
 GRID_DIR = Path(__file__).parent.parent.parent / "config" / "data" / "grid"
@@ -65,22 +65,18 @@ def test_grid_transmission_cfl_bkg():
 def test_grid_transmission_flare_location_inputs():
     on_axis_none = get_grid_transmission(20 * u.keV, IMAGING)
     on_axis_coord = get_grid_transmission(20 * u.keV, IMAGING, ON_AXIS)
-    on_axis_quantity = get_grid_transmission(20 * u.keV, IMAGING, [0, 0] * u.arcsec)
     assert np.allclose(on_axis_none, on_axis_coord)
-    assert np.allclose(on_axis_none, on_axis_quantity)
 
     off_axis_coord = get_grid_transmission(
         20 * u.keV, IMAGING, SkyCoord(300 * u.arcsec, 500 * u.arcsec, frame=STIXImaging)
     )
-    off_axis_quantity = get_grid_transmission(20 * u.keV, IMAGING, [5, 500 / 60] * u.arcmin)
-    assert np.allclose(off_axis_coord, off_axis_quantity)
     assert not np.allclose(off_axis_coord, on_axis_coord)
 
 
 def test_grid_transmission_bad_flare_location():
     with pytest.raises(ValueError, match="STIXImaging"):
         get_grid_transmission(20 * u.keV, IMAGING, SkyCoord(0 * u.deg, 0 * u.deg, frame="icrs"))
-    with pytest.raises(ValueError, match="shape"):
+    with pytest.raises(TypeError, match="SkyCoord"):
         get_grid_transmission(20 * u.keV, IMAGING, [0, 0, 0] * u.arcsec)
 
 
@@ -88,4 +84,12 @@ def test_grid_transmission_non_positive():
     # sc 13 (1b) has a small intercept (0.0384), a positive slope (0.0093 / deg) and is oriented at ~90 deg, so a
     # large enough negative Ty gives a negative transmission
     with pytest.raises(ValueError, match="<= 0"):
-        get_grid_transmission(20 * u.keV, [12], [0, -5] * u.deg)
+        get_grid_transmission(20 * u.keV, [12], SkyCoord(0 * u.deg, -5 * u.deg, frame=STIXImaging))
+
+
+def test_grid_model_uses_length_units():
+    result = stx_grid_transmission(1 * u.mm, 0.5 * u.mm, 0.2 * u.mm, [0.01, 1] * u.mm)
+    assert result.shape == (2,)
+    assert np.all((result > 0) & (result < 1))
+    with pytest.raises(u.UnitsError):
+        stx_grid_transmission(1 * u.deg, 0.5 * u.mm, 0.2 * u.mm, [0.01, 1] * u.mm)

@@ -29,54 +29,63 @@ _W_MASS_ATTEN = MassAttenuationCoefficient("W")
 
 def _tungsten_path_length(ph_energy):
     """
-    Photon energy -> attenuation path length L [mm] in tungsten, using
+    Photon energy -> attenuation path length in tungsten, using
     roentgen's tabulated mass attenuation coefficient. Mirrors IDL's
     L = 1 / (mass_attenuation * density / 10), with density = 19.30 g/cm^3.
     """
     energy = np.atleast_1d(ph_energy.to(u.keV))
     mass_atten = _W_MASS_ATTEN.func(energy)  # cm^2/g
     density_w = 19.30 * u.g / u.cm**3
-    mu_linear = mass_atten * density_w  # cm^-1
-    mu_mm = mu_linear.to(1 / u.mm).value  # mm^-1
-    return 1.0 / mu_mm  # mm
+    mu_linear = mass_atten * density_w
+    return (1 / mu_linear).to(u.mm)
 
 
-def stx_grid_transmission(pitch, slit, thickness, L, ds=5e-3, dh=5e-2):
+@u.quantity_input
+def stx_grid_transmission(
+    pitch: u.Quantity[u.mm],
+    slit: u.Quantity[u.mm],
+    thickness: u.Quantity[u.mm],
+    attenuation_length: u.Quantity[u.mm],
+    *,
+    wedge_width: u.Quantity[u.mm] = 5e-3 * u.mm,
+    wedge_height: u.Quantity[u.mm] = 5e-2 * u.mm,
+    shadowing_correction: bool = True,
+):
     r"""
     Wedge-shape-model transmission for a single grid layer (front or rear),
     vectorized over photon energy.
 
     Parameters
     ----------
-    pitch, slit, thickness : float
-        Grid geometry for one subcollimator [mm].
-    L : numpy.ndarray
-        Tungsten attenuation path length per energy [mm], shape (n_energies,).
-    ds, dh : float
-        Wedge-model imperfection parameters. IDL sets both to 0 for the finest
-        grids (1a/b/c, 2a/b/c), which disables the shadowing-correction term
-        entirely rather than evaluating it at ds = dh = 0.
+    pitch, slit, thickness : astropy.units.Quantity
+        Grid geometry for one subcollimator, in length units.
+    attenuation_length : astropy.units.Quantity
+        Tungsten attenuation path length per energy, shape (n_energies,).
+    wedge_width, wedge_height : astropy.units.Quantity, optional
+        Width and height of the wedge-model grid imperfection. Defaults are
+        0.005 and 0.05 mm, respectively.
+    shadowing_correction : bool, optional
+        Include the wedge-model correction. Disabled for the finest grids
+        (1a/b/c, 2a/b/c), as in STIX-GSW.
 
     Returns
     -------
     numpy.ndarray
         Transmission per energy, shape (n_energies,).
     """
-    L = np.asarray(L, dtype=float)
+    g0 = slit / pitch + (pitch - slit) / pitch * np.exp(-thickness / attenuation_length)
 
-    g0 = slit / pitch + (pitch - slit) / pitch * np.exp(-thickness / L)
+    if not shadowing_correction:
+        return g0.to_value(u.one)
 
-    if ds == 0 and dh == 0:
-        return g0
+    ttt = attenuation_length / wedge_height * (1.0 - np.exp(-wedge_height / attenuation_length))
+    g1 = 2.0 * wedge_width / pitch * (ttt - np.exp(-thickness / attenuation_length))
 
-    ttt = L / dh * (1.0 - np.exp(-dh / L))
-    g1 = 2.0 * ds / pitch * (ttt - np.exp(-thickness / L))
-
-    return g0 + g1
+    return (g0 + g1).to_value(u.one)
 
 
 @u.quantity_input(ph_energy=u.keV)
-def get_grid_transmission(ph_energy, detectors, flare_location: SkyCoord | u.Quantity | None = None):
+def get_grid_transmission(ph_energy, detectors, flare_location: SkyCoord | None = None):
     r"""
     Return the grid transmission for the requested sub-collimators, corrected
     for internal shadowing, including the finest grids (1a/b/c, 2a/b/c) with
@@ -89,10 +98,9 @@ def get_grid_transmission(ph_energy, detectors, flare_location: SkyCoord | u.Qua
     detectors : array_like
         0-indexed subcollimator numbers to compute transmission for
         (detector = subcollimator - 1, e.g. detector 0 = subcollimator 1).
-    flare_location : `~astropy.coordinates.SkyCoord` or `~astropy.units.Quantity`, optional
-        Location of the flare, either as a coordinate in the
-        `~stixpy.coordinates.frames.STIXImaging` frame or as angles ``[Tx, Ty]``
-        in that frame. If None, on-axis (0, 0) is assumed.
+    flare_location : `~astropy.coordinates.SkyCoord`, optional
+        Location of the flare in the `~stixpy.coordinates.frames.STIXImaging`
+        frame. If None, on-axis (0, 0) is assumed.
 
     Returns
     -------
@@ -134,19 +142,17 @@ def get_grid_transmission(ph_energy, detectors, flare_location: SkyCoord | u.Qua
     intercept_all = np.asarray(calib["intercept"])
     slope_all = np.asarray(calib["slope[1/deg]"])
 
-    L = _tungsten_path_length(ph_energy)  # mm, shape (n_energies,)
-    n_energies = len(L)
+    attenuation_length = _tungsten_path_length(ph_energy)
+    n_energies = len(attenuation_length)
 
     if flare_location is None:
-        flare_loc_deg = np.array([0.0, 0.0])
-    elif isinstance(flare_location, SkyCoord):
+        flare_tx, flare_ty = 0 * u.deg, 0 * u.deg
+    else:
+        if not isinstance(flare_location, SkyCoord):
+            raise TypeError("flare_location must be a SkyCoord in the STIXImaging frame.")
         if not isinstance(flare_location.frame, STIXImaging):
             raise ValueError("flare_location must be in the STIXImaging frame.")
-        flare_loc_deg = u.Quantity([flare_location.Tx, flare_location.Ty]).to_value(u.deg)
-    else:
-        if flare_location.shape != (2,):
-            raise ValueError("flare_location must be a SkyCoord or a Quantity [Tx, Ty] of shape (2,).")
-        flare_loc_deg = flare_location.to_value(u.deg)
+        flare_tx, flare_ty = flare_location.Tx.to(u.deg), flare_location.Ty.to(u.deg)
 
     detectors = np.atleast_1d(detectors)
     n_det = len(detectors)
@@ -166,53 +172,55 @@ def get_grid_transmission(ph_energy, detectors, flare_location: SkyCoord | u.Qua
         if det in FINEST_ALL_0:
             grid_orient_front = np.mean(front["o"][idx_front])
             grid_orient_rear = np.mean(rear["o"][idx_rear])
-            pitch_front_raw = np.mean(front["p"][idx_front])
-            pitch_rear_raw = np.mean(rear["p"][idx_rear])
+            pitch_front_raw = np.mean(front["p"][idx_front]) * u.mm
+            pitch_rear_raw = np.mean(rear["p"][idx_rear]) * u.mm
 
             if det in FINEST_2ABC_0:
                 pitch_front = pitch_front_raw / 2.0
                 pitch_rear = pitch_rear_raw / 2.0
-                thickness_front = 0.2
-                thickness_rear = 0.2
+                thickness_front = 0.2 * u.mm
+                thickness_rear = 0.2 * u.mm
             else:  # FINEST_1ABC_0
                 pitch_front = pitch_front_raw / 3.0
                 pitch_rear = pitch_rear_raw / 3.0
-                thickness_front = 0.133
-                thickness_rear = 0.133
+                thickness_front = 0.133 * u.mm
+                thickness_rear = 0.133 * u.mm
 
-            ds, dh = 0.0, 0.0
+            shadowing_correction = False
         else:
             grid_orient_front = front["o"][idx_front][0]
             grid_orient_rear = rear["o"][idx_rear][0]
-            pitch_front = front["p"][idx_front][0]
-            pitch_rear = rear["p"][idx_rear][0]
-            thickness_front = front["thick"][idx_front][0]
-            thickness_rear = rear["thick"][idx_rear][0]
-            ds, dh = 5e-3, 5e-2
+            pitch_front = front["p"][idx_front][0] * u.mm
+            pitch_rear = rear["p"][idx_rear][0] * u.mm
+            thickness_front = front["thick"][idx_front][0] * u.mm
+            thickness_rear = rear["thick"][idx_rear][0] * u.mm
+            shadowing_correction = True
 
-        grid_orient_avg = (grid_orient_front + grid_orient_rear) / 2.0
-        theta = flare_loc_deg[0] * np.cos(np.deg2rad(grid_orient_avg)) + flare_loc_deg[1] * np.sin(
-            np.deg2rad(grid_orient_avg)
-        )
+        grid_orient_avg = (grid_orient_front + grid_orient_rear) / 2.0 * u.deg
+        theta = flare_tx * np.cos(grid_orient_avg) + flare_ty * np.sin(grid_orient_avg)
 
         idx_calib = np.where(subc_n_all == sc_num)[0]
         if len(idx_calib) == 0:
             raise ValueError(f"No calibration entry found for subcollimator {sc_num}.")
-        intercept = intercept_all[idx_calib][0]
-        slope = slope_all[idx_calib][0]
+        intercept = intercept_all[idx_calib][0] * u.one
+        slope = slope_all[idx_calib][0] / u.deg
 
         subc_transm_low_e = intercept + slope * theta
-        if subc_transm_low_e <= 0:
+        if subc_transm_low_e <= 0 * u.one:
             raise ValueError(
                 f"Transmission value for subcollimator {sc_num} is <= 0; check the provided flare location."
             )
 
-        slit_to_pitch = np.sqrt(subc_transm_low_e)
+        slit_to_pitch = np.sqrt(subc_transm_low_e).to_value(u.one)
         slit_front = slit_to_pitch * pitch_front
         slit_rear = slit_to_pitch * pitch_rear
 
-        transm_front = stx_grid_transmission(pitch_front, slit_front, thickness_front, L, ds=ds, dh=dh)
-        transm_rear = stx_grid_transmission(pitch_rear, slit_rear, thickness_rear, L, ds=ds, dh=dh)
+        transm_front = stx_grid_transmission(
+            pitch_front, slit_front, thickness_front, attenuation_length, shadowing_correction=shadowing_correction
+        )
+        transm_rear = stx_grid_transmission(
+            pitch_rear, slit_rear, thickness_rear, attenuation_length, shadowing_correction=shadowing_correction
+        )
 
         subc_transm[:, j] = transm_front * transm_rear
 

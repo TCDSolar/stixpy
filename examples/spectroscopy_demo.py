@@ -209,9 +209,17 @@ edges, rate_sub, err_sub = count_rate(spec_sub)
 _, rate_nosub, err_nosub = count_rate(spec_nosub)
 ct_mid = edges[:-1] + np.diff(edges) / 2
 
-with np.errstate(divide="ignore", invalid="ignore"):
-    ratio = np.where(rate_nosub > 0, rate_sub / rate_nosub, np.nan).to(u.one)
-    ratio_err = np.where(rate_nosub > 0, np.sqrt(err_sub**2 + (ratio * err_nosub) ** 2) / rate_nosub, np.nan).to(u.one)
+# The ratio is (S - B) / S = 1 - B / S. The same science rate S appears
+# twice, so propagate the independent uncertainties in S and B. Background
+# subtraction added the background variance in quadrature. Clamp any tiny
+# negative difference caused by rounding.
+background_rate = rate_nosub - rate_sub
+background_variance = np.maximum(err_sub**2 - err_nosub**2, 0)
+science_rate = np.where(rate_nosub > 0, rate_nosub, np.nan)
+ratio = (rate_sub / science_rate).to(u.one)
+ratio_err = (np.hypot(np.sqrt(background_variance), (background_rate / science_rate) * err_nosub) / science_rate).to(
+    u.one
+)
 
 rate_unit = rate_sub.unit
 

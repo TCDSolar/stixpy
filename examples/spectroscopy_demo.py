@@ -6,8 +6,10 @@ Spectroscopy Demo
 How to make a background-subtracted count spectrum and the matching spectral response
 matrix (SRM) from STIX pixel data, ready for spectral fitting with ``sunkit-spex``.
 
-This example uses `~stixpy.product.sources.science.ScienceData.get_data` with
-``sunkit_spex_spectrum=True``. The spectrum and SRM follow the IDL routines
+This example selects counts with `~stixpy.product.sources.science.ScienceData.get_data`,
+subtracts the background with `~stixpy.product.sources.science.subtract_background`,
+and builds spectra with `~stixpy.spectroscopy.to_spectrum`. The spectrum and SRM follow
+the IDL routines
 ``stx_convert_pixel_data`` and ``stx_convert_spectrogram2ospex`` in STIX-GSW, so the result
 can be compared directly with an OSPEX analysis.
 
@@ -25,6 +27,8 @@ import astropy.units as u
 
 from stixpy.imaging.flare_location import estimate_flare_location
 from stixpy.product import Product
+from stixpy.product.sources.science import subtract_background
+from stixpy.spectroscopy import to_spectrum
 
 #############################################################################
 # Read the science file and a background file as Products. The background file is a
@@ -51,7 +55,7 @@ plt.legend()
 #############################################################################
 # The SRM includes the transmission of the grids, which depends on where the flare is, so
 # estimate the flare location first (see the flare location example for more detail).
-# ``get_data`` takes the location as a single `~astropy.coordinates.SkyCoord`, so use the
+# ``to_spectrum`` takes the location as a single `~astropy.coordinates.SkyCoord`, so use the
 # helioprojective (``"hpc"``) entry of the result.
 #
 # Requested times must lie inside the file, which covers 15:20:16 to 15:26:39.
@@ -64,22 +68,19 @@ flare_location
 #############################################################################
 # Make the spectrum. The counts are summed over the top 24 detectors and the time range,
 # corrected for livetime and the energy look-up table (ELUT), and the background is
-# subtracted after scaling it to the same livetime. ``sunkit_spex_systematic_error`` adds
+# subtracted after scaling it to the same livetime. ``systematic_error`` adds
 # the standard STIX systematic uncertainty (7% below 7 keV, 5% from 7 to 10 keV and 3%
 # above).
 #
 # The CFL detector (index 8) can not be used for spectroscopy, and the BKG detector
 # (index 9) only on its own, as in STIX-GSW.
 
-spec = cpd_sci.get_data(
+data = cpd_sci.get_data(
     time_indices=time_range,
     detector_indices="top24",
-    bkg=cpd_bkg,
-    flare_location=flare_location,
-    elut_correction=True,
-    sunkit_spex_spectrum=True,
-    sunkit_spex_systematic_error=True,
+    sum_detectors=True,
 )
+spec = to_spectrum(subtract_background(data, cpd_bkg), flare_location=flare_location, systematic_error=True)
 spec
 
 #############################################################################
@@ -149,22 +150,20 @@ time_ranges = [
     ["2021-09-23T15:22:30", "2021-09-23T15:23:30"],
 ]
 
-spec_seq = cpd_sci.get_data(
+data_seq = cpd_sci.get_data(
     time_indices=time_ranges,
     detector_indices="top24",
-    bkg=cpd_bkg,
-    flare_location=flare_location,
-    sunkit_spex_spectrum=True,
+    sum_detectors=True,
 )
+spec_seq = to_spectrum(subtract_background(data_seq, cpd_bkg), flare_location=flare_location)
 
-spec_seq_bkg = cpd_sci.get_data(
+data_seq_bkg = cpd_sci.get_data(
     time_indices=time_ranges,
     detector_indices="bkg",
     pixel_indices=[2, 5],
-    bkg=cpd_bkg,
-    flare_location=flare_location,
-    sunkit_spex_spectrum=True,
+    sum_detectors=True,
 )
+spec_seq_bkg = to_spectrum(subtract_background(data_seq_bkg, cpd_bkg), flare_location=flare_location)
 
 n = len(time_ranges)
 blues = plt.colormaps["Blues"](np.linspace(0.45, 0.9, n))
@@ -197,20 +196,14 @@ ax.legend(fontsize="small", ncol=2)
 # background is a small correction below about 25 keV, but above that, including the
 # 31 keV line of the on-board calibration source, it is a large part of the counts.
 
-spec_sub = cpd_sci.get_data(
+data_full = cpd_sci.get_data(
     time_indices=time_range,
     detector_indices="top24",
-    bkg=cpd_bkg,
-    flare_location=flare_location,
-    sunkit_spex_spectrum=True,
+    sum_detectors=True,
 )
+spec_sub = to_spectrum(subtract_background(data_full, cpd_bkg), flare_location=flare_location)
 
-spec_nosub = cpd_sci.get_data(
-    time_indices=time_range,
-    detector_indices="top24",
-    flare_location=flare_location,
-    sunkit_spex_spectrum=True,
-)
+spec_nosub = to_spectrum(data_full, flare_location=flare_location)
 
 edges, rate_sub, err_sub = count_rate(spec_sub)
 _, rate_nosub, err_nosub = count_rate(spec_nosub)
@@ -256,18 +249,15 @@ ax_ratio.set_xlabel("Energy [keV]")
 ax_ratio.set_ylabel("Sub / no sub")
 
 #############################################################################
-# With ``sunkit_spex_detector_sum=False`` each detector gets its own spectrum and SRM,
+# Without ``sum_detectors=True`` each detector gets its own spectrum and SRM,
 # returned as an `~ndcube.NDCollection` keyed by detector index. This is useful to check
 # the detectors agree before summing them.
 
-spec_dets = cpd_sci.get_data(
+data_dets = cpd_sci.get_data(
     time_indices=time_range,
     detector_indices=[5, 6, 7],
-    bkg=cpd_bkg,
-    flare_location=flare_location,
-    sunkit_spex_spectrum=True,
-    sunkit_spex_detector_sum=False,
 )
+spec_dets = to_spectrum(subtract_background(data_dets, cpd_bkg), flare_location=flare_location)
 
 fig, ax = plt.subplots()
 for det, s in spec_dets.items():
@@ -283,5 +273,5 @@ plt.show()
 
 #############################################################################
 # The spectrum and its metadata can now be passed to ``sunkit-spex`` for fitting. To get
-# the corrected counts as plain arrays instead, for example for a light curve, call
-# ``get_data`` without ``sunkit_spex_spectrum``; see :ref:`get-data-corrections`.
+# the corrected counts as arrays instead, for example for a light curve, use the
+# result of ``get_data`` or ``subtract_background``; see :ref:`get-data-corrections`.

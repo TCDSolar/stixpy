@@ -88,31 +88,39 @@ Turn both off and use ``vtype="c"`` to get the raw counts:
 Background subtraction
 ======================
 
-Pass a background product as ``bkg`` to subtract it. It must be pixel data with a single
-time bin, such as a STIX background (BKG) file, and cover every energy bin, detector and
+Pass selected data and a background product to
+`~stixpy.product.sources.science.subtract_background`. The background must be pixel data
+with a single time bin, such as a STIX background (BKG) file, and cover every energy bin, detector and
 pixel used. The background is converted to a count rate, scaled to each science time bin
 and subtracted, and its uncertainty is added to ``counts_err``. Background subtraction needs
 the livetime correction.
 
 .. code-block:: python
 
+    >>> from stixpy.product.sources.science import subtract_background
     >>> data = cpd_sci.get_data(
     ...     time_indices=["2021-09-23T15:20:30", "2021-09-23T15:23:30"],
     ...     detector_indices="top24",
-    ...     bkg=cpd_bkg,
+    ...     sum_detectors=True,
     ... )  # doctest: +REMOTE_DATA
+    >>> data = subtract_background(data, cpd_bkg)  # doctest: +REMOTE_DATA
 
 Spectra for fitting with sunkit-spex
 ====================================
 
-With ``sunkit_spex_spectrum=True``, ``get_data`` returns `sunkit_spex` spectra, with the
+`~stixpy.spectroscopy.to_spectrum` turns selected data into `sunkit_spex` spectra, with the
 spectral response matrix (SRM) for the flare location and attenuator state in their
-metadata, instead of a `~stixpy.product.sources.science.SelectedData`. This needs the
-optional ``spectroscopy`` dependencies:
+metadata. Sum the selected detectors with ``sum_detectors=True`` when making one spectrum
+for a set of detectors. This needs the optional ``spectroscopy`` dependencies:
 
 .. code-block:: bash
 
     $ pip install 'stixpy[spectroscopy]'
+
+.. code-block:: python
+
+    >>> from stixpy.spectroscopy import to_spectrum  # doctest: +REMOTE_DATA
+    >>> spectrum = to_spectrum(data)  # doctest: +REMOTE_DATA
 
 The SRM itself can also be made directly with `~stixpy.calibration.srm.get_srm`. See the
 :ref:`sphx_glr_generated_gallery_spectroscopy_demo.py` example for a complete walk through.

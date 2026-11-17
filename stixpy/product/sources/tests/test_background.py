@@ -205,3 +205,27 @@ def test_background_negative_residuals_survive_time_sum():
     assert_allclose(bins.counts[:, 0, 0, 0], [-3, 3] * u.ct)
     summed = science.get_data(time_indices=[[0, 1]], **options)
     assert_allclose(summed.counts, 0 * u.ct, atol=1e-12 * u.ct)
+
+
+def test_spectrum_detector_ids_follow_count_order(monkeypatch):
+    import sys
+    from types import SimpleNamespace
+
+    def capture(product, detectors, pixels, data, *args, **kwargs):
+        return detectors, data[0]
+
+    monkeypatch.setitem(
+        sys.modules, "stixpy.product.sources._spectrum", SimpleNamespace(_get_sunkit_spex_spectrum=capture)
+    )
+    counts = np.ones((1, 32, 12, 4))
+    counts[:, 2] *= 3
+    product = _make_product(CompressedPixelData, counts, triggers=0)
+    detectors, selected = product.get_data(
+        detector_indices=[2, 0],
+        pixel_indices=[0],
+        sunkit_spex_spectrum=True,
+        sunkit_spex_detector_sum=False,
+        **NO_ELUT,
+    )
+    np.testing.assert_array_equal(detectors, [2, 0])
+    assert_allclose(selected[0, :, 0, 0], [3, 1] * u.ct)

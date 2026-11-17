@@ -411,6 +411,7 @@ def _data_select(
     *,
     ssw_compatible=False,
     systematic=False,
+    preserve_detector_order=False,
     sunkit_spex_detector_sum=True,
 ):
     """
@@ -716,15 +717,14 @@ def _data_select(
         n_det_rcr = np.count_nonzero(np.nansum(np.abs(counts_rcr[:, selected]), axis=(0, 2, 3)))
 
         if detector_indices.ndim == 1:
-            detector_mask = np.full(32, False)
-            detector_mask[detector_indices] = True
-            counts = counts[:, detector_mask, ...]
-            counts_rcr = counts_rcr[:, detector_mask, ...]
-            counts_var = counts_var[:, detector_mask, ...]
+            detector_selection = detector_indices if preserve_detector_order else np.unique(detector_indices)
+            counts = counts[:, detector_selection, ...]
+            counts_rcr = counts_rcr[:, detector_selection, ...]
+            counts_var = counts_var[:, detector_selection, ...]
             if livefrac is not None:
-                livefrac = livefrac[:, detector_mask, :, :]
+                livefrac = livefrac[:, detector_selection, :, :]
             if livefrac_error is not None:
-                livefrac_error = livefrac_error[:, detector_mask, :, :]
+                livefrac_error = livefrac_error[:, detector_selection, :, :]
 
         if detector_indices.ndim == 2:
             counts = np.hstack(

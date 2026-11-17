@@ -923,6 +923,8 @@ class ScienceData(L1Product):
         if sunkit_spex_spectrum:
             # the spectra and their SRMs are built for the detectors and pixels actually used
             detector_indices, pixel_indices = checked_detectors, checked_pixels
+            if detector_indices is not None and np.ndim(detector_indices) == 1:
+                detector_indices = list(dict.fromkeys(detector_indices))
 
         is_spectrogram = self.data["counts"].ndim < 4
         n_det_spectrogram = (
@@ -1014,6 +1016,7 @@ class ScienceData(L1Product):
                 n_detectors=n_det_spectrogram,
                 ssw_compatible=ssw_compatible,
                 systematic=sunkit_spex_systematic_error,
+                preserve_detector_order=sunkit_spex_spectrum and not sunkit_spex_detector_sum,
                 sunkit_spex_detector_sum=sunkit_spex_detector_sum,
             )
 
@@ -1057,6 +1060,7 @@ class ScienceData(L1Product):
                 ssw_compatible=ssw_compatible,
                 bkg=True,
                 systematic=sunkit_spex_systematic_error,
+                preserve_detector_order=sunkit_spex_spectrum and not sunkit_spex_detector_sum,
                 sunkit_spex_detector_sum=sunkit_spex_detector_sum,
             )
 

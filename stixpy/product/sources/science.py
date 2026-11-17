@@ -10,6 +10,7 @@ from matplotlib.widgets import Slider
 import astropy.units as u
 from astropy.table import QTable, vstack
 from astropy.time import Time
+from astropy.utils.masked import Masked
 from astropy.visualization import quantity_support
 
 from sunpy.time.timerange import TimeRange
@@ -567,7 +568,8 @@ class ScienceData(L1Product):
         Returns
         -------
         `tuple`
-            Counts, errors, times, deltatimes,  energies
+            Counts, errors, times, deltatimes and energies. Counts and errors are masked quantities when disabled
+            detectors or pixels remain in the selection.
 
         """
         detector_masks = getattr(self, "detector_masks", None)
@@ -580,6 +582,17 @@ class ScienceData(L1Product):
             counts = counts.reshape(shape[0], 1, 1, shape[-1])
             counts_var = counts_var.reshape(shape[0], 1, 1, shape[-1])
 
+        active = np.ones(counts.shape[:3], dtype=bool)
+        if counts.shape[1:3] == (32, 12) and detector_masks is not None and pixel_masks is not None:
+            if pixel_masks.masks.ndim == 2:
+                detectors_on = np.zeros((counts.shape[0], 32), dtype=bool)
+                pixels_on = np.zeros((counts.shape[0], 12), dtype=bool)
+                for mask, rows in zip(detector_masks.masks, detector_masks.indices):
+                    detectors_on[rows] = mask
+                for mask, rows in zip(pixel_masks.masks, pixel_masks.indices):
+                    pixels_on[rows] = mask
+                active = detectors_on[:, :, np.newaxis] & pixels_on[:, np.newaxis, :]
+
         energies = self.energies[:]
         times = self.times
 
@@ -590,6 +603,7 @@ class ScienceData(L1Product):
                 detector_mask[detecor_indices] = True
                 counts = counts[:, detector_mask, ...]
                 counts_var = counts_var[:, detector_mask, ...]
+                active = active[:, detector_mask, :]
             elif detecor_indices.ndim == 2:
                 counts = np.hstack(
                     [np.sum(counts[:, dl : dh + 1, ...], axis=1, keepdims=True) for dl, dh in detecor_indices]
@@ -598,6 +612,9 @@ class ScienceData(L1Product):
                 counts_var = np.concatenate(
                     [np.sum(counts_var[:, dl : dh + 1, ...], axis=1, keepdims=True) for dl, dh in detecor_indices],
                     axis=1,
+                )
+                active = np.concatenate(
+                    [np.any(active[:, dl : dh + 1, :], axis=1, keepdims=True) for dl, dh in detecor_indices], axis=1
                 )
 
         if pixel_indices is not None:
@@ -608,6 +625,7 @@ class ScienceData(L1Product):
                 num_pixels = counts.shape[2]
                 counts = counts[..., pixel_mask[:num_pixels], :]
                 counts_var = counts_var[..., pixel_mask[:num_pixels], :]
+                active = active[:, :, pixel_mask[:num_pixels]]
             elif pixel_indices.ndim == 2:
                 counts = np.concatenate(
                     [np.sum(counts[..., pl : ph + 1, :], axis=2, keepdims=True) for pl, ph in pixel_indices], axis=2
@@ -615,6 +633,9 @@ class ScienceData(L1Product):
 
                 counts_var = np.concatenate(
                     [np.sum(counts_var[..., pl : ph + 1, :], axis=2, keepdims=True) for pl, ph in pixel_indices], axis=2
+                )
+                active = np.concatenate(
+                    [np.any(active[:, :, pl : ph + 1], axis=2, keepdims=True) for pl, ph in pixel_indices], axis=2
                 )
 
         e_norm = self.dE
@@ -654,6 +675,7 @@ class ScienceData(L1Product):
                 time_mask[time_indices] = True
                 counts = counts[time_mask, ...]
                 counts_var = counts_var[time_mask, ...]
+                active = active[time_mask, ...]
                 t_norm = self.data["timedel"][time_mask]
                 times = times[time_mask]
                 # dT = self.data['timedel'][time_mask]
@@ -674,11 +696,15 @@ class ScienceData(L1Product):
                 counts_var = np.vstack(
                     [np.sum(counts_var[tl : th + 1, ...], axis=0, keepdims=True) for tl, th in time_indices]
                 )
+                active = np.concatenate(
+                    [np.any(active[tl : th + 1, ...], axis=0, keepdims=True) for tl, th in time_indices], axis=0
+                )
                 t_norm = dt
 
                 if sum_all_times and len(new_times) > 1:
                     counts = np.sum(counts, axis=0, keepdims=True)
                     counts_var = np.sum(counts_var, axis=0, keepdims=True)
+                    active = np.any(active, axis=0, keepdims=True)
                     t_norm = np.sum(dt)
 
         t_norm = t_norm.to("s")
@@ -700,6 +726,11 @@ class ScienceData(L1Product):
 
         counts_err = np.sqrt(counts * u.ct + counts_var) * norm
         counts = counts * norm
+
+        if not np.all(active):
+            mask = np.broadcast_to(~active[..., np.newaxis], counts.shape)
+            counts = Masked(counts, mask=mask)
+            counts_err = Masked(counts_err, mask=mask)
 
         return counts, counts_err, times, t_norm, energies
 

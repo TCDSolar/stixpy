@@ -283,11 +283,12 @@ def test_get_data_full_layout(cpd_partial):
     assert_allclose(counts[:, 11, 8, :], stored[:, 9, 6, :])
     assert_allclose(errors[:, dets[:, None], pixs, :], np.sqrt(stored * u.ct + stored_err**2))
 
-    # Detectors and pixels that are off are zero
-    assert np.all(counts[:, [9, 10]] == 0)
-    assert np.all(counts[:, :, [3, 7]] == 0)
-    assert np.all(errors[:, [9, 10]] == 0)
-    assert np.all(errors[:, :, [3, 7]] == 0)
+    # Detectors and pixels that are off do not bias statistics.
+    assert np.all(counts.mask[:, [9, 10]])
+    assert np.all(counts.mask[:, :, [3, 7]])
+    assert np.array_equal(counts.mask, errors.mask)
+    assert counts.min() == 1 * u.ct
+    assert counts.unmasked.min() == 0 * u.ct
 
     # Indices refer to real detectors and pixels
     sel, *_ = cpd_partial.get_data(vtype="c", detector_indices=[11], pixel_indices=[8])
@@ -310,8 +311,22 @@ def test_get_data_full_layout_comp_comp_err():
     )
     counts, errors, *_ = prod.get_data(vtype="c")
     assert counts.shape == errors.shape == (nt, 32, 12, 3)
-    assert np.all(errors[:, 0] == 0)
+    assert np.all(errors.mask[:, 0])
     assert np.all(errors[:, 1:] > 0)
+
+
+def test_get_data_mask_tracks_time_and_pixel_selection():
+    pixel_masks = np.ones((2, 12), dtype=int)
+    pixel_masks[0, 3] = 0
+    prod = _make_product(CompressedPixelData, np.ones((2, 32, 12, 3)), np.ones((2, 32), dtype=int), pixel_masks)
+
+    counts, errors, *_ = prod.get_data(vtype="c", pixel_indices=[3])
+    assert np.all(counts.mask[0])
+    assert not np.any(counts.mask[1])
+    assert np.array_equal(counts.mask, errors.mask)
+
+    summed, *_ = prod.get_data(vtype="c", pixel_indices=[3], time_indices=[[0, 1]])
+    assert not hasattr(summed, "mask")
 
 
 def test_get_data_full_layout_changing_detector_mask():

@@ -229,3 +229,14 @@ def test_spectrum_detector_ids_follow_count_order(monkeypatch):
     )
     np.testing.assert_array_equal(detectors, [2, 0])
     assert_allclose(selected[0, :, 0, 0], [3, 1] * u.ct)
+
+
+def test_systematic_uncertainty_after_time_sum():
+    counts = np.full((2, 32, 12, 4), 100.0)
+    product = _make_product(CompressedPixelData, counts, triggers=0)
+    options = dict(vtype="c", detector_indices=[0], pixel_indices=[0], time_indices=[[0, 1]], **NO_ELUT)
+    baseline = product.get_data(**options)
+    calibrated = product.get_data(sunkit_spex_systematic_error=True, **options)
+
+    extra_variance = (calibrated.counts_err**2 - baseline.counts_err**2).to_value(u.ct**2)
+    assert_allclose(extra_variance[0, 0, 0, 0], (0.07 * 200) ** 2)

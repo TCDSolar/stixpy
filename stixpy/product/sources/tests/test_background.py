@@ -80,9 +80,11 @@ def bkg_zero():
     ],
 )
 @pytest.mark.parametrize("vtype", ["c", "dcr"])
-def test_zero_background_unchanged(cpd, bkg_zero, selection, vtype):
-    without = cpd.get_data(vtype=vtype, **selection, **NO_ELUT)
-    with_bkg = cpd.get_data(vtype=vtype, bkg=bkg_zero, **selection, **NO_ELUT)
+@pytest.mark.parametrize("ssw_compatible", [False, True])
+def test_zero_background_unchanged(cpd, bkg_zero, selection, vtype, ssw_compatible):
+    options = dict(vtype=vtype, ssw_compatible=ssw_compatible, **selection, **NO_ELUT)
+    without = cpd.get_data(**options)
+    with_bkg = cpd.get_data(bkg=bkg_zero, **options)
 
     assert with_bkg.counts.shape == without.counts.shape
     assert with_bkg.counts.unit == without.counts.unit

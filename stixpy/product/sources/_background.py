@@ -6,6 +6,7 @@ import numpy as np
 
 import astropy.units as u
 
+from stixpy.config.instrument import STIX_INSTRUMENT
 from stixpy.product.sources._corrections import _indices_expand_ranges, _livetime_uncertainty
 from stixpy.product.sources._selection import _on_indices
 
@@ -114,6 +115,18 @@ def _bkg_check(product, bkg, detector_indices, pixel_indices, livetime_correctio
         )
 
 
+def _adc_covariance(errors, detectors):
+    """Return each detector's contribution to the off-diagonal ADC variance."""
+    adc = STIX_INSTRUMENT.subcol_adc_mapping[detectors]
+    covariance = np.zeros_like(errors**2)
+    for channel in np.unique(adc):
+        members = adc == channel
+        if np.count_nonzero(members) > 1:
+            shared = errors[:, members]
+            covariance[:, members] = shared * (shared.sum(axis=1, keepdims=True) - shared)
+    return covariance
+
+
 def _bkg_sub(
     product,
     bkg,
@@ -132,6 +145,8 @@ def _bkg_sub(
     livefrac_error_bkg,
     elut_cor_fac,
     rcr,
+    *,
+    ssw_compatible=False,
 ):
     """
     Subtract a background product from the science product.
@@ -274,7 +289,11 @@ def _bkg_sub(
         livefrac = np.nanmean(livefrac, axis=1, keepdims=True)
         livefrac_error = np.nanmean(livefrac_error, axis=(1, 2), keepdims=True)
 
-        counts_var_bkg = np.sqrt(np.nansum(counts_var_bkg**2, axis=(1, 2), keepdims=True))
+        background_variance = counts_var_bkg**2
+        if not ssw_compatible:
+            detector_error = np.sqrt(np.nansum(livefrac_error_bkg**2, axis=2, keepdims=True))
+            background_variance += _adc_covariance(detector_error, detector_indices_bkg)
+        counts_var_bkg = np.sqrt(np.nansum(background_variance, axis=(1, 2), keepdims=True))
 
         livefrac_error_bkg = np.sqrt(np.nansum(livefrac_error_bkg**2, axis=(1, 2), keepdims=True))
 
@@ -322,7 +341,15 @@ def _bkg_sub(
 
     spec_in_corr = counts_lvtcorr - count_lvtcorr_scaled_bkg
 
-    spec_in_err = np.sqrt((counts_var_lvtcorr**2) + (counts_var_lvtcorr_scaled_bkg**2))
+    variance = counts_var_lvtcorr**2 + counts_var_lvtcorr_scaled_bkg**2
+    if not ssw_compatible and not is_spectrogram and np.asarray(detector_indices).ndim == 2:
+        science_error = np.sqrt(np.nansum(livefrac_error**2, axis=2, keepdims=True))
+        background_error = np.sqrt(np.nansum(livefrac_error_bkg**2, axis=2, keepdims=True))
+        scale = (t_norm / t_norm_bkg[0])[:, None, None, None]
+        for group in detector_groups:
+            variance[:, group] += _adc_covariance(science_error[:, group], group)
+            variance[:, group] += _adc_covariance(background_error[:, group], group) * scale**2
+    spec_in_err = np.sqrt(variance)
 
     if energies["e_low"][0].value == 0:
         spec_in_corr = spec_in_corr[..., 1:]

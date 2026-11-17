@@ -942,6 +942,7 @@ class ScienceData(L1Product):
                 livefrac_error_bkg,
                 elut_cor_fac,
                 np.asarray(self.data["rcr"]),
+                ssw_compatible=ssw_compatible,
             )
             counts_sub, counts_var_sub, _, _, livefrac_sub, _, elut_cor_fac_sub, _, _, _ = sci_data_all
 

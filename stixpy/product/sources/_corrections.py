@@ -243,7 +243,7 @@ def _livefrac(product, counts, elut_cor_fac, pixel_indices):
         # means a downstream quadrature sum over the pixel axis returns e_tot exactly.
         c_g = counts[:, :, pix, :]
         c_tot = np.nansum(c_g, axis=2, keepdims=True)
-        e_tot = (c_tot / livefrac_lower - c_tot / livefrac_upper) / 2
+        e_tot = (c_tot / livefrac_upper - c_tot / livefrac_lower) / 2
 
         c_fin = np.where(np.isfinite(c_g), np.abs(c_g), 0)
         with np.errstate(invalid="ignore", divide="ignore"):

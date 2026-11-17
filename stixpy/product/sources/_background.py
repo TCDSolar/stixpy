@@ -274,10 +274,8 @@ def _bkg_sub(
         livefrac = np.nanmean(livefrac, axis=1, keepdims=True)
         livefrac_error = np.nanmean(livefrac_error, axis=(1, 2), keepdims=True)
 
-        counts_bkg = np.nansum(counts_bkg, axis=(1, 2), keepdims=True)
         counts_var_bkg = np.sqrt(np.nansum(counts_var_bkg**2, axis=(1, 2), keepdims=True))
 
-        livefrac_bkg = np.nanmean(livefrac_bkg, axis=1, keepdims=True)
         livefrac_error_bkg = np.sqrt(np.nansum(livefrac_error_bkg**2, axis=(1, 2), keepdims=True))
 
     counts_var = np.sqrt(counts + counts_var)
@@ -310,6 +308,9 @@ def _bkg_sub(
         counts_lvtcorr_bkg = (counts_bkg / livefrac_bkg) * elut_cor_fac
     else:
         counts_lvtcorr_bkg = counts_bkg / livefrac_bkg
+
+    if is_spectrogram:
+        counts_lvtcorr_bkg = np.nansum(counts_lvtcorr_bkg, axis=(1, 2), keepdims=True)
 
     count_rate_lvtcorr_bkg = counts_lvtcorr_bkg / t_norm_bkg.mean()
     count_lvtcorr_scaled_bkg = t_norm.reshape(len(t_norm), 1, 1, 1) * count_rate_lvtcorr_bkg

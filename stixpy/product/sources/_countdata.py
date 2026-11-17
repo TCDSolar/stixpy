@@ -149,6 +149,9 @@ class _CountData:
     error_model: str = "legacy"
     """"legacy" or "correlated", see `ERROR_MODELS`."""
 
+    adc_livetime_err: u.Quantity | None = None
+    """Livetime contributions per ADC, retained across detector reductions."""
+
     @property
     def _reductions(self):
         return _REDUCTIONS[self.error_model]
@@ -185,6 +188,8 @@ class _CountData:
     def _index_axis(self, axis, index):
         where = (slice(None),) * axis + (index,)
         changes = {name: values[where] for name, values in self._arrays().items() if self._applies(name, values, axis)}
+        if self.adc_livetime_err is not None:
+            changes["adc_livetime_err"] = self.adc_livetime_err[where]
         if axis == TIME:
             changes.update(times=self.times[index], durations=self.durations[index], rcr=np.asarray(self.rcr)[index])
         elif axis == DETECTOR:
@@ -236,6 +241,20 @@ class _CountData:
             for name, values in self._arrays().items()
             if self._applies(name, values, axis)
         }
+
+        if self.error_model == "correlated" and self.livefrac_err is not None:
+            contributions = self.adc_livetime_err
+            if contributions is None and axis == DETECTOR:
+                membership = self.detectors @ (_TRIGGERS[:, None] == np.unique(_TRIGGERS))
+                if np.all(membership.sum(axis=1) <= 1):
+                    contributions = self.livefrac_err[..., None] * membership[None, :, None, None, :]
+            if contributions is not None:
+                reduce = _quadrature if axis == TIME else _sum
+                contributions = np.concatenate(
+                    [reduce(contributions, axis, start, end, self) for start, end in ranges], axis=axis
+                )
+                changes["adc_livetime_err"] = contributions if axis != TIME else None
+                changes["livefrac_err"] = np.sqrt(np.sum(contributions**2, axis=-1))
 
         if axis == TIME:
             times, durations = [], []

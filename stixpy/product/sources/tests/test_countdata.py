@@ -187,3 +187,10 @@ def test_sum_all_times(data):
 def test_sum_all_times_rcr_change(data):
     with pytest.raises(ValueError, match="RCR state changes"):
         _sum_all_times(data)
+
+
+def test_staged_detector_sum_preserves_shared_adc(data):
+    data = replace(data, error_model="correlated")[:, [0, 2, 1]]
+    direct = data.combine(DETECTOR, [[0, 2]])
+    staged = data.combine(DETECTOR, [[0, 1], [2, 2]]).combine(DETECTOR, [[0, 1]])
+    assert_allclose(staged.livefrac_err, direct.livefrac_err)

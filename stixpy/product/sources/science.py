@@ -116,6 +116,9 @@ class SelectedData(NamedTuple):
     r"""
     The data selected by `ScienceData.get_data`.
 
+    Returned uncertainties are per bin. Summing them in quadrature outside this API ignores covariance between
+    bins that share a trigger counter.
+
     Access the fields by name, e.g. ``data.counts``. Fields may be added in later versions, so code that unpacks
     every field by position may break.
     """

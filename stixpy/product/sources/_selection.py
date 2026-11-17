@@ -260,9 +260,7 @@ def _time_indices_format(time_indices, times, dt):
     Accepted forms:
 
     - flat integer indices, e.g. ``[0, 2, 5]``, returned unchanged;
-    - flat strings or `~astropy.time.Time`, taken as consecutive range edges:
-      ``["2023-01-01T10:00", "2023-01-01T10:05", "2023-01-01T10:10"]`` gives
-      two ranges;
+    - flat strings or `~astropy.time.Time`, each selecting the bin containing that instant;
     - [start, end] pairs of strings or `~astropy.time.Time`;
     - [start, end] pairs of integer indices.
 
@@ -302,11 +300,24 @@ def _time_indices_format(time_indices, times, dt):
         return time_indices
 
     if isinstance(first, (str, Time)):
-        if len(time_indices) < 2:
-            raise ValueError(f"Times given as a flat list are range edges and need at least two, got: {time_indices}")
-        bins = [[time_indices[i], time_indices[i + 1]] for i in range(len(time_indices) - 1)]
-        _check_time_limits(bins, file_start, file_end)
-        return _handle_datetime_strings(bins, times, dt)
+        starts = times - 0.5 * dt
+        ends = times + 0.5 * dt
+        start_offsets = (starts - file_start).to_value(u.s)
+        end_offset = (file_end - file_start).to_value(u.s)
+        result = []
+        for value in time_indices:
+            instant = Time(value)
+            offset = (instant - file_start).to_value(u.s)
+            index = int(np.searchsorted(start_offsets, offset + TIME_TOLERANCE.to_value(u.s) / 2, side="right") - 1)
+            if (
+                index < 0
+                or index >= len(times)
+                or offset >= end_offset - 1e-6
+                or not (starts[index] - TIME_TOLERANCE <= instant < ends[index])
+            ):
+                raise ValueError(f"Requested time {instant.isot} does not fall inside a data bin.")
+            result.append(index)
+        return result
 
     if isinstance(first, (list, tuple, np.ndarray)):
         if isinstance(first[0], (str, Time)):
@@ -467,34 +478,6 @@ def _find_bin_index(start, end, e_low, e_high):
     return [int(matches[0]), int(matches[-1])]
 
 
-def _energy_indices_from_flat_edges(values, e_low, e_high):
-    """
-    Turn a flat list of energy edges into [start, end] bin index pairs.
-
-    N edges give N - 1 consecutive ranges: ``[5, 10, 25]`` gives 5-10 keV and
-    10-25 keV. Each range is resolved with `_find_bin_index`.
-
-    Parameters
-    ----------
-    values : numpy.ndarray
-        Energy edges, in keV.
-    e_low : numpy.ndarray
-        Lower edge of each bin, in keV.
-    e_high : numpy.ndarray
-        Upper edge of each bin, in keV.
-
-    Returns
-    -------
-    list of list of int
-        One [start, end] bin index pair per range.
-    """
-    pairs = []
-    for i in range(len(values) - 1):
-        idx = _find_bin_index(values[i], values[i + 1], e_low, e_high)
-        pairs.append(idx)
-    return pairs
-
-
 def _energy_indices_from_range_pairs(values, e_low, e_high):
     """
     Turn [start, end] energy ranges into [start, end] bin index pairs.
@@ -524,18 +507,18 @@ def _energy_indices_from_range_pairs(values, e_low, e_high):
 
 def _energy_indices_format(energy_indices, energies):
     """
-    Turn an energy selection given in energy units into bin index pairs.
+    Turn an energy selection given in energy units into bin indices or pairs.
 
     Anything that is not an `~astropy.units.Quantity`, including None, is
     returned unchanged and treated as bin indices already. A Quantity is
     converted to keV and can be:
 
-    - 1D, a flat list of edges: ``[4, 10, 28] * u.keV`` gives 4-10 and
-      10-28 keV;
+    - 1D, each value selects the bin containing that energy, e.g.
+      ``[4, 5, 6] * u.keV`` selects three bins;
     - 2D, a list of [start, end] ranges: ``[[4, 10], [15, 28]] * u.keV``.
 
-    Each range takes the bins whose centres lie inside it (see
-    `_find_bin_index`).
+    A flat value selects a bin with its lower edge included and upper edge excluded.
+    Each range takes the bins whose centres lie inside it (see `_find_bin_index`).
 
     Parameters
     ----------
@@ -546,9 +529,9 @@ def _energy_indices_format(energy_indices, energies):
 
     Returns
     -------
-    list of list of int
-        [start, end] bin index pairs, numbering the rows of `energies`, or
-        `energy_indices` unchanged if it is not a Quantity.
+    list of int or list of list of int
+        Flat bin indices or [start, end] pairs, numbering the rows of `energies`,
+        or `energy_indices` unchanged if it is not a Quantity.
 
     Raises
     ------
@@ -580,13 +563,18 @@ def _energy_indices_format(energy_indices, energies):
         )
 
     if energy_indices.ndim == 1:
-        return _energy_indices_from_flat_edges(energy_indices.value, e_low, e_high)
+        indices = []
+        for value in energy_indices.value:
+            matches = np.flatnonzero((e_low <= value) & (value < e_high))
+            if not matches.size:
+                raise ValueError(f"Energy {value} keV does not fall inside a usable energy bin.")
+            indices.append(int(matches[0]))
+        return indices
 
     elif energy_indices.ndim == 2:
         return _energy_indices_from_range_pairs(energy_indices.value, e_low, e_high)
 
     else:
         raise ValueError(
-            "energy_indices given as a Quantity must be either 1D "
-            "(flat list of bin edges) or 2D (list of [start, end] pairs)."
+            "energy_indices given as a Quantity must be either 1D (flat values) or 2D (list of [start, end] pairs)."
         )

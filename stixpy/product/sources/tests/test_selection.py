@@ -14,7 +14,6 @@ from stixpy.product.sources._selection import (
     _check_index_limits,
     _check_time_limits,
     _energy_indices_format,
-    _energy_indices_from_flat_edges,
     _energy_indices_from_range_pairs,
     _find_bin_index,
     _handle_datetime_strings,
@@ -63,16 +62,16 @@ def test_time_string_pairs():
     assert result == [[0, 2], [5, 9]]
 
 
-def test_time_flat_strings_are_range_edges():
-    result = _time_indices_format([iso(0), iso(12), iso(40)], TIMES, DT)
-    assert result == [[0, 2], [3, 9]]
+def test_time_flat_strings_select_bins():
+    result = _time_indices_format([iso(0), iso(12), iso(38)], TIMES, DT)
+    assert result == [0, 3, 9]
 
 
 def test_time_objects_accepted():
     result = _time_indices_format([[T0 + 4 * u.s, T0 + 16 * u.s]], TIMES, DT)
     assert result == [[1, 3]]
     result = _time_indices_format(T0 + [0, 8, 16] * u.s, TIMES, DT)
-    assert result == [[0, 1], [2, 3]]
+    assert result == [0, 2, 4]
 
 
 def test_time_range_takes_only_complete_bins():
@@ -96,9 +95,13 @@ def test_time_range_with_wrong_length_raises():
         _handle_datetime_strings([[iso(0), iso(4), iso(8)]], TIMES, DT)
 
 
-def test_single_flat_time_raises():
-    with pytest.raises(ValueError, match="need at least two"):
-        _time_indices_format([iso(0)], TIMES, DT)
+def test_single_flat_time_selects_one_bin():
+    assert _time_indices_format([iso(0)], TIMES, DT) == [0]
+
+
+def test_flat_time_outside_bins_raises():
+    with pytest.raises(ValueError, match="does not fall inside a data bin"):
+        _time_indices_format([iso(40)], TIMES, DT)
 
 
 @pytest.mark.parametrize("pair", [[-1, 8], [0, 41]])
@@ -158,10 +161,6 @@ def test_find_bin_index_empty_range_raises():
         _find_bin_index(5.1, 5.4, E_LOW, E_HIGH)
 
 
-def test_energy_from_flat_edges():
-    assert _energy_indices_from_flat_edges(np.array([4, 7, 10, 20]), E_LOW, E_HIGH) == [[0, 2], [3, 5], [6, 8]]
-
-
 def test_energy_from_range_pairs():
     assert _energy_indices_from_range_pairs(np.array([[4, 6], [10, 15]]), E_LOW, E_HIGH) == [[0, 1], [6, 7]]
 
@@ -172,8 +171,13 @@ def test_energy_non_quantity_returned_unchanged(energy_indices):
 
 
 def test_energy_quantity_flat_and_pairs():
-    assert _energy_indices_format([4, 7, 10] * u.keV, ENERGIES) == [[0, 2], [3, 5]]
+    assert _energy_indices_format([4, 7, 10] * u.keV, ENERGIES) == [0, 3, 6]
     assert _energy_indices_format([[4, 6], [10, 15]] * u.keV, ENERGIES) == [[0, 1], [6, 7]]
+
+
+def test_energy_quantity_open_top_is_not_selectable():
+    with pytest.raises(ValueError, match="does not fall inside a usable energy bin"):
+        _energy_indices_format([20] * u.keV, ENERGIES)
 
 
 def test_energy_quantity_converted_to_kev():

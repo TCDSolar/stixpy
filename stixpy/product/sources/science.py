@@ -553,17 +553,17 @@ class ScienceData(L1Product):
             If an 1xN array will be treated as mask if 2XN array will sum data between given
             indices. For example `time_indices=[0, 2, 5]` would return only the first, third and
             sixth times while `time_indices=[[0, 2],[3, 5]]` would sum the data between.
-            Times can also be given as strings or `~astropy.time.Time`, either as [start, end]
-            pairs or as a flat list of consecutive range edges; each range sums the data bins that
-            lie wholly inside it. Indices and times outside the file raise a `ValueError`.
+            Times can also be given as strings or `~astropy.time.Time`: flat values select
+            the bins containing them, while [start, end] pairs sum the complete bins in
+            each range. Indices and times outside the file raise a `ValueError`.
         energy_indices : `list`, `numpy.ndarray` or `astropy.units.Quantity`
             If an 1xN array will be treated as mask if 2XN array will sum data between given
             indices. For example `energy_indices=[0, 2, 5]` would return only the first, third and
             sixth times while `energy_indices=[[0, 2],[3, 5]]` would sum the data between.
-            Energies can also be given as a `~astropy.units.Quantity`, either as [start, end] pairs,
-            e.g. ``[[4, 10], [15, 28]] * u.keV``, or as a flat list of consecutive range edges; each
-            range sums the bins whose centres lie inside it. Indices number the rows of
-            `energies`, and any outside it raise a `ValueError`.
+            Energies can also be given as a `~astropy.units.Quantity`: flat values select
+            the bins containing them, while [start, end] pairs, e.g.
+            ``[[4, 10], [15, 28]] * u.keV``, sum bins whose centres lie inside each range.
+            Indices number the rows of `energies`, and any outside it raise a `ValueError`.
         detector_indices : `list`, `numpy.ndarray` or `str`
             If an 1xN array will be treated as mask if 2XN array will sum data between given
             indices. For example `detector_indices=[0, 2, 5]` would return only the first, third and

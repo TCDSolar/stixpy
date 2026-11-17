@@ -1,44 +1,32 @@
-from pathlib import Path
-
 import numpy as np
 
-from stixpy.calibration.detector import get_sci_channels
-from stixpy.io.readers import read_elut, read_elut_index
+from sunpy.util.decorators import deprecated
+
+from stixpy.calibration.elut import get_elut as _get_elut
 from stixpy.product import Product
 from stixpy.utils.rebining import rebin_proportional
 
 __all__ = ["get_elut", "correct_counts"]
 
 
+@deprecated(since="0.4", alternative="stixpy.calibration.elut.get_elut")
 def get_elut(date):
     r"""
-    Get the energy lookup table (ELUT) for the given date
+    Get the energy lookup table (ELUT) for the given date.
 
-    Combines the ELUT with the science energy channels for the same date.
+    Deprecated alias of `stixpy.calibration.elut.get_elut`.
 
     Parameters
     ----------
-    date `astropy.time.Time`
+    date : `datetime.datetime` or `astropy.time.Time`
         Date to look up the ELUT.
 
     Returns
     -------
-
+    ELUT
+        See `stixpy.calibration.elut.get_elut`.
     """
-    root = Path(__file__).parent.parent
-    elut_index_file = Path(root, *["config", "data", "elut", "elut_index.csv"])
-
-    elut_index = read_elut_index(elut_index_file)
-    elut_info = elut_index.at(date)
-    if len(elut_info) == 0:
-        raise ValueError(f"No ELUT for for date {date}")
-    elif len(elut_info) > 1:
-        raise ValueError(f"Multiple ELUTs for for date {date}")
-    start_date, end_date, elut_file = list(elut_info)[0]
-    sci_channels = get_sci_channels(date)
-    elut_table = read_elut(elut_file, sci_channels)
-
-    return elut_table
+    return _get_elut(date)
 
 
 def correct_counts(product, method="rebin"):
@@ -63,7 +51,7 @@ def correct_counts(product, method="rebin"):
     if not isinstance(product, Product) and product.level == "L1":
         raise ValueError("Only supports L1 science products")
 
-    elut = get_elut(product.utc_timerange.center.datetime)
+    elut = _get_elut(product.utc_timerange.center.datetime)
 
     # rebin back onto science channels
     counts = product.data["counts"][...]

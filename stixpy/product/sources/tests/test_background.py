@@ -183,3 +183,13 @@ def test_background_detector_off_spectrogram():
     other = _make_product(CompressedPixelData, np.ones((1, 31, 12, 4)), timedel=100, detector_off=(5,))
     with pytest.raises(ValueError, match=r"Detectors \[5\] and pixels \[\] were summed on board"):
         spec.get_data(bkg=other, **NO_ELUT)
+
+
+def test_background_rejects_different_elut_files(cpd, bkg, monkeypatch):
+    from types import SimpleNamespace
+
+    tables = iter(("science.csv", "background.csv"))
+    monkeypatch.setattr("stixpy.product.sources.science.get_elut", lambda date: SimpleNamespace(file=next(tables)))
+
+    with pytest.raises(ValueError, match=r"ELUT files differ: 'science.csv' and 'background.csv'"):
+        cpd.get_data(bkg=bkg)

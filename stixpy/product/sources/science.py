@@ -17,7 +17,7 @@ from astropy.visualization import quantity_support
 from sunpy.time.timerange import TimeRange
 from sunpy.util import deprecated
 
-from stixpy.calibration.elut import get_elut_correction
+from stixpy.calibration.elut import get_elut, get_elut_correction
 from stixpy.io.readers import read_subc_params
 from stixpy.product.product import L1Product
 from stixpy.product.sources._background import _bkg_check, _bkg_indices_check, _bkg_sub, _energies_bkg_sub
@@ -860,6 +860,17 @@ class ScienceData(L1Product):
             counts = counts.reshape(shape[0], 1, 1, shape[-1])
             counts_err = counts_err.reshape(shape[0], 1, 1, shape[-1])
 
+        if bkg is not None:
+            _bkg_check(self, bkg, checked_detectors, checked_pixels, livetime_correction)
+            if elut_correction:
+                science_elut = get_elut(self.time_range.center).file
+                background_elut = get_elut(bkg.time_range.center).file
+                if science_elut != background_elut:
+                    raise ValueError(
+                        f"Science and background ELUT files differ: {science_elut!r} and {background_elut!r}. "
+                        "Use a matching background or set elut_correction=False."
+                    )
+
         if elut_correction:
             _, _, bins, bins_actual = get_elut_correction(np.array(self.energies["channel"]), self)
 
@@ -881,8 +892,6 @@ class ScienceData(L1Product):
             elut_cor_fac = None
 
         if bkg is not None:
-            _bkg_check(self, bkg, checked_detectors, checked_pixels, livetime_correction)
-
             energy_indices_bkg = _energies_bkg_sub(self, bkg)
 
             pixel_indices_bkg, detector_indices_bkg = _bkg_indices_check(self, bkg)

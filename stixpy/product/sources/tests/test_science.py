@@ -308,12 +308,12 @@ def test_get_data_mask_tracks_time_and_pixel_selection():
     pixel_masks[0, 3] = 0
     prod = _make_product(CompressedPixelData, np.ones((2, 32, 12, 3)), np.ones((2, 32), dtype=int), pixel_masks)
 
-    counts, errors, *_ = prod.get_data(vtype="c", pixel_indices=[3])
+    counts, errors, *_ = prod.get_data(vtype="c", pixel_indices=[3], **UNCORRECTED)
     assert np.all(counts.mask[0])
     assert not np.any(counts.mask[1])
     assert np.array_equal(counts.mask, errors.mask)
 
-    summed, *_ = prod.get_data(vtype="c", pixel_indices=[3], time_indices=[[0, 1]])
+    summed, *_ = prod.get_data(vtype="c", pixel_indices=[3], time_indices=[[0, 1]], **UNCORRECTED)
     assert not hasattr(summed, "mask")
 
 

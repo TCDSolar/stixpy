@@ -128,7 +128,7 @@ def _apply_livetime(counts, counts_var, livefrac, groups):
     return counts_out, counts_var_out, new_livefrac
 
 
-def _livefrac(product, counts, elut_cor_fac, pixel_indices):
+def _livefrac(product, counts, elut_cor_fac, pixel_indices, *, ssw_compatible=False):
     """
     Compute the livetime fraction and its uncertainty from the trigger counts.
 
@@ -178,19 +178,23 @@ def _livefrac(product, counts, elut_cor_fac, pixel_indices):
         trig_raw = product.data["triggers"] / 16
         trig_err = np.sqrt(product.data["triggers_comp_err"] ** 2 + product.data["triggers"]) / 16
 
-        triggers = np.floor(trig_raw)
-        triggers_lower = np.floor(np.maximum(trig_raw - trig_err, 0))
-        triggers_upper = np.floor(trig_raw + trig_err)
-
-        timedel = product.data["timedel"].to("s")
-
-        livefrac, _, _ = get_livetime_fraction(triggers / timedel)
-        livefrac_lower, _, _ = get_livetime_fraction(triggers_lower / timedel)
-        livefrac_upper, _, _ = get_livetime_fraction(triggers_upper / timedel)
+        timedel = product.data["timedel"].to(u.s)
+        triggers = np.floor(trig_raw) if ssw_compatible else trig_raw
+        rate = triggers / timedel
+        livefrac, _, _ = get_livetime_fraction(rate)
+        if ssw_compatible:
+            # Derivative of log(1 / livetime) with respect to trigger rate.
+            deadtime = 11.2 * u.us
+            pileup_time = 0.94059104 * 1.10 * u.us
+            remaining = (1 - rate * deadtime).to(u.one)
+            relative_error = (deadtime / remaining + pileup_time / remaining**2) * trig_err / timedel
+            inverse_livetime_error = relative_error.to_value(u.one) / livefrac
+        else:
+            lower, _, _ = get_livetime_fraction(np.maximum(trig_raw - trig_err, 0) / timedel)
+            upper, _, _ = get_livetime_fraction((trig_raw + trig_err) / timedel)
+            inverse_livetime_error = (1 / upper - 1 / lower) / 2
 
         livefrac = livefrac.reshape(livefrac.shape + (1, 1, 1))
-        livefrac_lower = livefrac_lower.reshape(livefrac_lower.shape + (1, 1, 1))
-        livefrac_upper = livefrac_upper.reshape(livefrac_upper.shape + (1, 1, 1))
 
     else:
         triggers = product.data["triggers"][:, trigger_to_detector].astype(float)[...]
@@ -199,12 +203,8 @@ def _livefrac(product, counts, elut_cor_fac, pixel_indices):
 
         triggers_error = np.sqrt(triggers_error**2 + triggers)
 
-        triggers_lower = np.floor(
-            np.maximum(triggers - triggers_error, 0)
-        )  # This brings in line with IDL precision, if removed then the ratio at livefrac of ~0.5 goes to 0.0002, rather than ~1e-7.
-        triggers_upper = np.floor(
-            triggers + triggers_error
-        )  # This brings in line with IDL precision, if removed then the ratio at livefrac of ~0.5 goes to 0.0002, rather than ~1e-7.
+        triggers_lower = np.maximum(triggers - triggers_error, 0)
+        triggers_upper = triggers + triggers_error
 
         livefrac, _, _ = get_livetime_fraction(triggers / product.data["timedel"].to("s").reshape(-1, 1))
         livefrac_lower, _, _ = get_livetime_fraction(triggers_lower / product.data["timedel"].to("s").reshape(-1, 1))
@@ -220,7 +220,7 @@ def _livefrac(product, counts, elut_cor_fac, pixel_indices):
     # ---- resolve the pixel summation group ------------------------------
 
     if len(shape) < 4:
-        livefrac_error = ((counts / livefrac_lower) - (counts / livefrac_upper)) / 2
+        livefrac_error = counts * inverse_livetime_error[:, None, None, None]
 
     else:
         n_pix = counts.shape[2]

@@ -717,6 +717,7 @@ class ScienceData(L1Product):
         sum_all_times=False,
         livetime_correction=True,
         elut_correction=True,
+        ssw_compatible=False,
     ):
         """
         Return the selected data, with optional livetime and ELUT corrections.
@@ -757,6 +758,10 @@ class ScienceData(L1Product):
         elut_correction : bool, optional
             Apply the ELUT correction. Default True.
 
+
+        ssw_compatible : bool, optional
+            For spectrogram livetime, truncate the nominal per-counter trigger count
+            and propagate its uncertainty analytically as in SSW. Default False.
 
         Returns
         -------
@@ -846,7 +851,9 @@ class ScienceData(L1Product):
             elut_cor_fac = None
 
         if livetime_correction:
-            livefrac, livefrac_error = _livefrac(self, counts, elut_cor_fac, checked_pixels)
+            livefrac, livefrac_error = _livefrac(
+                self, counts, elut_cor_fac, checked_pixels, ssw_compatible=ssw_compatible
+            )
 
         else:
             livefrac = None

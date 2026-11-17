@@ -15,8 +15,8 @@ Spectrum = pytest.importorskip("sunkit_spex.spectrum.spectrum").Spectrum
 # Each selection uses its own integration window. The reference files bear this
 # out: the top24 file stores EXPTIME ~4.00 s (the 5 s window below) while the
 # bkgdet file stores EXPTIME ~53.58 s (the 60 s window).
-T_RANGE_TOP24 = ["2024-03-10T12:05:50", "2024-03-10T12:05:55"]
-T_RANGE_BKGDET = ["2024-03-10T12:05:40", "2024-03-10T12:06:40"]
+T_RANGE_TOP24 = [["2024-03-10T12:05:50", "2024-03-10T12:05:55"]]
+T_RANGE_BKGDET = [["2024-03-10T12:05:40", "2024-03-10T12:06:40"]]
 
 # TODO: point these at the CPD/background files covering the time ranges above.
 CPD_URL = "https://pub099.cs.technik.fhnw.ch/fits/L1/2024/03/10/SCI/solo_L1_stix-sci-xray-cpd_20240310T115906-20240310T121540_V02_2403109216-57290.fits"

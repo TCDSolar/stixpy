@@ -13,7 +13,7 @@ Spectrum = pytest.importorskip("sunkit_spex.spectrum.spectrum").Spectrum
 
 # Integration window for the spectrum selection. The reference file stores
 # EXPTIME ~4.05 s, consistent with a ~5 s window.
-T_RANGE = ["2024-03-10T12:05:50", "2024-03-10T12:05:55"]
+T_RANGE = [["2024-03-10T12:05:50", "2024-03-10T12:05:55"]]
 
 # TODO: point this at the spectrogram (sci-xray-spec) file covering the window
 # above. This is NOT the CPD file used by test_science_sunkit_spex_1dspec.py.

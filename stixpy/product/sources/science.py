@@ -761,7 +761,8 @@ class ScienceData(L1Product):
 
         ssw_compatible : bool, optional
             For spectrogram livetime, truncate the nominal per-counter trigger count
-            and propagate its uncertainty analytically as in SSW. Default False.
+            and propagate its uncertainty analytically as in SSW. For pixel data,
+            combine detector livetime uncertainties in quadrature as in SSW. Default False.
 
         Returns
         -------
@@ -872,6 +873,7 @@ class ScienceData(L1Product):
             elut_cor_fac,
             sum_all_times,
             n_detectors=n_det_spectrogram,
+            ssw_compatible=ssw_compatible,
         )
 
         counts, counts_err, t_norm, e_norm, livefrac, livefrac_error, elut_cor_fac, times, energies, rcr = sci_data

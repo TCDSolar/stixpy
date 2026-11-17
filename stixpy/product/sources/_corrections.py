@@ -379,6 +379,13 @@ def _elut_correction_sort(bins, bins_actual, detector_sum, pixel_indices, detect
     return elut_cor_fac
 
 
+def _sum_adc_uncertainty(errors, detectors):
+    """Combine per-detector livetime errors using their shared ADCs."""
+    adc = STIX_INSTRUMENT.subcol_adc_mapping[detectors]
+    shared = [errors[:, adc == channel].sum(axis=1, keepdims=True) for channel in np.unique(adc)]
+    return np.sqrt(np.sum(np.stack(shared) ** 2, axis=0))
+
+
 def _data_select(
     product,
     counts,
@@ -392,6 +399,8 @@ def _data_select(
     elut_cor_fac,
     sum_all_times,
     n_detectors=None,
+    *,
+    ssw_compatible=False,
 ):
     """
     Apply the requested detector, pixel, energy and time selection to the data.
@@ -609,6 +618,9 @@ def _data_select(
         detector_indices = np.asarray(detector_indices)  # "top24" must already be resolved to indices upstream
 
         # ---- livetime -------------------------------------------------------
+        shared_adc = (
+            livefrac is not None and livefrac_error is not None and detector_indices.ndim == 2 and not ssw_compatible
+        )
         if livefrac is not None:
             if detector_indices.ndim == 1:
                 groups = [detector_indices]  # all selected -> one spectrum
@@ -618,7 +630,13 @@ def _data_select(
 
             counts_rcr = _apply_livetime(counts_rcr, counts_rcr, livefrac, groups)[0]
             counts_rcr = np.nansum(counts_rcr, axis=2, keepdims=True)
-            counts_var = _livetime_uncertainty(counts_var, livefrac_error, livefrac)
+            if shared_adc:
+                # Pixel weights in _livefrac are chosen so quadrature recovers
+                # the livetime contribution for the selected pixels.
+                detector_live_err = np.sqrt(np.nansum(livefrac_error**2, axis=2, keepdims=True))
+                counts_var = np.sqrt(np.nansum(counts_var**2, axis=2, keepdims=True)) / livefrac
+            else:
+                counts_var = _livetime_uncertainty(counts_var, livefrac_error, livefrac)
             counts, counts_var, livefrac = _apply_livetime(counts, counts_var, livefrac, groups)
             counts = np.nansum(counts, axis=2, keepdims=True)
 
@@ -657,6 +675,13 @@ def _data_select(
                 ],
                 axis=1,
             )
+            if shared_adc:
+                adc_error = np.concatenate(
+                    [_sum_adc_uncertainty(detector_live_err[:, group], group) for group in groups], axis=1
+                )
+                group_livetime = np.concatenate([livefrac[:, group[:1]] for group in groups], axis=1)
+                counts_var = np.hypot(counts_var, adc_error * group_livetime)
+
             if livefrac is not None:
                 livefrac = np.concatenate(
                     [np.mean(livefrac[:, dl : dh + 1, ...], axis=1, keepdims=True) for dl, dh in detector_indices],

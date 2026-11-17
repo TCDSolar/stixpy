@@ -76,7 +76,7 @@ flare_location
 # (index 9) only on its own, as in STIX-GSW.
 
 data = cpd_sci.get_data(
-    time_indices=time_range,
+    time_indices=[time_range],
     detector_indices="top24",
     sum_detectors=True,
 )
@@ -197,7 +197,7 @@ ax.legend(fontsize="small", ncol=2)
 # 31 keV line of the on-board calibration source, it is a large part of the counts.
 
 data_full = cpd_sci.get_data(
-    time_indices=time_range,
+    time_indices=[time_range],
     detector_indices="top24",
     sum_detectors=True,
 )
@@ -254,7 +254,7 @@ ax_ratio.set_ylabel("Sub / no sub")
 # the detectors agree before summing them.
 
 data_dets = cpd_sci.get_data(
-    time_indices=time_range,
+    time_indices=[time_range],
     detector_indices=[5, 6, 7],
 )
 spec_dets = to_spectrum(subtract_background(data_dets, cpd_bkg), flare_location=flare_location)

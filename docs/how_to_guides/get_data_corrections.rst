@@ -57,7 +57,7 @@ imaging detectors used for spectroscopy, and ``"bkg"``, the background detector.
 .. code-block:: python
 
     >>> data = cpd_sci.get_data(
-    ...     time_indices=["2021-09-23T15:20:30", "2021-09-23T15:23:30"],
+    ...     time_indices=[["2021-09-23T15:20:30", "2021-09-23T15:23:30"]],
     ...     energy_indices=[[4, 10], [15, 28]] * u.keV,
     ...     detector_indices="top24",
     ...     vtype="cr",
@@ -99,7 +99,7 @@ the livetime correction.
 
     >>> from stixpy.product.sources.science import subtract_background
     >>> data = cpd_sci.get_data(
-    ...     time_indices=["2021-09-23T15:20:30", "2021-09-23T15:23:30"],
+    ...     time_indices=[["2021-09-23T15:20:30", "2021-09-23T15:23:30"]],
     ...     detector_indices="top24",
     ...     sum_detectors=True,
     ... )  # doctest: +REMOTE_DATA

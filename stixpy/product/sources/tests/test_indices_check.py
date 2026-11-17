@@ -25,7 +25,7 @@ STIX_EDGES = [0, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 20, 22, 25, 2
               84, 100, 120, 150, np.nan]  # fmt: skip
 
 CPD_URL = "https://pub099.cs.technik.fhnw.ch/fits/L1/2024/03/10/SCI/solo_L1_stix-sci-xray-cpd_20240310T115906-20240310T121540_V02_2403109216-57290.fits"
-T_RANGE_BKGDET = ["2024-03-10T12:05:40", "2024-03-10T12:06:40"]
+T_RANGE_BKGDET = [["2024-03-10T12:05:40", "2024-03-10T12:06:40"]]
 
 
 def make_product(*, detectors=None, pixels=None, spectrogram=False, first_bin=0):

@@ -15,7 +15,7 @@ from sunpy.coordinates import Helioprojective
 
 from stixpy.calibration.srm import get_srm
 from stixpy.coordinates.frames import STIXImaging
-from stixpy.coordinates.utils import heliocentric_angle
+from stixpy.coordinates.utils import get_heliocentric_angle
 from stixpy.product.sources._corrections import _indices_expand_ranges
 
 __all__ = []
@@ -179,7 +179,7 @@ def _srm_det_pix_indices_format(detector_indices, pixel_indices, case):
     """
 
     det_formatted = _srm_format_flat_or_ranges(detector_indices, case)
-    pix_formatted = _srm_format_flat_or_ranges(pixel_indices, case)
+    pix_formatted = _srm_format_flat_or_ranges(pixel_indices, "spec_1D_detector_collapse")
 
     return det_formatted, pix_formatted
 
@@ -299,11 +299,23 @@ def _get_sunkit_spex_spectrum(
         pixel_indices = np.where(product.pixel_masks.masks == 1)[1]
         detector_sum = True
 
+    detectors_on = np.flatnonzero(np.asarray(product.detector_masks.masks).any(axis=0))
+    pixel_masks = np.asarray(product.pixel_masks.masks)
+    pixels_on = np.flatnonzero(pixel_masks.any(axis=tuple(range(pixel_masks.ndim - 1))))
+
+    def response_indices(case):
+        detectors, pixels = _srm_det_pix_indices_format(detector_indices, pixel_indices, case)
+        if detector_sum:
+            detectors = np.intersect1d(detectors, detectors_on)
+        else:
+            detectors = [np.intersect1d(np.atleast_1d(group), detectors_on) for group in detectors]
+        return detectors, np.intersect1d(pixels, pixels_on)
+
     if detector_sum:
         if np.shape(counts)[0] == 1:
             case = "spec_1D_detector_collapse"
 
-            detector_indices_srm, pixel_indices_srm = _srm_det_pix_indices_format(detector_indices, pixel_indices, case)
+            detector_indices_srm, pixel_indices_srm = response_indices(case)
 
             srm_dict = _masked_srm(
                 energies,
@@ -319,7 +331,7 @@ def _get_sunkit_spex_spectrum(
         else:
             case = "spec_sequence_detector_collapse"
 
-            detector_indices_srm, pixel_indices_srm = _srm_det_pix_indices_format(detector_indices, pixel_indices, case)
+            detector_indices_srm, pixel_indices_srm = response_indices(case)
 
             rcr_unique = np.unique(rcr)
 
@@ -382,7 +394,7 @@ def _get_sunkit_spex_spectrum(
 
             spec_list_working = []
 
-            detector_indices_srm, pixel_indices_srm = _srm_det_pix_indices_format(detector_indices, pixel_indices, case)
+            detector_indices_srm, pixel_indices_srm = response_indices(case)
 
             for i in range(np.shape(counts)[1]):
                 srm_dict = _masked_srm(
@@ -433,7 +445,7 @@ def _get_sunkit_spex_spectrum(
 
             case = "spec_sequence_detector_expand"
 
-            detector_indices_srm, pixel_indices_srm = _srm_det_pix_indices_format(detector_indices, pixel_indices, case)
+            detector_indices_srm, pixel_indices_srm = response_indices(case)
 
             for i in range(np.shape(counts)[1]):
                 rcr_unique = np.unique(rcr)
@@ -562,4 +574,4 @@ def _flare_angle(flare_location_stx):
     # with no observer given, the STIX to helioprojective transform uses Solar Orbiter's position at obstime; the
     # frame is transformed, not the SkyCoord, so no other observer is carried over from it
     flare_hpc = SkyCoord(flare_location_stx.frame.transform_to(Helioprojective(obstime=obstime)))
-    return heliocentric_angle(flare_hpc)
+    return get_heliocentric_angle(flare_hpc)

@@ -90,10 +90,8 @@ def test_zero_background_unchanged(cpd, bkg_zero, selection, vtype, ssw_compatib
     assert with_bkg.counts.unit == without.counts.unit
     assert_allclose(with_bkg.counts, without.counts)
     assert_allclose(with_bkg.counts_err, without.counts_err)
-    assert_allclose(
-        np.broadcast_to(with_bkg.livefrac, with_bkg.counts.shape),
-        np.broadcast_to(without.livefrac, without.counts.shape),
-    )
+    assert with_bkg.livefrac.shape == without.livefrac.shape
+    assert_allclose(with_bkg.livefrac, without.livefrac)
     assert with_bkg.livefrac_error is None
 
 
@@ -212,7 +210,7 @@ def test_spectrum_detector_ids_follow_count_order(monkeypatch):
     from types import SimpleNamespace
 
     def capture(product, detectors, pixels, data, *args, **kwargs):
-        return detectors, data[0]
+        return detectors, data.counts
 
     monkeypatch.setitem(
         sys.modules, "stixpy.product.sources._spectrum", SimpleNamespace(_get_sunkit_spex_spectrum=capture)
@@ -228,6 +226,7 @@ def test_spectrum_detector_ids_follow_count_order(monkeypatch):
         **NO_ELUT,
     )
     np.testing.assert_array_equal(detectors, [2, 0])
+    assert_allclose(selected[0, :, 0, 0].to_value(u.ct), [3, 1])
     assert_allclose(selected[0, :, 0, 0], [3, 1] * u.ct)
 
 
@@ -240,3 +239,29 @@ def test_systematic_uncertainty_after_time_sum():
 
     extra_variance = (calibrated.counts_err**2 - baseline.counts_err**2).to_value(u.ct**2)
     assert_allclose(extra_variance[0, 0, 0, 0], (0.07 * 200) ** 2)
+
+
+def test_correlated_matches_legacy_without_combining(cpd, bkg):
+    # with nothing combined over detectors or time, the parts of the uncertainty add up the same way
+    kwargs = {"vtype": "c", "detector_indices": [0], "bkg": bkg, **NO_ELUT}
+    legacy = cpd.get_data(**kwargs)
+    correlated = cpd.get_data(error_model="correlated", **kwargs)
+    assert_allclose(correlated.counts, legacy.counts)
+    assert_allclose(correlated.counts_err, legacy.counts_err)
+
+
+def test_correlated_background_error_linear_over_time(bkg):
+    # no science counts, so the background is the whole uncertainty: one measurement scaled to all three time bins
+    empty = _make_product(CompressedPixelData, np.zeros((3, 32, 12, 4)))
+    kwargs = {"vtype": "c", "detector_indices": [0], "pixel_indices": [0], "time_indices": [[0, 2]], "bkg": bkg}
+    legacy = empty.get_data(**kwargs, **NO_ELUT)
+    correlated = empty.get_data(error_model="correlated", **kwargs, **NO_ELUT)
+    assert_allclose(correlated.counts_err, np.sqrt(3) * legacy.counts_err)
+    # and negative counts are kept
+    assert_allclose(legacy.counts, correlated.counts)
+    assert_allclose(correlated.counts, -3 * 0.02 * u.ct)
+
+
+def test_error_model_unknown(cpd):
+    with pytest.raises(ValueError, match="error_model must be one of"):
+        cpd.get_data(error_model="independent", **NO_ELUT)

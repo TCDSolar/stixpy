@@ -25,6 +25,9 @@ BKG_PIXELS = [2, 5]
 #: Named detector sets accepted by ``detector_indices``.
 DETECTOR_LABELS = {"top24": TOP24, "bkg": [BKG_DETECTOR]}
 
+#: Axes of the (time, detector, pixel, energy) count arrays.
+TIME, DETECTOR, PIXEL, ENERGY = range(4)
+
 #: Tolerance on time comparisons, which absorbs floating-point error in bin edges and the
 #: millisecond rounding of ISO time strings.
 TIME_TOLERANCE = 1 * u.ms
@@ -38,6 +41,61 @@ def _on_indices(masks):
     pixel masks, which can be ``(n, 12)`` or ``(n, 32, 12)``.
     """
     return np.unique(np.nonzero(np.asarray(masks) == 1)[-1])
+
+
+def _flat_indices(indices):
+    """
+    The indices a selection covers: flat indices as given, or the inclusive [start, end] pairs expanded in turn.
+    """
+    indices = np.asarray(indices)
+    if indices.ndim == 2:
+        return np.concatenate([np.arange(start, end + 1) for start, end in indices]).astype(int)
+    return indices.ravel()
+
+
+def _kept_energy_bins(energies):
+    """
+    The energy bins `~stixpy.product.sources.science.ScienceData.get_data` keeps: all but a 0 keV bottom bin and an
+    open top bin (NaN upper edge).
+
+    Parameters
+    ----------
+    energies : astropy.table.QTable
+        The product's energy table.
+
+    Returns
+    -------
+    slice
+        The rows of `energies` that are kept.
+    """
+    start = 1 if energies["e_low"][0].value == 0 else 0
+    stop = len(energies) - 1 if np.isnan(energies["e_high"][-1].value) else len(energies)
+    return slice(start, stop)
+
+
+def _energy_positions(energy_indices, energies):
+    """
+    Turn energy indices, which number the rows of the product's energy table, into positions on the energy bins
+    `_kept_energy_bins` keeps.
+
+    The indices are shifted down by one when the 0 keV bottom bin is not kept, and then clipped into the kept bins.
+
+    Parameters
+    ----------
+    energy_indices : list, numpy.ndarray or None
+        Flat energy indices or [start, end] pairs.
+    energies : astropy.table.QTable
+        The product's energy table.
+
+    Returns
+    -------
+    numpy.ndarray or None
+        The positions, flat or [start, end] pairs, or None if `energy_indices` is None.
+    """
+    if energy_indices is None:
+        return None
+    kept = _kept_energy_bins(energies)
+    return np.clip(np.asarray(energy_indices) - kept.start, 0, kept.stop - kept.start - 1)
 
 
 def _check_ranges(ranges, on, n_total, name):

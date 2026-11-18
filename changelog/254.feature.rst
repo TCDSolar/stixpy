@@ -1,0 +1,1 @@
+Add `~stixpy.product.sources.science.ScienceData.rcr_raw`, the RCR state as recorded, and private helpers, ported from STIX-GSW ``stx_convert_spectrogram2ospex``, that move the recorded RCR state changes onto the corresponding jumps in the counts and check time ranges for RCR changes.

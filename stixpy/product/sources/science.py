@@ -194,6 +194,9 @@ class SelectedData(NamedTuple):
     selection: DataSelection
     """The selection the data were made with."""
 
+    background_exposure_rss: u.Quantity | None = None
+    """Effective exposure for SSW-style background error propagation across time."""
+
     @classmethod
     def from_count_data(cls, data, vtype, selection):
         """
@@ -236,6 +239,7 @@ class SelectedData(NamedTuple):
 
         return cls(
             counts=data.counts * norm,
+            background_exposure_rss=data.background_exposure_rss,
             counts_err=data.total_err() * norm,
             t_norm=t_norm,
             e_norm=e_norm,
@@ -819,9 +823,9 @@ class ScienceData(L1Product):
 
 
         ssw_compatible : bool, optional
-            Truncate the spectrogram per-counter trigger count and the trigger
-            uncertainty bounds as in legacy SSW. For pixel data, combine detector
-            livetime uncertainties in quadrature. Default False.
+            Use analytic trigger uncertainty propagation and per-pixel quadrature for
+            pixel data, and truncate the nominal trigger count per counter for
+            spectrograms. Requires ``error_model="legacy"``. Default False.
 
         Returns
         -------
@@ -874,6 +878,8 @@ class ScienceData(L1Product):
         combination. ``livefrac_error`` then holds the combined livetime
         uncertainty, normalised like the counts.
         """
+        if ssw_compatible and error_model == "correlated":
+            raise ValueError('ssw_compatible=True requires error_model="legacy".')
         if error_model not in ERROR_MODELS:
             raise ValueError(f"error_model must be one of {ERROR_MODELS}, not {error_model!r}.")
 
@@ -916,6 +922,11 @@ class ScienceData(L1Product):
         )
 
         data = _selected_counts(self, selection, _energy_positions(energy_indices, self.energies))
+        if ssw_compatible and data.livefrac is not None:
+            exposure = data.durations[:, None, None, None].to(u.s) * np.nanmean(
+                data.livefrac, axis=PIXEL, keepdims=True
+            )
+            data = replace(data, background_exposure_rss=exposure)
         data = _select_times(data, time_indices, sum_all_times)
         selection = replace(selection, detectors=data.detectors, pixels=data.pixels.any(axis=0))
         selected = SelectedData.from_count_data(data, vtype, selection)
@@ -1084,7 +1095,10 @@ def subtract_background(data, background):
 
     # the background as a livetime corrected count rate, normalised as the data are
     scale = {"c": data.t_norm * data.livefrac, "cr": 1, "dcr": 1 / data.e_norm}[data.vtype]
-    counts_err = np.sqrt(data.counts_err**2 + (scale * bkg.counts_err) ** 2)
+    error_scale = scale
+    if data.selection.ssw_compatible and data.background_exposure_rss is not None:
+        error_scale = scale * (data.background_exposure_rss / (data.t_norm * data.livefrac)).to(u.one)
+    counts_err = np.hypot(data.counts_err, error_scale * bkg.counts_err)
     return data._replace(counts=data.counts - scale * bkg.counts, counts_err=counts_err)
 
 

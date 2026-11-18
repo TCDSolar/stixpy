@@ -84,6 +84,7 @@ _REDUCTIONS = {
         # includes the livetime uncertainty, folded in before the detectors are combined
         "counts_err": (_quadrature, _quadrature, _quadrature, _quadrature),
         "livefrac": (_duration_weighted_mean, _mean, _mean, _mean),
+        "background_exposure_rss": (_quadrature, None, None, None),
         # only reported, as it is already in counts_err: in quadrature over pixels (of values spread so that this
         # returns the total, see `_livefrac`) and times, linearly over energies, and as an RMS over detectors
         "livefrac_err": (_quadrature, _rms, _quadrature, _sum),
@@ -96,6 +97,7 @@ _REDUCTIONS = {
         # the statistical uncertainty only, independent between every bin
         "counts_err": (_quadrature, _quadrature, _quadrature, _quadrature),
         "livefrac": (_duration_weighted_mean, _mean, _mean, _mean),
+        "background_exposure_rss": (_quadrature, None, None, None),
         # the livetime of a detector and time bin is shared by its pixels and energies, and by the other detector on
         # its trigger counter, and is independent between time bins
         "livefrac_err": (_quadrature, _trigger_correlated, _sum, _sum),
@@ -142,6 +144,9 @@ class _CountData:
     """RCR state of each time bin."""
     error_model: str = "legacy"
     """"legacy" or "correlated", see `ERROR_MODELS`."""
+
+    background_exposure_rss: u.Quantity | None = None
+    """Quadrature sum of original live exposures for SSW background errors."""
 
     adc_livetime_err: u.Quantity | None = None
     """Livetime contributions per ADC, retained across detector reductions."""

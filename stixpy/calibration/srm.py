@@ -97,7 +97,7 @@ def get_srm(
     detectors,
     pixels,
     rcr,
-    flare_location: SkyCoord | u.Quantity | None = None,
+    flare_location: SkyCoord | None = None,
     ph_energy_min: u.Quantity[u.keV] | None = 3.5 * u.keV,
 ):
     """
@@ -129,7 +129,7 @@ def get_srm(
         Rate control regime (RCR) state, 0-7. Sets whether the attenuator is in
         and the fraction of the pixel area that is active (see
         ``stixpy.config.instrument.RCR_AREA``).
-    flare_location : `~astropy.coordinates.SkyCoord` or `~astropy.units.Quantity`, optional
+    flare_location : `~astropy.coordinates.SkyCoord`, optional
         Flare position, passed to `~stixpy.calibration.grid.get_grid_transmission`.
         If None, on-axis is assumed.
     ph_energy_min : `~astropy.units.Quantity`, optional
@@ -151,6 +151,9 @@ def get_srm(
         is combined with other detectors, if `rcr` is not 0-7, or if a count edge
         is not on the DRM grid.
     """
+    if flare_location is not None and not isinstance(flare_location, SkyCoord):
+        raise TypeError("flare_location must be a SkyCoord.")
+
     detectors = np.atleast_1d(detectors)
     pixels = np.atleast_1d(pixels)
     rcr = int(np.asarray(rcr).item())  # callers may pass a 1-element array

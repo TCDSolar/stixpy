@@ -118,3 +118,9 @@ def test_get_srm_bkg_with_others():
 def test_get_srm_bad_rcr():
     with pytest.raises(ValueError, match="rcr"):
         get_srm(COARSE_EDGES, 0, 0, 8)
+
+
+@pytest.mark.parametrize("detector", [0, 9])
+def test_get_srm_rejects_angle_pair(detector):
+    with pytest.raises(TypeError, match="SkyCoord"):
+        get_srm(COARSE_EDGES, detector, 0, 0, flare_location=[0, 0] * u.arcsec)

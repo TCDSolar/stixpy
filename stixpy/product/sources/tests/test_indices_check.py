@@ -379,9 +379,13 @@ def test_bkg_label_get_data_rejects_other_pixels(cpd_2024_03_10):
 def test_get_data_defaults_keep_full_axes(cpd_2024_03_10):
     # with no selection get_data returns every detector and pixel on the full grid, not just those that are on
     product = cpd_2024_03_10
-    counts, *_ = product.get_data()
     expected = _full_layout(product.data["counts"], product.detector_masks, product.pixel_masks)
-    assert counts.shape == expected.shape
+    n_energies = len(product.get_data().energies)  # without the 0 keV bottom and open top bins
+    counts, *_ = product.get_data(livetime_correction=False)
+    assert counts.shape == expected.shape[:3] + (n_energies,)
+    # the livetime correction sums the pixels but keeps every detector
+    counts, *_ = product.get_data()
+    assert counts.shape == (expected.shape[0], expected.shape[1], 1, n_energies)
 
 
 @pytest.mark.remote_data
@@ -390,13 +394,11 @@ def test_get_data_times_and_kev_match_indices(cpd_2024_03_10):
     dt = product.data["timedel"]
     start = (product.times[2] - dt[2] / 2).isot
     end = (product.times[5] + dt[5] / 2).isot
-    counts_idx, errors_idx, times_idx, dt_idx, energies_idx = product.get_data(
-        time_indices=[[2, 5]], energy_indices=[[1, 5]]
-    )
+    by_index = product.get_data(time_indices=[[2, 5]], energy_indices=[[1, 5]])
     # the keV range runs from the bottom of row 1 to the top of row 5, so takes the bin centres of rows 1-5
     kev = [[product.energies["e_low"][1].value, product.energies["e_high"][5].value]] * u.keV
-    counts, errors, times, dt_sel, energies = product.get_data(time_indices=[[start, end]], energy_indices=kev)
-    assert_allclose(counts, counts_idx)
-    assert_allclose(errors, errors_idx)
-    assert_allclose(dt_sel, dt_idx)
-    assert np.array_equal(energies["e_low"], energies_idx["e_low"])
+    by_value = product.get_data(time_indices=[[start, end]], energy_indices=kev)
+    assert_allclose(by_value.counts, by_index.counts)
+    assert_allclose(by_value.counts_err, by_index.counts_err)
+    assert_allclose(by_value.t_norm, by_index.t_norm)
+    assert np.array_equal(by_value.energies["e_low"], by_index.energies["e_low"])

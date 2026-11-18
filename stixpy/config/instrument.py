@@ -11,6 +11,28 @@ __ALL__ = (["STIX_INSTRUMENT", "_get_uv_points_data"],)
 _SUBCOL_PARAMS = read_subc_params()
 
 
+def _rcr_area():
+    """
+    Nominal active pixel area of a detector in each rate control regime (RCR) state 0-7.
+
+    As STIX-GSW ``stx_rcr_area.pro``: states 0 (attenuator out) and 1 (attenuator in) use the full
+    detector, states 2-4 a half, a quarter and an eighth of it, and states 5-7 four, two and one
+    small pixels.
+    """
+    detector = _SUBCOL_PARAMS[0]
+    full = detector["Detect Xsize"] * detector["Detect Ysize"]
+    small = detector["S Pixel Xsize"] * detector["S Pixel Ysize"]
+    area = [full, full, full / 2, full / 4, full / 8, 4 * small, 2 * small, small]
+    # RCR_AREA = [0.8096, 0.80961, 0.4048, 0.2024, 0.1012, 0.0396, 0.0198, 0.0099] * u.cm**2
+    return (area * _SUBCOL_PARAMS["Detect Xsize"].unit * _SUBCOL_PARAMS["Detect Ysize"].unit).to(u.cm**2)
+
+
+#: Nominal active pixel area of a detector in each RCR state 0-7, from the detector and small pixel
+#: sizes in ``stx_subc_params.csv`` (see ``_rcr_area``). ``stx_build_pixel_drm`` scales the response by
+#: this over the full detector area.
+RCR_AREA = _rcr_area()
+
+
 @u.quantity_input
 def _get_uv_points_data(d_det: u.Quantity[u.mm] = 47.78 * u.mm, d_sep: u.Quantity[u.mm] = 545.30 * u.mm):
     r"""

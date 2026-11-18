@@ -19,6 +19,8 @@ The ``calibration`` submodule contains functions for calibrating STIX data.
 
 .. automodapi:: stixpy.calibration.livetime
 
+.. automodapi:: stixpy.calibration.srm
+
 .. automodapi:: stixpy.calibration.transmission
 
 .. automodapi:: stixpy.calibration.visibility

@@ -1,0 +1,3 @@
+Add `stixpy.calibration.srm.get_srm` to build the spectral response matrix (SRM) for a set of detectors, pixels and RCR state, following STIX-GSW ``stx_build_pixel_drm``.
+The active pixel area for each RCR state, ``stixpy.config.instrument.RCR_AREA``, is derived from the detector and small pixel sizes in ``stx_subc_params.csv``.
+For RCR states 5-7 this gives a geometric area 1.1% larger than STIX-GSW ``stx_rcr_area.pro``, which assumes a 0.90 mm instead of 0.91 mm small pixel.

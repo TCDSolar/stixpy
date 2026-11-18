@@ -64,13 +64,9 @@ energy_range = [25, 28] * u.keV
 ###############################################################################
 # Create the meta pixel, A, B, C, D for the science and the background data
 
-meta_pixels_sci = create_meta_pixels(
-    cpd_sci, time_range=time_range_sci, energy_range=energy_range, flare_location=[0, 0] * u.arcsec, no_shadowing=True
-)
+meta_pixels_sci = create_meta_pixels(cpd_sci, time_range=time_range_sci, energy_range=energy_range, no_shadowing=True)
 
-meta_pixels_bkg = create_meta_pixels(
-    cpd_bkg, time_range=time_range_bkg, energy_range=energy_range, flare_location=[0, 0] * u.arcsec, no_shadowing=True
-)
+meta_pixels_bkg = create_meta_pixels(cpd_bkg, time_range=time_range_bkg, energy_range=energy_range, no_shadowing=True)
 
 ###############################################################################
 # Perform background subtraction

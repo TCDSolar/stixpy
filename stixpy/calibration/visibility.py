@@ -223,8 +223,10 @@ def create_meta_pixels(
     ct_summed = ct.sum(axis=(0, 3))  # .astype(float)
     ct_error_summed = np.sqrt(np.sum(ct_error**2, axis=(0, 3)))
 
+    if flare_location is not None and not isinstance(flare_location, SkyCoord):
+        raise ValueError("flare_location must be a SkyCoord object.")
     if not no_shadowing:
-        if flare_location is None or not isinstance(flare_location, SkyCoord):
+        if flare_location is None:
             raise ValueError("flare_location must be a SkyCoord object if using grid shadowing correction.")
         if not isinstance(flare_location.frame, STIXImaging) and flare_location.obstime != time_range.center:
             roll, solo_heeq, stix_pointing = get_hpc_info(time_range.start, time_range.end)

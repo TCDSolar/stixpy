@@ -103,7 +103,6 @@ def estimate_flare_location(cpd_sci, time_range, energy_range=None, plot=False):
         cpd_sci,
         time_range=[time_range.start, time_range.end],
         energy_range=energy_range,
-        flare_location=[0, 0] * u.arcsec,
         no_shadowing=True,
     )
 

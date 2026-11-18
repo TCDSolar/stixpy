@@ -4,7 +4,7 @@ from numpy.testing import assert_allclose
 
 import astropy.units as u
 
-from stixpy.calibration.srm import SRM, _count_edges_in_drm, _match_idl_grid, get_srm
+from stixpy.calibration.srm import SRM, _count_edges_in_drm, _group_count_channels, get_srm
 from stixpy.config.instrument import RCR_AREA
 
 SCI_EDGES = [
@@ -19,22 +19,16 @@ def srm_rcr0():
     return get_srm(COARSE_EDGES, [0, 1, 2], np.arange(12), 0)
 
 
-def test_match_idl_grid():
-    ph_full = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
-    ct_full = np.array([2.0, 3.0, 4.0])
-    drm = np.ones((4, 4))
+def test_group_count_channels():
+    ct_full = np.array([2.0, 3.0, 4.0, 5.0])
+    drm = np.array([[1, 2, 100], [3, 4, 100]])
 
-    drm_new, ph_edges = _match_idl_grid(drm, ph_full, ct_full, np.array([2.0, 4.0]))
-
-    # 3 keV is a count edge the product doesn't have, so the 2-3 and 3-4 keV bins merge
-    assert_allclose(ph_edges, [1, 2, 4, 5])
-    # a flat DRM of 1 ct / keV / ph gives counts per count bin equal to the count bin width
-    assert_allclose(drm_new, np.broadcast_to([1, 2, 1], (3, 3)))
+    assert_allclose(_group_count_channels(drm, ct_full, np.array([2.0, 4.0])), [[3], [7]])
 
 
-def test_match_idl_grid_edge_not_on_grid():
+def test_group_count_channels_edge_not_on_grid():
     with pytest.raises(ValueError, match="not on the saved DRM grid"):
-        _match_idl_grid(np.ones((4, 4)), np.arange(1.0, 6.0), np.array([2.0, 3.0]), np.array([2.0, 3.5]))
+        _group_count_channels(np.ones((4, 2)), np.array([2.0, 3.0, 4.0]), np.array([2.0, 3.5]))
 
 
 def test_count_edges_in_drm():
@@ -65,6 +59,17 @@ def test_get_srm_science_channels():
     # the 0-4 keV and open top channels are left out
     assert_allclose(srm.count_edges, SCI_EDGES[1:-1])
     assert srm.srm.shape[1] == SCI_EDGES.size - 3
+
+
+def test_get_srm_regroups_only_count_channels():
+    fine = get_srm(SCI_EDGES, 0, 0, 0)
+    coarse = get_srm([4, 6, 9] * u.keV, 0, 0, 0)
+    assert_allclose(coarse.photon_edges, fine.photon_edges)
+    integrated = fine.srm * np.diff(fine.count_edges)
+    assert_allclose(
+        coarse.srm * np.diff(coarse.count_edges),
+        np.column_stack([integrated[:, :2].sum(axis=1), integrated[:, 2:5].sum(axis=1)]),
+    )
 
 
 def test_get_srm_ph_energy_min(srm_rcr0):

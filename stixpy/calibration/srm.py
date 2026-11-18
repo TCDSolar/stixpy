@@ -10,9 +10,9 @@ import numpy as np
 
 import astropy.units as u
 from astropy.coordinates import SkyCoord
+from astropy.io import fits
 from astropy.table import Table
 
-from stixpy.calibration.detector import tailing_matrix
 from stixpy.calibration.grid import get_grid_transmission
 from stixpy.calibration.transmission import Transmission
 from stixpy.config.instrument import RCR_AREA, STIX_INSTRUMENT
@@ -20,7 +20,7 @@ from stixpy.config.instrument import RCR_AREA, STIX_INSTRUMENT
 __all__ = ["SRM", "get_srm"]
 
 _CONFIG_DATA = Path(__file__).parent.parent / "config" / "data"
-DRM_PATH = _CONFIG_DATA / "detector" / "stx_detector_response_matrix.fits.gz"
+DRM_PATH = _CONFIG_DATA / "detector" / "stix-drm-30ch.fits.gz"
 BKG_GRID_TRANSMISSION_PATH = _CONFIG_DATA / "grid" / "real_bkg_grid_transmission.txt"
 
 #: Tolerance in keV for matching count edges to the DRM grid, as IDL's ``get_uniq(..., epsilon=1e-4)``.
@@ -48,63 +48,24 @@ class SRM(NamedTuple):
 @lru_cache
 def _read_drm():
     """
-    Read the saved DRM, its bin edges, the STIX count edges and the CdTe cross sections, in keV and 1/cm.
+    Read the IDL DRM in counts per photon and its energy edges in keV.
     """
-    drm = Table.read(DRM_PATH, hdu=1)["DRM"].quantity.to_value(u.ct / (u.keV * u.ph))
-    ph_edges = Table.read(DRM_PATH, hdu=2)["DRM"].quantity.to_value(u.keV)
-    ct_edges = Table.read(DRM_PATH, hdu=3)["DRM"].quantity.to_value(u.keV)
-    xsec = Table.read(DRM_PATH, hdu=4)
-    xsec_energy = xsec["ENERGY"].quantity.to_value(u.keV)
-    xsec_value = xsec["XSEC"].quantity.to_value(1 / u.cm)
-    arrays = (drm, ph_edges, ct_edges, xsec_energy, xsec_value)
+    with fits.open(DRM_PATH) as hdus:
+        arrays = tuple(np.array(hdus[key].data, dtype=float) for key in (0, "PHOTON_EDGES", "COUNT_EDGES"))
     for array in arrays:
         array.setflags(write=False)
     return arrays
 
 
-def _match_idl_grid(drm, ph_full, ct_full, e_edges, epsilon=_EDGE_TOLERANCE):
-    """
-    Put the saved DRM on the photon grid IDL builds for this product.
-
-    IDL's grid is ``get_uniq([transmission_grid, ct_edges], epsilon=1e-4)``. The saved grid is the
-    transmission grid plus all STIX count edges (``ct_full``), so dropping the ones this product
-    doesn't have gives IDL's grid exactly, and each new bin is a run of whole saved bins.
-
-    Parameters
-    ----------
-    drm : numpy.ndarray
-        Saved DRM, (photon, count), counts / keV / photon.
-    ph_full : numpy.ndarray
-        Bin edges of the saved DRM in keV (same for both axes).
-    ct_full : numpy.ndarray
-        STIX count edges the saved grid contains, in keV.
-    e_edges : numpy.ndarray
-        This product's count edges, in keV.
-
-    Returns
-    -------
-    drm_new : numpy.ndarray
-        DRM on IDL's grid in counts per count bin per photon: count bins summed, photon bins
-        averaged (weighted by width).
-    ph_edges : numpy.ndarray
-        IDL's photon grid for this product.
-    """
-    missing = ~np.isclose(e_edges[:, None], ph_full[None, :], atol=epsilon).any(axis=1)
+def _group_count_channels(drm, ct_full, e_edges, epsilon=_EDGE_TOLERANCE):
+    """Sum whole science count channels while retaining every photon bin."""
+    matches = np.isclose(e_edges[:, None], ct_full[None, :], atol=epsilon, rtol=0)
+    missing = ~matches.any(axis=1)
     if missing.any():
         raise ValueError(f"Energy edges {e_edges[missing]} are not on the saved DRM grid.")
 
-    is_count_edge = np.isclose(ph_full[:, None], ct_full[None, :], atol=epsilon).any(axis=1)
-    in_product = np.isclose(ph_full[:, None], e_edges[None, :], atol=epsilon).any(axis=1)
-
-    keep = ~is_count_edge | in_product  # = IDL's get_uniq([transmission_grid, e_edges])
-    ph_edges = ph_full[keep]
-    starts = np.flatnonzero(keep)[:-1]  # first saved bin in each new bin
-
-    widths = np.diff(ph_full)
-    summed = np.add.reduceat(drm * widths[:, None] * widths[None, :], starts, axis=0)
-    summed = np.add.reduceat(summed, starts, axis=1)
-
-    return summed / np.diff(ph_edges)[:, None], ph_edges
+    indices = matches.argmax(axis=1)
+    return np.add.reduceat(drm[:, indices[0] : indices[-1]], indices[:-1] - indices[0], axis=1)
 
 
 def _count_edges_in_drm(count_edges, ct_full, epsilon=_EDGE_TOLERANCE):
@@ -142,29 +103,17 @@ def get_srm(
     """
     Build the spectral response matrix (SRM) for a set of detectors and pixels.
 
-    The detector response matrix (DRM) is read from the calibration file
-    ``stx_detector_response_matrix.fits.gz``: ``drm.smatrix`` from STIX-GSW
-    ``stx_build_drm``, without hole tailing, on a photon grid made of the STIX
-    transmission-file grid plus all 31 STIX count edges, together with its bin
-    edges, the count edges and the CdTe cross sections needed for the tailing.
+    The detector response matrix (DRM) is read from ``stix-drm-30ch.fits.gz``.
+    It contains the STIX-GSW v0.6.2 response with hole tailing applied in IDL
+    on the full photon grid and the count axis integrated into the 30 finite
+    science channels.
 
-    The steps follow STIX-GSW ``stx_build_pixel_drm``:
-
-    1. Count edges outside the 4-150 keV range the DRM covers are dropped, which
-       leaves out the 0-4 keV and open top channels of the science data.
-    2. The DRM is put on the photon grid IDL builds for these edges (see
-       ``_match_idl_grid``).
-    3. The fine count bins are summed into the requested count bins.
-    4. Hole tailing is applied along the photon axis on this grid (see
-       `stixpy.calibration.detector.tailing_matrix`).
-    5. Each photon row is multiplied by the detector transmission at the bin
-       centre, averaged over the detectors, with the attenuator in if `rcr` is
-       not 0, and by the grid transmission for `flare_location`, averaged over
-       the detectors. For the background detector (index 9) on its own, the
-       grid transmission is the mean over the selected pixels from
-       ``real_bkg_grid_transmission.txt``.
-    6. The result is divided by the count bin widths.
-    7. Photon bins starting below `ph_energy_min` are dropped.
+    Count edges outside 4–150 keV are dropped. Adjacent science channels are
+    summed on the fixed photon grid.
+    Detector and grid transmission are evaluated at the photon bin
+    centres. For the background detector, grid transmission is averaged over
+    the selected pixels. The response is divided by count bin widths and
+    photon bins below `ph_energy_min` are dropped.
 
     Parameters
     ----------
@@ -218,17 +167,10 @@ def get_srm(
     if not 0 <= rcr < len(RCR_AREA):
         raise ValueError(f"rcr must be between 0 and {len(RCR_AREA) - 1}, not {rcr}.")
 
-    drm_full, ph_full, ct_full, xsec_energy, xsec = _read_drm()
+    drm_full, ph_edges, ct_full = _read_drm()
     e_edges = _count_edges_in_drm(count_edges.to_value(u.keV), ct_full)
 
-    drm, ph_edges = _match_idl_grid(drm_full, ph_full, ct_full, e_edges)
-
-    # Sum the fine count bins into the requested count bins; each one is a run of whole fine bins.
-    i_edges = np.searchsorted(ph_edges, e_edges - _EDGE_TOLERANCE)
-    drm = np.add.reduceat(drm[:, i_edges[0] : i_edges[-1]], i_edges[:-1] - i_edges[0], axis=1)
-
-    tailing = tailing_matrix(ph_edges * u.keV, xsec_energy * u.keV, xsec / u.cm)
-    drm = tailing.T @ drm
+    drm = _group_count_channels(drm_full, ct_full, e_edges)
 
     ph_mids = (ph_edges[:-1] + ph_edges[1:]) / 2 * u.keV
     transmission = Transmission().get_transmission(energies=ph_mids, attenuator=rcr > 0)

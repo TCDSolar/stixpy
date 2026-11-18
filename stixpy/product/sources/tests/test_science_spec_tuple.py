@@ -66,7 +66,8 @@ def _get_summed_counts(spec_prod):
     No detector_indices or pixel_indices are passed: a spectrogram is already
     summed over detectors and pixels onboard.
     """
-    spec = spec_prod.get_data(vtype="cr", elut_correction=True, livetime_correction=True)
+    # The saved IDL reference uses integer triggers and the legacy uncertainty model.
+    spec = spec_prod.get_data(vtype="cr", elut_correction=True, livetime_correction=True, ssw_compatible=True)
 
     counts = np.nansum(spec.counts, axis=(1, 2))
     counts_err = np.sqrt(np.nansum(spec.counts_err**2, axis=(1, 2)))

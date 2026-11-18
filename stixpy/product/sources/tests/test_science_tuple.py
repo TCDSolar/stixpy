@@ -102,6 +102,7 @@ def _get_summed_counts(cpd, *, detector_indices, elut_correction, pixel_indices=
         "vtype": "cr",
         "elut_correction": elut_correction,
         "livetime_correction": True,
+        "ssw_compatible": True,  # Match the saved IDL reference.
         "detector_indices": detector_indices,
     }
     if pixel_indices is not None:

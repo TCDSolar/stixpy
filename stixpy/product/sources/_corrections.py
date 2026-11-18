@@ -182,17 +182,14 @@ def _livefrac(product, counts, elut_cor_fac, pixel_indices, *, ssw_compatible=Fa
         triggers = np.floor(trig_raw) if ssw_compatible else trig_raw
         rate = triggers / timedel
         livefrac, _, _ = get_livetime_fraction(rate)
+        lower_triggers = np.maximum(trig_raw - trig_err, 0)
+        upper_triggers = trig_raw + trig_err
         if ssw_compatible:
-            # Derivative of log(1 / livetime) with respect to trigger rate.
-            deadtime = 11.2 * u.us
-            pileup_time = 0.94059104 * 1.10 * u.us
-            remaining = (1 - rate * deadtime).to(u.one)
-            relative_error = (deadtime / remaining + pileup_time / remaining**2) * trig_err / timedel
-            inverse_livetime_error = relative_error.to_value(u.one) / livefrac
-        else:
-            lower, _, _ = get_livetime_fraction(np.maximum(trig_raw - trig_err, 0) / timedel)
-            upper, _, _ = get_livetime_fraction((trig_raw + trig_err) / timedel)
-            inverse_livetime_error = (1 / upper - 1 / lower) / 2
+            lower_triggers = np.floor(lower_triggers)
+            upper_triggers = np.floor(upper_triggers)
+        lower, _, _ = get_livetime_fraction(lower_triggers / timedel)
+        upper, _, _ = get_livetime_fraction(upper_triggers / timedel)
+        inverse_livetime_error = (1 / upper - 1 / lower) / 2
 
         livefrac = livefrac.reshape(livefrac.shape + (1, 1, 1))
 
@@ -205,6 +202,9 @@ def _livefrac(product, counts, elut_cor_fac, pixel_indices, *, ssw_compatible=Fa
 
         triggers_lower = np.maximum(triggers - triggers_error, 0)
         triggers_upper = triggers + triggers_error
+        if ssw_compatible:
+            triggers_lower = np.floor(triggers_lower)
+            triggers_upper = np.floor(triggers_upper)
 
         livefrac, _, _ = get_livetime_fraction(triggers / product.data["timedel"].to("s").reshape(-1, 1))
         livefrac_lower, _, _ = get_livetime_fraction(triggers_lower / product.data["timedel"].to("s").reshape(-1, 1))

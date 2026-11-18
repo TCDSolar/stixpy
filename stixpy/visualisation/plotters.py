@@ -187,14 +187,16 @@ class PixelPlotter:
 
         nt, ndet, npix, ne = counts.shape
         dmask = self.prod.detector_masks.masks[0].astype(bool)
+        # get_data places pixel data on the full detector grid, so select the enabled detectors
+        dsel = dmask if ndet == 32 else slice(None)
 
         counts_pad = []
         count_err_pad = []
         for i, pm in enumerate(self.prod.data["pixel_masks"].value):
             tmp_counts = np.full((32, 12, ne), np.nan)
             tmp_err = np.full((32, 12, ne), np.nan)
-            tmp_counts[np.ix_(dmask, pm.astype(bool))] = counts[i][:, pm.astype(bool)[: counts.shape[2]], :]
-            tmp_err[np.ix_(dmask, pm.astype(bool))] = count_err[i][:, pm.astype(bool)[: counts.shape[2]], :]
+            tmp_counts[np.ix_(dmask, pm.astype(bool))] = counts[i][dsel][:, pm.astype(bool)[:npix], :]
+            tmp_err[np.ix_(dmask, pm.astype(bool))] = count_err[i][dsel][:, pm.astype(bool)[:npix], :]
 
             counts_pad.append(tmp_counts)
             count_err_pad.append(tmp_err)

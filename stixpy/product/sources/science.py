@@ -10,6 +10,7 @@ from matplotlib.widgets import Slider
 import astropy.units as u
 from astropy.table import QTable, vstack
 from astropy.time import Time
+from astropy.utils.masked import Masked
 from astropy.visualization import quantity_support
 
 from sunpy.time.timerange import TimeRange
@@ -43,6 +44,72 @@ quantity_support()
 SubCollimatorConfig = read_subc_params(
     Path(__file__).parent.parent.parent / "config" / "data" / "detector" / "stx_subc_params.csv"
 )
+
+
+def _full_layout(values, detector_masks, pixel_masks, name="values"):
+    """
+    Place a (time, detector, pixel, energy) data column on the full 32 x 12 grid.
+
+    L1 pixel data files store only the enabled detectors and pixels, so position
+    n on those axes is not necessarily detector or pixel n. As in IDL's
+    ``stx_read_pixel_data_fits_file``, the stored values are placed at their
+    detector and pixel numbers, with zeros for detectors and pixels that are off.
+    After this every detector and pixel index is a real detector or pixel number.
+
+    Parameters
+    ----------
+    values : astropy.units.Quantity or numpy.ndarray
+        Data column, e.g. ``data['counts']`` or ``data['counts_comp_err']``.
+    detector_masks : DetectorMasks or None
+        Detector masks of the product.
+    pixel_masks : PixelMasks or None
+        Pixel masks of the product.
+    name : str, optional
+        Name of the column, used in error messages.
+
+    Returns
+    -------
+    astropy.units.Quantity or numpy.ndarray
+        The column with shape (time, 32, 12, energy). Returned unchanged if it
+        already has that shape, is not 4-dimensional, has no masks, or holds summed pixel sets.
+
+    Raises
+    ------
+    ValueError
+        If the detector mask changes within the file, or the stored shape does
+        not match the masks.
+    """
+    if (
+        values.ndim != 4
+        or values.shape[1:3] == (32, 12)
+        or detector_masks is None
+        or pixel_masks is None
+        or pixel_masks.masks.ndim != 2
+    ):
+        return values
+
+    if len(detector_masks.masks) > 1:
+        raise ValueError(
+            f"The detector mask changes within the file, so {name!r} can not be placed on the full detector grid."
+        )
+    dets = np.flatnonzero(detector_masks.masks[0])
+    pixs = np.flatnonzero(pixel_masks.masks.any(axis=0))  # pixels used at any time, as stored by STIXcore
+
+    if values.shape[1] == 32:
+        values = values[:, dets]
+    if values.shape[2] == 12:
+        values = values[:, :, pixs]
+    if values.shape[1:3] != (dets.size, pixs.size):
+        raise ValueError(
+            f"{name!r} has shape {values.shape}, which does not match the masks "
+            f"({dets.size} detectors, {pixs.size} pixels)."
+        )
+
+    full = np.zeros((values.shape[0], 32, 12, values.shape[3]), dtype=values.dtype)
+    if isinstance(values, u.Quantity):
+        full = full << values.unit
+    full[:, dets[:, None], pixs, :] = values
+    return full
 
 
 class PPrintMixin:
@@ -501,18 +568,30 @@ class ScienceData(L1Product):
         Returns
         -------
         `tuple`
-            Counts, errors, times, deltatimes,  energies
+            Counts, errors, times, deltatimes and energies. Counts and errors are masked quantities when disabled
+            detectors or pixels remain in the selection.
 
         """
-        counts = self.data["counts"]
-        try:
-            counts_var = self.data["counts_comp_err"] ** 2
-        except KeyError:
-            counts_var = self.data["counts_comp_comp_err"] ** 2
+        detector_masks = getattr(self, "detector_masks", None)
+        pixel_masks = getattr(self, "pixel_masks", None)
+        counts = _full_layout(self.data["counts"], detector_masks, pixel_masks, name="counts")
+        err_name = "counts_comp_err" if "counts_comp_err" in self.data.colnames else "counts_comp_comp_err"
+        counts_var = _full_layout(self.data[err_name], detector_masks, pixel_masks, name=err_name) ** 2
         shape = counts.shape
         if len(shape) < 4:
             counts = counts.reshape(shape[0], 1, 1, shape[-1])
             counts_var = counts_var.reshape(shape[0], 1, 1, shape[-1])
+
+        active = np.ones(counts.shape[:3], dtype=bool)
+        if counts.shape[1:3] == (32, 12) and detector_masks is not None and pixel_masks is not None:
+            if pixel_masks.masks.ndim == 2:
+                detectors_on = np.zeros((counts.shape[0], 32), dtype=bool)
+                pixels_on = np.zeros((counts.shape[0], 12), dtype=bool)
+                for mask, rows in zip(detector_masks.masks, detector_masks.indices):
+                    detectors_on[rows] = mask
+                for mask, rows in zip(pixel_masks.masks, pixel_masks.indices):
+                    pixels_on[rows] = mask
+                active = detectors_on[:, :, np.newaxis] & pixels_on[:, np.newaxis, :]
 
         energies = self.energies[:]
         times = self.times
@@ -524,6 +603,7 @@ class ScienceData(L1Product):
                 detector_mask[detecor_indices] = True
                 counts = counts[:, detector_mask, ...]
                 counts_var = counts_var[:, detector_mask, ...]
+                active = active[:, detector_mask, :]
             elif detecor_indices.ndim == 2:
                 counts = np.hstack(
                     [np.sum(counts[:, dl : dh + 1, ...], axis=1, keepdims=True) for dl, dh in detecor_indices]
@@ -532,6 +612,9 @@ class ScienceData(L1Product):
                 counts_var = np.concatenate(
                     [np.sum(counts_var[:, dl : dh + 1, ...], axis=1, keepdims=True) for dl, dh in detecor_indices],
                     axis=1,
+                )
+                active = np.concatenate(
+                    [np.any(active[:, dl : dh + 1, :], axis=1, keepdims=True) for dl, dh in detecor_indices], axis=1
                 )
 
         if pixel_indices is not None:
@@ -542,6 +625,7 @@ class ScienceData(L1Product):
                 num_pixels = counts.shape[2]
                 counts = counts[..., pixel_mask[:num_pixels], :]
                 counts_var = counts_var[..., pixel_mask[:num_pixels], :]
+                active = active[:, :, pixel_mask[:num_pixels]]
             elif pixel_indices.ndim == 2:
                 counts = np.concatenate(
                     [np.sum(counts[..., pl : ph + 1, :], axis=2, keepdims=True) for pl, ph in pixel_indices], axis=2
@@ -549,6 +633,9 @@ class ScienceData(L1Product):
 
                 counts_var = np.concatenate(
                     [np.sum(counts_var[..., pl : ph + 1, :], axis=2, keepdims=True) for pl, ph in pixel_indices], axis=2
+                )
+                active = np.concatenate(
+                    [np.any(active[:, :, pl : ph + 1], axis=2, keepdims=True) for pl, ph in pixel_indices], axis=2
                 )
 
         e_norm = self.dE
@@ -588,6 +675,7 @@ class ScienceData(L1Product):
                 time_mask[time_indices] = True
                 counts = counts[time_mask, ...]
                 counts_var = counts_var[time_mask, ...]
+                active = active[time_mask, ...]
                 t_norm = self.data["timedel"][time_mask]
                 times = times[time_mask]
                 # dT = self.data['timedel'][time_mask]
@@ -608,11 +696,15 @@ class ScienceData(L1Product):
                 counts_var = np.vstack(
                     [np.sum(counts_var[tl : th + 1, ...], axis=0, keepdims=True) for tl, th in time_indices]
                 )
+                active = np.concatenate(
+                    [np.any(active[tl : th + 1, ...], axis=0, keepdims=True) for tl, th in time_indices], axis=0
+                )
                 t_norm = dt
 
                 if sum_all_times and len(new_times) > 1:
                     counts = np.sum(counts, axis=0, keepdims=True)
                     counts_var = np.sum(counts_var, axis=0, keepdims=True)
+                    active = np.any(active, axis=0, keepdims=True)
                     t_norm = np.sum(dt)
 
         t_norm = t_norm.to("s")
@@ -634,6 +726,11 @@ class ScienceData(L1Product):
 
         counts_err = np.sqrt(counts * u.ct + counts_var) * norm
         counts = counts * norm
+
+        if not np.all(active):
+            mask = np.broadcast_to(~active[..., np.newaxis], counts.shape)
+            counts = Masked(counts, mask=mask)
+            counts_err = Masked(counts_err, mask=mask)
 
         return counts, counts_err, times, t_norm, energies
 

@@ -215,10 +215,9 @@ def _assert_counts(spec, expected, variant):
     assert np.all(np.isfinite(counts))
     assert np.all(counts_err >= 0)
     assert np.all(np.isfinite(counts_err))
-    # Historical background fixtures clipped individual residuals before summing.
-    # Their errors also predate applying calibration systematics after time aggregation.
-    # The fixture builder checks the systematic contribution against a statistical-only spectrum.
-    if expected is not None and variant.startswith("NO_BKG"):
+    # Historical FITS fixtures used clipping and earlier uncertainty
+    # conventions. Live HISSW tests cover signed counts and uncertainties.
+    if expected is not None and variant == _VARIANTS[("noelut", "nobkgsub")]:
         assert_allclose(counts, expected[variant]["counts"], rtol=3e-6)
 
 
@@ -293,8 +292,10 @@ def test_exposure_time_nobkgsub_elut(spec_nobkgsub_elut, expected_spec):
 
 
 @pytest.mark.remote_data
-def test_counts_nobkgsub_elut(spec_nobkgsub_elut, expected_spec):
-    _assert_counts(spec_nobkgsub_elut, expected_spec, _VARIANTS[("elut", "nobkgsub")])
+def test_counts_nobkgsub_elut(spec_nobkgsub_elut, spec_nobkgsub_noelut):
+    # Spectrograms are already summed onboard and receive no ELUT correction.
+    assert_allclose(spec_nobkgsub_elut.data, spec_nobkgsub_noelut.data)
+    assert_allclose(spec_nobkgsub_elut.uncertainty.array, spec_nobkgsub_noelut.uncertainty.array)
 
 
 @pytest.mark.remote_data

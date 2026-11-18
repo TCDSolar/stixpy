@@ -305,11 +305,10 @@ def _assert_counts(spec, expected, variant):
     assert np.all(np.isfinite(counts))
     assert np.all(counts_err >= 0)
     assert np.all(np.isfinite(counts_err))
-    # Historical background fixtures clipped individual residuals before summing.
-    # Their errors also predate applying calibration systematics after time aggregation.
-    # The fixture builder checks the systematic contribution against a statistical-only spectrum.
-    if expected is not None and variant.startswith("NO_BKG"):
-        assert_allclose(counts, expected[variant]["counts"], rtol=3e-6)
+    # Historical FITS fixtures used clipping and earlier uncertainty
+    # conventions. Live HISSW tests cover signed counts and uncertainties.
+    if expected is not None and variant in {_VARIANTS[(mode, "nobkgsub")] for mode in ("elut", "noelut")}:
+        assert_allclose(counts, expected[variant]["counts"], rtol=1e-7)
 
 
 # ---------------------------------------------------------------------------

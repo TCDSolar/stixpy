@@ -84,6 +84,9 @@ def _bkg_check(data, bkg):
             "only energies the background has, with energy_indices."
         )
 
+    if selection.ssw_compatible and selection.spectrogram:
+        return
+
     detectors, pixels = _used(selection)
     missing_dets = np.setdiff1d(detectors, _on_indices(bkg.detector_masks.masks))
     missing_pix = np.setdiff1d(pixels, _on_indices(bkg.pixel_masks.masks))
@@ -109,7 +112,7 @@ def _bkg_selection(selection):
     """
     if not selection.spectrogram:
         return selection
-    detectors, pixels = _used(selection)
+    detectors, pixels = (None, None) if selection.ssw_compatible else _used(selection)
     return replace(
         selection,
         detector_indices=detectors,

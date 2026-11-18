@@ -194,6 +194,9 @@ class SelectedData(NamedTuple):
     selection: DataSelection
     """The selection the data were made with."""
 
+    ssw_spectrogram_variance: np.ndarray | None = None
+    """Coefficients of the extra SSW spectrogram livetime variance in count space."""
+
     background_exposure_rss: u.Quantity | None = None
     """Effective exposure for SSW-style background error propagation across time."""
 
@@ -237,10 +240,16 @@ class SelectedData(NamedTuple):
         else:
             raise ValueError("vtype must be one of 'c', 'cr', 'dcr'.")
 
+        counts_err = data.total_err() * norm
+        if data.ssw_spectrogram_variance is not None:
+            extra = np.sqrt(data.ssw_spectrogram_variance[..., 0]) * u.ct * norm
+            counts_err = np.hypot(counts_err, extra)
+
         return cls(
             counts=data.counts * norm,
             background_exposure_rss=data.background_exposure_rss,
-            counts_err=data.total_err() * norm,
+            counts_err=counts_err,
+            ssw_spectrogram_variance=data.ssw_spectrogram_variance,
             t_norm=t_norm,
             e_norm=e_norm,
             livefrac=livefrac,
@@ -927,6 +936,16 @@ class ScienceData(L1Product):
                 data.livefrac, axis=PIXEL, keepdims=True
             )
             data = replace(data, background_exposure_rss=exposure)
+            if selection.spectrogram:
+                # IDL adds a second livetime term evaluated on the residual.
+                # Keep its quadratic coefficients through the time sum so
+                # subtract_background can evaluate it at the background rate.
+                counts = data.counts.to_value(u.ct)
+                extra = (data.livefrac_err * data.livefrac).to_value(u.ct)
+                relative = np.divide(extra, counts, out=np.zeros_like(extra), where=counts != 0)
+                slope = exposure.to_value(u.s) * relative
+                coefficients = np.stack((extra**2, extra * slope, slope**2), axis=-1)
+                data = replace(data, ssw_spectrogram_variance=coefficients)
         data = _select_times(data, time_indices, sum_all_times)
         selection = replace(selection, detectors=data.detectors, pixels=data.pixels.any(axis=0))
         selected = SelectedData.from_count_data(data, vtype, selection)
@@ -1086,9 +1105,12 @@ def subtract_background(data, background):
     _bkg_check(data, background)
 
     selection = _bkg_selection(data.selection)
+    use_all_background = data.selection.ssw_compatible and data.selection.spectrogram
     edges = np.stack([data.energies["e_low"].to_value(u.keV), data.energies["e_high"].to_value(u.keV)], axis=1)
     energies = _energy_indices_format(edges * u.keV, background.energies)
-    bkg = _selected_counts(background, selection, _energy_positions(energies, background.energies), restrict=True)
+    bkg = _selected_counts(
+        background, selection, _energy_positions(energies, background.energies), restrict=not use_all_background
+    )
     bkg = SelectedData.from_count_data(_select_times(bkg, None, True), "cr", selection)
     if bkg.counts.shape[1:] != data.counts.shape[1:]:
         raise ValueError(f"The background has shape {bkg.counts.shape[1:]} but the data {data.counts.shape[1:]}.")
@@ -1098,7 +1120,13 @@ def subtract_background(data, background):
     error_scale = scale
     if data.selection.ssw_compatible and data.background_exposure_rss is not None:
         error_scale = scale * (data.background_exposure_rss / (data.t_norm * data.livefrac)).to(u.one)
-    counts_err = np.hypot(data.counts_err, error_scale * bkg.counts_err)
+    variance = data.counts_err**2 + (error_scale * bkg.counts_err) ** 2
+    if data.ssw_spectrogram_variance is not None:
+        _, cross, quadratic = np.moveaxis(data.ssw_spectrogram_variance, -1, 0)
+        rate = bkg.counts.to_value(u.ct / u.s)
+        norm = scale / (data.t_norm * data.livefrac)
+        variance += (quadratic * rate**2 - 2 * cross * rate) * (u.ct * norm) ** 2
+    counts_err = np.sqrt(variance)
     return data._replace(counts=data.counts - scale * bkg.counts, counts_err=counts_err)
 
 

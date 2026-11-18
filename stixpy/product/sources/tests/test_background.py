@@ -242,3 +242,28 @@ def test_background_error_linear_over_time(bkg, error_model):
 def test_error_model_unknown(cpd):
     with pytest.raises(ValueError, match="error_model must be one of"):
         cpd.get_data(error_model="independent", **NO_ELUT)
+
+
+@pytest.mark.parametrize("ssw_compatible", [False, True])
+def test_spectrogram_background_with_unequal_live_exposures(ssw_compatible):
+    science = _make_product(Spectrogram, np.array([[10.0], [1000.0]]), detector_off=(8, 9))
+    science.data["triggers"][:] = [16_000, 160_000]
+    background = _make_product(CompressedPixelData, np.ones((1, 32, 12, 1)), triggers=0)
+    options = dict(vtype="c", ssw_compatible=ssw_compatible, **NO_ELUT)
+
+    per_bin = science.get_data(**options)
+    subtracted = subtract_background(per_bin, background)
+    exposure = per_bin.t_norm * per_bin.livefrac
+    expected_rate = (32 if ssw_compatible else 30) * 12 * u.ct / u.s
+    assert_allclose(per_bin.counts - subtracted.counts, expected_rate * exposure)
+    assert subtracted.counts[0, 0, 0, 0] < 0 * u.ct
+
+    combined = science.get_data(time_indices=[[0, 1]], **options)
+    combined_subtracted = subtract_background(combined, background)
+    assert_allclose(combined_subtracted.counts, subtracted.counts.sum(axis=0, keepdims=True))
+    if ssw_compatible:
+        expected_variance = (subtracted.counts_err**2).sum(axis=0, keepdims=True)
+    else:
+        background_error = np.sqrt(subtracted.counts_err**2 - per_bin.counts_err**2)
+        expected_variance = combined.counts_err**2 + background_error.sum(axis=0, keepdims=True) ** 2
+    assert_allclose(combined_subtracted.counts_err**2, expected_variance)

@@ -101,7 +101,7 @@ print(spec.meta["srm"].shape, spec.meta["ph_axis"].shape)
 
 def count_rate(spectrum):
     edges = spectrum.spectral_axis.bin_edges
-    norm = spectrum.unit / spectrum.meta["exposure_time"] / np.diff(edges)
+    norm = u.ct / spectrum.meta["exposure_time"] / np.diff(edges)
     return edges, spectrum.data * norm, spectrum.uncertainty.array * norm
 
 
@@ -276,6 +276,60 @@ ax.set_yscale("log")
 ax.set_xlabel("Energy [keV]")
 ax.set_ylabel(f"Count rate [{s_rate.unit}]")
 ax.legend()
+
+#############################################################################
+# Compare the default uncertainty propagation with STIX-GSW compatibility
+# using the same detector selection, time bins and background. Disable ELUT
+# in both runs to isolate the effect of the compatibility option. The count
+# totals agree for this pixel data selection. SSW mode combines the errors
+# from individual time bins in quadrature, while the default treats the
+# background as one shared measurement across the interval.
+
+comparison = {}
+for ssw_compatible in (False, True):
+    selected = cpd_sci.get_data(
+        vtype="c",
+        time_indices=[time_range],
+        detector_indices="top24",
+        sum_detectors=True,
+        elut_correction=False,
+        ssw_compatible=ssw_compatible,
+    )
+    comparison[ssw_compatible] = subtract_background(selected, cpd_bkg)
+
+default = comparison[False]
+ssw = comparison[True]
+edges = np.r_[default.energies["e_low"].to_value(u.keV), default.energies["e_high"][-1].to_value(u.keV)]
+fig, axes = plt.subplots(2, 2, sharex=True, figsize=(10, 6), layout="constrained")
+for (ax_values, ax_difference), field, ylabel in zip(
+    axes, ("counts", "counts_err"), ("Counts [ct]", "Count uncertainty [ct]"), strict=True
+):
+    default_values = getattr(default, field)[0, 0, 0].to_value(u.ct)
+    ssw_values = getattr(ssw, field)[0, 0, 0].to_value(u.ct)
+    ax_values.stairs(default_values, edges, baseline=None, label="Default")
+    ax_values.stairs(ssw_values, edges, baseline=None, linestyle="--", label="SSW compatible")
+    ax_values.set_ylabel(ylabel)
+
+    # Omit percentages where the SSW reference is zero.
+    fractional_difference = np.divide(
+        ssw_values - default_values,
+        ssw_values,
+        out=np.full_like(ssw_values, np.nan),
+        where=ssw_values != 0,
+    )
+    ax_difference.stairs(100 * fractional_difference, edges, baseline=None)
+    ax_difference.axhline(0, color="0.5", linestyle=":")
+    ax_difference.set_ylabel("(SSW − default) / SSW [%]")
+    ax_values.set_xscale("log")
+
+axes[0, 0].set_title("Background-subtracted spectrum")
+axes[0, 0].set_yscale("log")
+axes[0, 0].set_ylim(bottom=1e2)
+axes[0, 0].legend()
+axes[0, 1].set_title("Percentage difference")
+axes[1, 0].set_yscale("log")
+for ax in axes[1]:
+    ax.set_xlabel("Energy [keV]")
 
 plt.show()
 

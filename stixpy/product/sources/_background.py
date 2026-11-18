@@ -147,6 +147,7 @@ def _bkg_sub(
     rcr,
     *,
     ssw_compatible=False,
+    sunkit_spex_detector_sum=True,
 ):
     """
     Subtract a background product from the science product.
@@ -164,6 +165,8 @@ def _bkg_sub(
     - pixel data: by the mean livetime fraction of the detectors combined into
       each output spectrum (all selected detectors for flat indices, each range
       for [start, end] pairs), as `_apply_livetime` does without a background.
+      With flat indices and `sunkit_spex_detector_sum` False, each detector is
+      scaled by its own livetime fraction, as it gives its own spectrum.
       Detectors and pixels that are not selected are set to zero.
 
     The 0 keV bottom bin and the open top bin are removed from the counts,
@@ -213,6 +216,8 @@ def _bkg_sub(
         correction.
     rcr : array_like
         RCR state of each time bin, passed through unchanged.
+    sunkit_spex_detector_sum : bool, optional
+        Whether the detectors are summed into one spectrum. Default True.
 
     Returns
     -------
@@ -260,7 +265,7 @@ def _bkg_sub(
             dets = np.concatenate(detector_groups)
         else:
             dets = dets.ravel()
-            detector_groups = [dets]
+            detector_groups = [dets] if sunkit_spex_detector_sum else [dets[i : i + 1] for i in range(dets.size)]
         if np.asarray(pixel_indices).ndim == 2:
             pix = np.intersect1d(pix, _on_indices(product.pixel_masks.masks))
 

@@ -410,6 +410,9 @@ def _data_select(
     bkg=False,
     *,
     ssw_compatible=False,
+    systematic=False,
+    preserve_detector_order=False,
+    sunkit_spex_detector_sum=True,
 ):
     """
     Apply the requested detector, pixel, energy and time selection to the data.
@@ -439,6 +442,7 @@ def _data_select(
     5. Detector selection.
     6. RCR alignment (see `_rcr_shift`).
     7. Time selection, and optionally a sum over all time bins.
+    8. Optionally, add calibration uncertainty to each resulting time bin.
 
     Parameters
     ----------
@@ -479,6 +483,13 @@ def _data_select(
         True when `counts` come from `_bkg_sub`. They are then already trimmed,
         livetime corrected and ELUT corrected, so only the energy table is
         trimmed and those corrections are not repeated.
+    systematic : bool, optional
+        If True, add a systematic uncertainty of 7% below 7 keV, 5% from 7 to
+        10 keV and 3% from 10 keV of the pooled counts, spread so that a
+        quadrature sum over the pooled axes returns that percentage.
+    sunkit_spex_detector_sum : bool, optional
+        Which axes are pooled into one output bin for steps 6 and 7: detectors
+        and pixels if True (default), pixels only if False.
 
     Returns
     -------
@@ -706,15 +717,14 @@ def _data_select(
         n_det_rcr = np.count_nonzero(np.nansum(np.abs(counts_rcr[:, selected]), axis=(0, 2, 3)))
 
         if detector_indices.ndim == 1:
-            detector_mask = np.full(32, False)
-            detector_mask[detector_indices] = True
-            counts = counts[:, detector_mask, ...]
-            counts_rcr = counts_rcr[:, detector_mask, ...]
-            counts_var = counts_var[:, detector_mask, ...]
+            detector_selection = detector_indices if preserve_detector_order else np.unique(detector_indices)
+            counts = counts[:, detector_selection, ...]
+            counts_rcr = counts_rcr[:, detector_selection, ...]
+            counts_var = counts_var[:, detector_selection, ...]
             if livefrac is not None:
-                livefrac = livefrac[:, detector_mask, :, :]
+                livefrac = livefrac[:, detector_selection, :, :]
             if livefrac_error is not None:
-                livefrac_error = livefrac_error[:, detector_mask, :, :]
+                livefrac_error = livefrac_error[:, detector_selection, :, :]
 
         if detector_indices.ndim == 2:
             counts = np.hstack(
@@ -848,5 +858,31 @@ def _data_select(
         counts = np.sum(counts, axis=0, keepdims=True)
         counts_var = np.sqrt(np.sum(counts_var**2, axis=0, keepdims=True))
         t_norm = np.sum(t_norm, keepdims=True)
+
+    # sunkit_spex_detector_sum=True  -> detectors collapse downstream, so the
+    #   output bin is the sum over remaining detector AND pixel axes.
+    # sunkit_spex_detector_sum=False -> each detector stays its own output
+    #   bin, so only the pixel axis is pooled.
+    sum_axes = (1, 2) if sunkit_spex_detector_sum else (2,)
+
+    if systematic:
+        e_mean = ((energies["e_low"] + energies["e_high"]) / 2).value
+        systematic_err_percentage = np.select(
+            [e_mean < 7, (e_mean < 10) & (e_mean >= 7), e_mean >= 10],
+            [0.07, 0.05, 0.03],
+        )
+
+        total = np.nansum(counts, axis=sum_axes, keepdims=True)
+
+        # Divisor taken from counts_var, not counts: these are the axes that
+        # actually get quadrature-summed downstream. On the bkgsub path
+        # counts_var's pixel axis is already collapsed while counts' is not,
+        # so sizing off counts would mis-scale by sqrt(n_pix). Spreading
+        # p*total over n_elem slots as p*total/sqrt(n_elem) means the
+        # downstream quadrature sum returns exactly p*total.
+        n_elem = int(np.prod([counts_var.shape[a] for a in sum_axes]))
+        sys_err_elem = (systematic_err_percentage * total) / np.sqrt(n_elem)
+
+        counts_var = np.sqrt(counts_var.value**2 + np.broadcast_to(sys_err_elem.value, counts_var.shape) ** 2) * u.ct
 
     return counts, counts_var, t_norm, e_norm, livefrac, livefrac_error, elut_cor_fac, times, energies, rcr

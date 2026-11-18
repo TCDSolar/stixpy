@@ -17,9 +17,10 @@ from astropy.visualization import quantity_support
 from sunpy.time.timerange import TimeRange
 from sunpy.util import deprecated
 
-from stixpy.calibration.elut import get_elut_correction
+from stixpy.calibration.elut import get_elut, get_elut_correction
 from stixpy.io.readers import read_subc_params
 from stixpy.product.product import L1Product
+from stixpy.product.sources._background import _bkg_check, _bkg_indices_check, _bkg_sub, _energies_bkg_sub
 from stixpy.product.sources._corrections import (
     _data_select,
     _elut_correction_sort,
@@ -191,7 +192,8 @@ class SelectedData(NamedTuple):
     livefrac: np.ndarray | None
     """Livetime fraction, shape ``(time, detector, 1, 1)``, or None without the livetime correction."""
     livefrac_error: u.Quantity | None
-    """Livetime uncertainty in counts, or None without the livetime correction."""
+    """Livetime uncertainty in counts, or None without the livetime correction. Also None with a background
+    subtracted, as it is then already included in `counts_err`."""
     elut_cor_fac: np.ndarray | None
     """ELUT correction factor applied to the counts, broadcastable against them, or None without the ELUT
     correction."""
@@ -681,14 +683,16 @@ class ScienceData(L1Product):
         """
         return getattr(self, "_rcr_settings", None)
 
-    def align_rcr(self, *, detector_indices=None, pixel_indices=None, livetime_correction=True, elut_correction=True):
+    def align_rcr(
+        self, *, detector_indices=None, pixel_indices=None, livetime_correction=True, elut_correction=True, bkg=None
+    ):
         """
         Align the RCR state changes to the jumps in the counts as STIX-GSW does, for
         these settings, and keep the result as `rcr_shifted`.
 
         Parameters
         ----------
-        detector_indices, pixel_indices, livetime_correction, elut_correction
+        detector_indices, pixel_indices, livetime_correction, elut_correction, bkg
             As in `get_data`. Use the same values as for the data you work with.
 
         Returns
@@ -701,6 +705,7 @@ class ScienceData(L1Product):
             "pixel_indices": pixel_indices,
             "livetime_correction": livetime_correction,
             "elut_correction": elut_correction,
+            "bkg": bkg,
         }
         self._rcr_shifted = np.asarray(self.get_data(vtype="c", **settings).rcr)
         self._rcr_settings = settings
@@ -718,9 +723,10 @@ class ScienceData(L1Product):
         livetime_correction=True,
         elut_correction=True,
         ssw_compatible=False,
+        bkg=None,
     ):
         """
-        Return the selected data, with optional livetime and ELUT corrections.
+        Return the selected data, with optional livetime, ELUT and background corrections.
 
         Parameters
         ----------
@@ -754,9 +760,17 @@ class ScienceData(L1Product):
         sum_all_times : bool, optional
             If True, sum the selected time bins into one. Default False.
         livetime_correction : bool, optional
-            Apply the livetime correction. Default True.
+            Apply the livetime correction. Default True. Must be True when `bkg` is
+            given.
         elut_correction : bool, optional
             Apply the ELUT correction. Default True.
+        bkg : ScienceData, optional
+            Background product to subtract, e.g. a STIX background (BKG) file. It
+            must be pixel data (sci-xray-rpd or sci-xray-cpd) with a single time
+            bin, every energy bin of this product, and every detector and pixel
+            used here switched on. A spectrogram (sci-xray-spec) is subtracted
+            with the detectors and pixels summed on board. Default None, no
+            background subtraction.
 
 
         ssw_compatible : bool, optional
@@ -775,11 +789,15 @@ class ScienceData(L1Product):
 
         Raises
         ------
+        TypeError
+            If `bkg` is not a `ScienceData` product.
         ValueError
             If a selection is outside the file or the product's energy table, if a
             detector label is not recognised, if ``detector_indices="bkg"`` is given
             with pixels other than [2, 5], if a time range spans an RCR change, or
-            if `vtype` is not 'c', 'cr' or 'dcr'.
+            if `vtype` is not 'c', 'cr' or 'dcr'. With `bkg`, also if
+            `livetime_correction` is False, or the background does not match this
+            product (see `bkg`).
 
         Notes
         -----
@@ -798,6 +816,16 @@ class ScienceData(L1Product):
         science width to its calibrated (ELUT) width, averaged over the selected
         detectors and pixels that are on, so one factor per energy bin is applied
         to every detector.
+
+        With `bkg`, as in STIX-GSW's ``stx_convert_pixel_data`` and
+        ``stx_convert_spectrogram``, the science and background counts are both
+        livetime corrected, and ELUT corrected with this product's factor. The
+        background is converted to a count rate over its time bin, scaled to the
+        duration of each science time bin and subtracted, and the result is scaled
+        back by the mean livetime fraction of the detectors combined into each
+        spectrum. The background uncertainty and both livetime uncertainties are
+        added to ``counts_err`` in quadrature, so ``livefrac_error`` is None.
+        Negative background-subtracted counts are preserved. The pixels are summed, as with the livetime correction alone.
         """
         energy_indices = _energy_indices_format(energy_indices, self.energies)
         if time_indices is not None:
@@ -831,6 +859,17 @@ class ScienceData(L1Product):
             counts = counts.reshape(shape[0], 1, 1, shape[-1])
             counts_err = counts_err.reshape(shape[0], 1, 1, shape[-1])
 
+        if bkg is not None:
+            _bkg_check(self, bkg, checked_detectors, checked_pixels, livetime_correction)
+            if elut_correction:
+                science_elut = get_elut(self.time_range.center).file
+                background_elut = get_elut(bkg.time_range.center).file
+                if science_elut != background_elut:
+                    raise ValueError(
+                        f"Science and background ELUT files differ: {science_elut!r} and {background_elut!r}. "
+                        "Use a matching background or set elut_correction=False."
+                    )
+
         if elut_correction:
             _, _, bins, bins_actual = get_elut_correction(np.array(self.energies["channel"]), self)
 
@@ -851,30 +890,86 @@ class ScienceData(L1Product):
         else:
             elut_cor_fac = None
 
+        if bkg is not None:
+            energy_indices_bkg = _energies_bkg_sub(self, bkg)
+
+            pixel_indices_bkg, detector_indices_bkg = _bkg_indices_check(self, bkg)
+
         if livetime_correction:
             livefrac, livefrac_error = _livefrac(
                 self, counts, elut_cor_fac, checked_pixels, ssw_compatible=ssw_compatible
             )
 
+            if bkg is not None:
+                counts_bkg = _full_layout(bkg.data["counts"], bkg.detector_masks, bkg.pixel_masks, name="counts")
+                err_name_bkg = "counts_comp_err" if "counts_comp_err" in bkg.data.colnames else "counts_comp_comp_err"
+                counts_err_bkg = _full_layout(
+                    bkg.data[err_name_bkg], bkg.detector_masks, bkg.pixel_masks, name=err_name_bkg
+                )
+                livefrac_bkg, livefrac_error_bkg = _livefrac(
+                    bkg, counts_bkg, elut_cor_fac, pixel_indices_bkg, energy_indices_bkg, ssw_compatible=ssw_compatible
+                )
+
         else:
             livefrac = None
             livefrac_error = None
 
-        sci_data = _data_select(
-            self,
-            counts,
-            counts_err,
-            detector_indices,
-            pixel_indices,
-            energy_indices,
-            time_indices,
-            livefrac,
-            livefrac_error,
-            elut_cor_fac,
-            sum_all_times,
-            n_detectors=n_det_spectrogram,
-            ssw_compatible=ssw_compatible,
-        )
+        if bkg is None:
+            sci_data = _data_select(
+                self,
+                counts,
+                counts_err,
+                detector_indices,
+                pixel_indices,
+                energy_indices,
+                time_indices,
+                livefrac,
+                livefrac_error,
+                elut_cor_fac,
+                sum_all_times,
+                n_detectors=n_det_spectrogram,
+                ssw_compatible=ssw_compatible,
+            )
+
+        else:
+            sci_data_all = _bkg_sub(
+                self,
+                bkg,
+                counts,
+                counts_err,
+                counts_bkg,
+                counts_err_bkg,
+                checked_detectors,
+                checked_pixels,
+                detector_indices_bkg,
+                pixel_indices_bkg,
+                energy_indices_bkg,
+                livefrac,
+                livefrac_error,
+                livefrac_bkg,
+                livefrac_error_bkg,
+                elut_cor_fac,
+                np.asarray(self.data["rcr"]),
+                ssw_compatible=ssw_compatible,
+            )
+            counts_sub, counts_var_sub, _, _, livefrac_sub, _, elut_cor_fac_sub, _, _, _ = sci_data_all
+
+            sci_data = _data_select(
+                self,
+                counts_sub,
+                counts_var_sub,
+                detector_indices,
+                pixel_indices,
+                energy_indices,
+                time_indices,
+                livefrac_sub,
+                None,
+                elut_cor_fac_sub,
+                sum_all_times,
+                n_detectors=n_det_spectrogram,
+                ssw_compatible=ssw_compatible,
+                bkg=True,
+            )
 
         counts, counts_err, t_norm, e_norm, livefrac, livefrac_error, elut_cor_fac, times, energies, rcr = sci_data
 

@@ -8,8 +8,10 @@ import astropy.units as u
 from astropy.io import fits
 
 from stixpy.product import Product
+from stixpy.product.sources.science import subtract_background
 
 Spectrum = pytest.importorskip("sunkit_spex.spectrum.spectrum").Spectrum
+to_spectrum = pytest.importorskip("stixpy.spectroscopy").to_spectrum
 
 # Integration window for the spectrum selection. The reference file stores
 # EXPTIME ~4.05 s, consistent with a ~5 s window.
@@ -97,27 +99,18 @@ def expected_spec():
 
 
 def _get_spectrum(spec_prod, *, time_indices, elut_correction, bkg):
-    """Call get_data in spectrum mode for a spectrogram product.
+    """Make a spectrum from a spectrogram product.
 
-    No detector_indices or pixel_indices are passed: a spectrogram is already
-    summed over detectors and pixels onboard, and _indices_check discards them
-    (with a warning) for level-4 data regardless.
+    No detector_indices or pixel_indices are passed: a spectrogram is already summed over detectors and pixels on
+    board.
     """
-    kwargs = {
-        "time_indices": time_indices,
-        "sunkit_spex_spectrum": True,
-        "elut_correction": elut_correction,
-        "bkg": bkg,
-        "sunkit_spex_detector_sum": True,
-        "sunkit_spex_systematic_error": True,
-        # No photon-axis trim: the reference SRM was generated before get_data
-        # gained srm_e_min, so it still spans the full 3210 photon bins. Passing
-        # False keeps the SRM untrimmed and the stored shape valid.
-        "srm_e_min": False,
-    }
-    spectrum = spec_prod.get_data(**kwargs)
-    kwargs["sunkit_spex_systematic_error"] = False
-    statistical = spec_prod.get_data(**kwargs)
+    data = spec_prod.get_data(vtype="c", time_indices=time_indices, elut_correction=elut_correction)
+    if bkg is not None:
+        data = subtract_background(data, bkg)
+    # No photon-axis trim: the reference SRM was generated before srm_e_min existed, so it still spans the full 3210
+    # photon bins. Passing False keeps the SRM untrimmed and the stored shape valid.
+    spectrum = to_spectrum(data, systematic_error=True, srm_e_min=False)
+    statistical = to_spectrum(data, systematic_error=False, srm_e_min=False)
     assert_allclose(spectrum.data, statistical.data)
     edges = spectrum.spectral_axis.bin_edges.to_value(u.keV)
     centres = (edges[:-1] + edges[1:]) / 2
@@ -222,10 +215,9 @@ def _assert_counts(spec, expected, variant):
     assert np.all(np.isfinite(counts))
     assert np.all(counts_err >= 0)
     assert np.all(np.isfinite(counts_err))
-    # Historical background fixtures clipped individual residuals before summing.
-    # Their errors also predate applying calibration systematics after time aggregation.
-    # The fixture builder checks the systematic contribution against a statistical-only spectrum.
-    if expected is not None and variant.startswith("NO_BKG"):
+    # Historical FITS fixtures used clipping and earlier uncertainty
+    # conventions. Live HISSW tests cover signed counts and uncertainties.
+    if expected is not None and variant == _VARIANTS[("noelut", "nobkgsub")]:
         assert_allclose(counts, expected[variant]["counts"], rtol=3e-6)
 
 
@@ -300,8 +292,10 @@ def test_exposure_time_nobkgsub_elut(spec_nobkgsub_elut, expected_spec):
 
 
 @pytest.mark.remote_data
-def test_counts_nobkgsub_elut(spec_nobkgsub_elut, expected_spec):
-    _assert_counts(spec_nobkgsub_elut, expected_spec, _VARIANTS[("elut", "nobkgsub")])
+def test_counts_nobkgsub_elut(spec_nobkgsub_elut, spec_nobkgsub_noelut):
+    # Spectrograms are already summed onboard and receive no ELUT correction.
+    assert_allclose(spec_nobkgsub_elut.data, spec_nobkgsub_noelut.data)
+    assert_allclose(spec_nobkgsub_elut.uncertainty.array, spec_nobkgsub_noelut.uncertainty.array)
 
 
 @pytest.mark.remote_data

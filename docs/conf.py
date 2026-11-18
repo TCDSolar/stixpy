@@ -103,6 +103,8 @@ intersphinx_mapping = {
     "astropy": ("http://docs.astropy.org/en/stable/", None),
     "sunpy": ("https://docs.sunpy.org/en/stable/", None),
     "xrayvision": ("https://xrayvision.readthedocs.io/en/stable/", None),
+    "ndcube": ("https://docs.sunpy.org/projects/ndcube/en/stable/", None),
+    "sunkit_spex": ("https://sunkit-spex.readthedocs.io/en/latest/", None),
 }
 
 # -- Options for HTML output -------------------------------------------------

@@ -81,15 +81,16 @@ _REDUCTIONS = {
     "legacy": {
         # time, detector, pixel, energy
         "counts": (_sum, _sum, _sum, _sum),
-        # includes the livetime and background uncertainties, folded in before the detectors are combined
+        # includes the livetime uncertainty, folded in before the detectors are combined
         "counts_err": (_quadrature, _quadrature, _quadrature, _quadrature),
         "livefrac": (_duration_weighted_mean, _mean, _mean, _mean),
+        "background_exposure_rss": (_quadrature, None, None, None),
+        "ssw_spectrogram_variance": (_sum, None, None, None),
         # only reported, as it is already in counts_err: in quadrature over pixels (of values spread so that this
         # returns the total, see `_livefrac`) and times, linearly over energies, and as an RMS over detectors
         "livefrac_err": (_quadrature, _rms, _quadrature, _sum),
-        "bkg_err": (None, None, None, None),
-        # The ELUT factor has never been selected or combined over detectors, so with
-        # ``sunkit_spex_detector_sum=False`` it keeps every detector.
+        # The ELUT factor has never been selected or combined over detectors, so with ``sum_detectors=False`` it
+        # keeps every detector.
         "elut_cor_fac": (_mean, None, _mean, _mean),
     },
     "correlated": {
@@ -97,12 +98,11 @@ _REDUCTIONS = {
         # the statistical uncertainty only, independent between every bin
         "counts_err": (_quadrature, _quadrature, _quadrature, _quadrature),
         "livefrac": (_duration_weighted_mean, _mean, _mean, _mean),
+        "background_exposure_rss": (_quadrature, None, None, None),
+        "ssw_spectrogram_variance": (_sum, None, None, None),
         # the livetime of a detector and time bin is shared by its pixels and energies, and by the other detector on
         # its trigger counter, and is independent between time bins
         "livefrac_err": (_quadrature, _trigger_correlated, _sum, _sum),
-        # one background measurement is scaled to every time bin, and its uncertainty is statistical over detectors,
-        # pixels and energies
-        "bkg_err": (_sum, _quadrature, _quadrature, _quadrature),
         "elut_cor_fac": (_mean, None, _mean, _mean),
     },
 }
@@ -118,8 +118,8 @@ class _CountData:
     the `error_model`.
 
     With the "legacy" error model `counts_err` is the whole uncertainty. With "correlated" it is the statistical
-    part, and the livetime and background parts are kept in `livefrac_err` and `bkg_err` until `total_err` adds them,
-    so that each is combined as its correlations need.
+    part, and the livetime part is kept in `livefrac_err` until `total_err` adds it, so that each is combined as its
+    correlations need.
     """
 
     counts: u.Quantity
@@ -144,10 +144,14 @@ class _CountData:
     """Shape (pixel, 12), True for the pixels that are on and held by each position on the pixel axis."""
     rcr: np.ndarray
     """RCR state of each time bin."""
-    bkg_err: u.Quantity | None = None
-    """Background uncertainty in counts with the "correlated" error model and a background, otherwise None."""
     error_model: str = "legacy"
     """"legacy" or "correlated", see `ERROR_MODELS`."""
+
+    ssw_spectrogram_variance: np.ndarray | None = None
+    """Coefficients of the extra SSW livetime variance in background rate (ct/s)."""
+
+    background_exposure_rss: u.Quantity | None = None
+    """Quadrature sum of original live exposures for SSW background errors."""
 
     adc_livetime_err: u.Quantity | None = None
     """Livetime contributions per ADC, retained across detector reductions."""
@@ -202,13 +206,14 @@ class _CountData:
 
     def total_err(self):
         """
-        The whole 1-sigma uncertainty of `counts`: `counts_err`, with the livetime and background uncertainties
-        added in quadrature for the "correlated" error model.
+        The whole 1-sigma uncertainty of `counts`: `counts_err`, with the livetime uncertainty added in quadrature
+        for the "correlated" error model.
         """
         if self.error_model == "legacy":
             return self.counts_err
-        parts = [err for err in (self.counts_err, self.livefrac_err, self.bkg_err) if err is not None]
-        return np.sqrt(sum(err.to_value(u.ct) ** 2 for err in parts)) * u.ct
+        if self.livefrac_err is None:
+            return self.counts_err
+        return np.sqrt(self.counts_err.to_value(u.ct) ** 2 + self.livefrac_err.to_value(u.ct) ** 2) * u.ct
 
     def combine(self, axis, ranges):
         """
@@ -462,7 +467,7 @@ def _select(
     Parameters
     ----------
     data : _CountData
-        Data from `_load`, with any ELUT correction, livetime or background subtraction applied.
+        Data from `_load`, with any ELUT correction and livetime.
     detector_indices, pixel_indices : numpy.ndarray or None
         Flat indices or [start, end] pairs, numbering the detector and pixel axes, or None to keep the axis.
     energy_indices : numpy.ndarray or None

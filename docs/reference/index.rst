@@ -14,6 +14,7 @@ Reference
    map
    net
    product
+   spectroscopy
    timeseries
    visualisation
    instrument

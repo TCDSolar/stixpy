@@ -159,15 +159,13 @@ def test_combine_detector_correlated_livetime(data):
     assert_allclose(out.counts_err[:, 0], np.sqrt((data.counts_err**2).sum(axis=1)))
 
 
-def test_combine_time_correlated_background(data):
-    data = replace(data, error_model="correlated", bkg_err=data.counts_err)
+def test_combine_time_correlated(data):
+    data = replace(data, error_model="correlated")
     out = data.combine(TIME, [[0, 1], [2, 3]])
-    # one background measurement in every time bin: added linearly
-    assert_allclose(out.bkg_err[0], data.bkg_err[:2].sum(axis=0))
     assert_allclose(out.livefrac_err[0], np.sqrt((data.livefrac_err[:2] ** 2).sum(axis=0)))
     # the bins span 11:59:59-12:00:03 and 12:00:03-12:00:11, with no gaps, so the summed durations equal the spans
     assert_allclose(out.durations.to_value(u.s), [4, 8])
-    assert_allclose(out.total_err(), np.sqrt(out.counts_err**2 + out.livefrac_err**2 + out.bkg_err**2))
+    assert_allclose(out.total_err(), np.sqrt(out.counts_err**2 + out.livefrac_err**2))
 
 
 def test_total_err_legacy(data):

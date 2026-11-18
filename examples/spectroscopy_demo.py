@@ -1,0 +1,339 @@
+"""
+==================
+Spectroscopy Demo
+==================
+
+How to make a background-subtracted count spectrum and the matching spectral response
+matrix (SRM) from STIX pixel data, ready for spectral fitting with ``sunkit-spex``.
+
+This example selects counts with `~stixpy.product.sources.science.ScienceData.get_data`,
+subtracts the background with `~stixpy.product.sources.science.subtract_background`,
+and builds spectra with `~stixpy.spectroscopy.to_spectrum`. The spectrum and SRM follow
+the IDL routines
+``stx_convert_pixel_data`` and ``stx_convert_spectrogram2ospex`` in STIX-GSW, so the result
+can be compared directly with an OSPEX analysis.
+
+The spectra are `sunkit_spex` objects, so this example needs the optional ``spectroscopy``
+dependencies, installed with ``pip install 'stixpy[spectroscopy]'``.
+
+Imports
+"""
+
+import matplotlib.pyplot as plt
+import numpy as np
+from matplotlib.colors import LogNorm
+
+import astropy.units as u
+
+from stixpy.imaging.flare_location import estimate_flare_location
+from stixpy.product import Product
+from stixpy.product.sources.science import subtract_background
+from stixpy.spectroscopy import to_spectrum
+
+#############################################################################
+# Read the science file and a background file as Products. The background file is a
+# long pixel data observation taken when no flare was in progress, earlier on the same day.
+
+cpd_sci = Product(
+    "http://pub099.cs.technik.fhnw.ch/fits/L1/2021/09/23/SCI/solo_L1_stix-sci-xray-cpd_20210923T152015-20210923T152639_V02_2109230030-62447.fits"
+)
+cpd_sci
+
+cpd_bkg = Product(
+    "http://pub099.cs.technik.fhnw.ch/fits/L1/2021/09/23/SCI/solo_L1_stix-sci-xray-cpd_20210923T095923-20210923T113523_V02_2109230083-57078.fits"
+)
+cpd_bkg
+
+#############################################################################
+# Plot the time series in a low and a high energy band to choose the time range to fit.
+# Energy ranges can be given in keV; each range takes the energy bins whose centres lie
+# inside it.
+
+cpd_sci.plot_timeseries(energy_indices=[[6, 10], [15, 28]] * u.keV)
+plt.legend()
+
+#############################################################################
+# The SRM includes the transmission of the grids, which depends on where the flare is, so
+# estimate the flare location first (see the flare location example for more detail).
+# ``to_spectrum`` takes the location as a single `~astropy.coordinates.SkyCoord`, so use the
+# helioprojective (``"hpc"``) entry of the result.
+#
+# Requested times must lie inside the file, which covers 15:20:16 to 15:26:39.
+
+time_range = ["2021-09-23T15:20:30", "2021-09-23T15:23:30"]
+
+flare_location = estimate_flare_location(cpd_sci, time_range=time_range, energy_range=[6, 15] * u.keV)["hpc"]
+flare_location
+
+#############################################################################
+# Make the spectrum. The counts are summed over the top 24 detectors and the time range,
+# corrected for livetime and the energy look-up table (ELUT), and the background is
+# subtracted after scaling it to the same livetime. ``systematic_error`` adds
+# the standard STIX systematic uncertainty (7% below 7 keV, 5% from 7 to 10 keV and 3%
+# above).
+#
+# The CFL detector (index 8) can not be used for spectroscopy, and the BKG detector
+# (index 9) only on its own, as in STIX-GSW.
+
+data = cpd_sci.get_data(
+    time_indices=[time_range],
+    detector_indices="top24",
+    sum_detectors=True,
+)
+spec = to_spectrum(subtract_background(data, cpd_bkg), flare_location=flare_location, systematic_error=True)
+spec
+
+#############################################################################
+# The spectrum holds the counts and their uncertainty, with the count energy bin edges as
+# the spectral axis. Everything needed to fit it is in the metadata: the exposure time
+# (the live time), the SRM with its photon energy edges, the geometric area and the
+# Sun-spacecraft distance.
+
+print(spec.meta["exposure_time"])
+print(spec.meta["geo_area"])
+print(spec.meta["distance"])
+print(spec.meta["srm"].shape, spec.meta["ph_axis"].shape)
+
+#############################################################################
+# The plots below show count rates, so define a small helper that turns a spectrum into
+# its energy bin edges and the count rate and uncertainty per keV.
+
+
+def count_rate(spectrum):
+    edges = spectrum.spectral_axis.bin_edges
+    norm = u.ct / spectrum.meta["exposure_time"] / np.diff(edges)
+    return edges, spectrum.data * norm, spectrum.uncertainty.array * norm
+
+
+#############################################################################
+# Plot the background-subtracted count rate spectrum.
+
+ct_edges, rate, rate_err = count_rate(spec)
+ct_mid = ct_edges[:-1] + np.diff(ct_edges) / 2
+
+fig, ax = plt.subplots()
+ax.stairs(rate.value, ct_edges.value, label="Top 24 detectors")
+ax.errorbar(ct_mid.value, rate.value, yerr=rate_err.value, fmt="none", color="C0")
+ax.set_xscale("log")
+ax.set_yscale("log")
+ax.set_xlabel("Energy [keV]")
+ax.set_ylabel(f"Count rate [{rate.unit}]")
+ax.legend()
+
+#############################################################################
+# Plot the SRM. Each row is a photon energy bin and each column a count energy bin, in
+# counts per photon. The photopeak is the diagonal; the fainter lines below it are the Cd
+# and Te escape peaks, and hole tailing spreads counts to lower energies. By default the
+# photon axis starts at 3.5 keV (``srm_e_min``).
+
+srm = spec.meta["srm"]
+ph_edges = spec.meta["ph_axis"]
+
+fig, ax = plt.subplots()
+mesh = ax.pcolormesh(ct_edges.value, ph_edges.value, srm, norm=LogNorm(vmin=srm.max() * 1e-5, vmax=srm.max()))
+ax.set_xlabel("Count energy [keV]")
+ax.set_ylabel("Photon energy [keV]")
+ax.set_ylim(ph_edges[0].value, 100)
+fig.colorbar(mesh, label="Counts / photon")
+
+#############################################################################
+# Giving several time ranges returns one spectrum per range as an
+# `~ndcube.NDCubeSequence`. Each spectrum has the SRM for its own attenuator (RCR) state,
+# so a sequence can cross an attenuator insertion, but a single range can not.
+#
+# Compare the top 24 detectors with the BKG detector, which is selected with
+# ``detector_indices="bkg"`` and its two small-aperture pixels.
+
+time_ranges = [
+    ["2021-09-23T15:20:30", "2021-09-23T15:21:30"],
+    ["2021-09-23T15:21:30", "2021-09-23T15:22:30"],
+    ["2021-09-23T15:22:30", "2021-09-23T15:23:30"],
+]
+
+data_seq = cpd_sci.get_data(
+    time_indices=time_ranges,
+    detector_indices="top24",
+    sum_detectors=True,
+)
+spec_seq = to_spectrum(subtract_background(data_seq, cpd_bkg), flare_location=flare_location)
+
+data_seq_bkg = cpd_sci.get_data(
+    time_indices=time_ranges,
+    detector_indices="bkg",
+    pixel_indices=[2, 5],
+    sum_detectors=True,
+)
+spec_seq_bkg = to_spectrum(subtract_background(data_seq_bkg, cpd_bkg), flare_location=flare_location)
+
+n = len(time_ranges)
+blues = plt.colormaps["Blues"](np.linspace(0.45, 0.9, n))
+oranges = plt.colormaps["Oranges"](np.linspace(0.45, 0.9, n))
+
+fig, ax = plt.subplots()
+for seq, name, colours, ls in [
+    (spec_seq, "Top 24", blues, "-"),
+    (spec_seq_bkg, "BKG", oranges, "--"),
+]:
+    for s, (start, end), c in zip(seq.data, time_ranges, colours):
+        edges, s_rate, _ = count_rate(s)
+        ax.stairs(
+            s_rate.value,
+            edges.value,
+            baseline=None,
+            color=c,
+            linestyle=ls,
+            label=f"{name} {start[11:19]} - {end[11:19]}",
+        )
+ax.set_xscale("log")
+ax.set_yscale("log")
+ax.set_xlabel("Energy [keV]")
+ax.set_ylabel(f"Count rate [{s_rate.unit}]")
+ax.legend(fontsize="small", ncol=2)
+
+#############################################################################
+# To see how much the background matters, make the spectrum for the full time range with
+# and without the background subtracted, and plot them with their ratio. For this flare the
+# background is a small correction below about 25 keV, but above that, including the
+# 31 keV line of the on-board calibration source, it is a large part of the counts.
+
+data_full = cpd_sci.get_data(
+    time_indices=[time_range],
+    detector_indices="top24",
+    sum_detectors=True,
+)
+spec_sub = to_spectrum(subtract_background(data_full, cpd_bkg), flare_location=flare_location)
+
+spec_nosub = to_spectrum(data_full, flare_location=flare_location)
+
+edges, rate_sub, err_sub = count_rate(spec_sub)
+_, rate_nosub, err_nosub = count_rate(spec_nosub)
+ct_mid = edges[:-1] + np.diff(edges) / 2
+
+# The ratio is (S - B) / S = 1 - B / S. The same science rate S appears
+# twice, so propagate the independent uncertainties in S and B. Background
+# subtraction added the background variance in quadrature. Clamp any tiny
+# negative difference caused by rounding.
+background_rate = rate_nosub - rate_sub
+background_variance = np.maximum(err_sub**2 - err_nosub**2, 0)
+science_rate = np.where(rate_nosub > 0, rate_nosub, np.nan)
+ratio = (rate_sub / science_rate).to(u.one)
+ratio_err = (np.hypot(np.sqrt(background_variance), (background_rate / science_rate) * err_nosub) / science_rate).to(
+    u.one
+)
+
+rate_unit = rate_sub.unit
+
+fig, (ax, ax_ratio) = plt.subplots(
+    2, 1, sharex=True, figsize=(7, 6), gridspec_kw={"height_ratios": [3, 1], "hspace": 0.05}
+)
+
+ax.stairs(rate_sub.to_value(rate_unit), edges.to_value(u.keV), baseline=None, color="C0", label="BKG subtracted")
+ax.errorbar(
+    ct_mid.to_value(u.keV), rate_sub.to_value(rate_unit), yerr=err_sub.to_value(rate_unit), fmt="none", color="C0"
+)
+ax.stairs(
+    rate_nosub.to_value(rate_unit),
+    edges.to_value(u.keV),
+    baseline=None,
+    color="C1",
+    linestyle="--",
+    label="No BKG subtraction",
+)
+ax.errorbar(
+    ct_mid.to_value(u.keV), rate_nosub.to_value(rate_unit), yerr=err_nosub.to_value(rate_unit), fmt="none", color="C1"
+)
+ax.set_xscale("log")
+ax.set_yscale("log")
+ax.set_xlim(edges[0].to_value(u.keV), edges[-1].to_value(u.keV))
+ax.set_ylabel(f"Count rate [{rate_unit}]")
+ax.set_title(f"Top 24 detectors, {time_range[0][11:19]} - {time_range[1][11:19]}")
+ax.legend()
+
+ax_ratio.stairs(ratio.value, edges.to_value(u.keV), baseline=None, color="C0")
+ax_ratio.errorbar(ct_mid.to_value(u.keV), ratio.value, yerr=ratio_err.value, fmt="none", color="C0")
+ax_ratio.axhline(1, color="0.5", linewidth=0.8, linestyle=":")
+ax_ratio.set_ylim(0, 1.1)
+ax_ratio.set_xlabel("Energy [keV]")
+ax_ratio.set_ylabel("Sub / no sub")
+
+#############################################################################
+# Without ``sum_detectors=True`` each detector gets its own spectrum and SRM,
+# returned as an `~ndcube.NDCollection` keyed by detector index. This is useful to check
+# the detectors agree before summing them.
+
+data_dets = cpd_sci.get_data(
+    time_indices=[time_range],
+    detector_indices=[5, 6, 7],
+)
+spec_dets = to_spectrum(subtract_background(data_dets, cpd_bkg), flare_location=flare_location)
+
+fig, ax = plt.subplots()
+for det, s in spec_dets.items():
+    edges, s_rate, _ = count_rate(s)
+    ax.stairs(s_rate.value, edges.value, label=f"Detector {det}")
+ax.set_xscale("log")
+ax.set_yscale("log")
+ax.set_xlabel("Energy [keV]")
+ax.set_ylabel(f"Count rate [{s_rate.unit}]")
+ax.legend()
+
+#############################################################################
+# Compare the default uncertainty propagation with STIX-GSW compatibility
+# using the same detector selection, time bins and background. Disable ELUT
+# in both runs to isolate the effect of the compatibility option. The count
+# totals agree for this pixel data selection. SSW mode combines the errors
+# from individual time bins in quadrature, while the default treats the
+# background as one shared measurement across the interval.
+
+comparison = {}
+for ssw_compatible in (False, True):
+    selected = cpd_sci.get_data(
+        vtype="c",
+        time_indices=[time_range],
+        detector_indices="top24",
+        sum_detectors=True,
+        elut_correction=False,
+        ssw_compatible=ssw_compatible,
+    )
+    comparison[ssw_compatible] = subtract_background(selected, cpd_bkg)
+
+default = comparison[False]
+ssw = comparison[True]
+edges = np.r_[default.energies["e_low"].to_value(u.keV), default.energies["e_high"][-1].to_value(u.keV)]
+fig, axes = plt.subplots(2, 2, sharex=True, figsize=(10, 6), layout="constrained")
+for (ax_values, ax_difference), field, ylabel in zip(
+    axes, ("counts", "counts_err"), ("Counts [ct]", "Count uncertainty [ct]"), strict=True
+):
+    default_values = getattr(default, field)[0, 0, 0].to_value(u.ct)
+    ssw_values = getattr(ssw, field)[0, 0, 0].to_value(u.ct)
+    ax_values.stairs(default_values, edges, baseline=None, label="Default")
+    ax_values.stairs(ssw_values, edges, baseline=None, linestyle="--", label="SSW compatible")
+    ax_values.set_ylabel(ylabel)
+
+    # Omit percentages where the SSW reference is zero.
+    fractional_difference = np.divide(
+        ssw_values - default_values,
+        ssw_values,
+        out=np.full_like(ssw_values, np.nan),
+        where=ssw_values != 0,
+    )
+    ax_difference.stairs(100 * fractional_difference, edges, baseline=None)
+    ax_difference.axhline(0, color="0.5", linestyle=":")
+    ax_difference.set_ylabel("(SSW − default) / SSW [%]")
+    ax_values.set_xscale("log")
+
+axes[0, 0].set_title("Background-subtracted spectrum")
+axes[0, 0].set_yscale("log")
+axes[0, 0].set_ylim(bottom=1e2)
+axes[0, 0].legend()
+axes[0, 1].set_title("Percentage difference")
+axes[1, 0].set_yscale("log")
+for ax in axes[1]:
+    ax.set_xlabel("Energy [keV]")
+
+plt.show()
+
+#############################################################################
+# The spectrum and its metadata can now be passed to ``sunkit-spex`` for fitting. To get
+# the corrected counts as arrays instead, for example for a light curve, use the
+# result of ``get_data`` or ``subtract_background``; see :ref:`get-data-corrections`.

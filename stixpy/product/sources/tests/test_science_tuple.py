@@ -225,9 +225,13 @@ def _assert_counts(result, expected, label):
     counts = _to_value(result[0])
     assert counts.shape == EXPECTED_SHAPE
     assert np.all(np.isfinite(counts))
-    assert np.all(counts >= 0)
+    background_subtracted = "WITH_BKGSUB" in label
+    if not background_subtracted:
+        assert np.all(counts >= 0)
     if expected is not None:
-        assert_allclose(counts, expected[label]["counts"], rtol=1e-6, atol=5e-6)
+        # The saved IDL reference clips negative background-subtracted bins.
+        comparison = np.maximum(counts, 0) if background_subtracted else counts
+        assert_allclose(comparison, expected[label]["counts"], rtol=1e-6, atol=5e-6)
 
 
 def _assert_counts_err(result, expected, label):

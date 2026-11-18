@@ -33,6 +33,7 @@ repos:
         exclude: *exclude_dirs
       - id: check-added-large-files
         args: ["--enforce-all", "--maxkb=1054"]
+        exclude: '^stixpy/product/sources/tests/data/expected_values_(spec|top24)_tuple\.fits\.gz$'
       - id: end-of-file-fixer
         types_or: [python, rst]
       - id: mixed-line-ending

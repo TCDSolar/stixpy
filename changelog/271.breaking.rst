@@ -1,0 +1,1 @@
+``ScienceData.get_data()`` now returns selected, corrected data for use in a separate spectroscopy workflow. Use `~stixpy.product.sources.science.subtract_background` to subtract a background product and `~stixpy.spectroscopy.to_spectrum` to convert the selected data into sunkit-spex spectra.
